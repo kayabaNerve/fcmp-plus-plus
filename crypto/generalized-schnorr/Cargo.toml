@@ -28,6 +28,8 @@ transcript = { package = "flexible-transcript", path = "../transcript", version 
 ciphersuite = { path = "../ciphersuite", version = "^0.4.1", default-features = false, features = ["alloc"] }
 multiexp = { path = "../multiexp", version = "0.4", default-features = false, features = ["batch"] }
 
+frost = { package = "modular-frost", path = "../frost", version = "0.8", default-features = false, optional = true }
+
 [dev-dependencies]
 hex = "0.4"
 
@@ -37,6 +39,9 @@ transcript = { package = "flexible-transcript", path = "../transcript", features
 
 ciphersuite = { path = "../ciphersuite", features = ["ed25519"] }
 
+frost = { package = "modular-frost", path = "../frost", features = ["ed25519", "tests"] }
+
 [features]
 std = ["std-shims/std", "rand_core/std", "zeroize/std", "transcript/std", "ciphersuite/std", "multiexp/std"]
+mpc = ["std", "frost"]
 default = ["std"]

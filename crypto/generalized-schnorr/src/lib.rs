@@ -24,6 +24,9 @@ use ciphersuite::{
 };
 use multiexp::{multiexp_vartime, BatchVerifier};
 
+#[cfg(feature = "mpc")]
+mod mpc;
+
 #[cfg(test)]
 mod tests;
 
@@ -123,7 +126,7 @@ impl<C: Ciphersuite, const OUTPUTS: usize, const SCALARS: usize, const SCALARS_P
     });
 
     let c = Self::challenge(transcript, matrix, outputs, R);
-    (outputs, Self { R, s: core::array::from_fn(|i| c * scalars[i].deref() + nonces[i].deref()) })
+    (outputs, Self { R, s: core::array::from_fn(|i| (c * scalars[i].deref()) + nonces[i].deref()) })
   }
 
   /// Return the series of pairs whose products sum to zero for a valid signature.

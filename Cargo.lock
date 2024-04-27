@@ -429,6 +429,7 @@ dependencies = [
  "ciphersuite",
  "flexible-transcript",
  "hex",
+ "modular-frost",
  "multiexp",
  "rand_core",
  "std-shims",

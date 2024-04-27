@@ -91,6 +91,11 @@ where
 /// A simple transcript format constructed around the specified hash algorithm.
 #[derive(Clone, Debug)]
 pub struct DigestTranscript<D: Send + Clone + SecureDigest>(D);
+impl<D: Send + Clone + SecureDigest> PartialEq for DigestTranscript<D> {
+  fn eq(&self, other: &Self) -> bool {
+    self.clone().challenge(b"") == other.clone().challenge(b"")
+  }
+}
 
 impl<D: Send + Clone + SecureDigest> DigestTranscript<D> {
   fn append(&mut self, kind: DigestTranscriptMember, value: &[u8]) {

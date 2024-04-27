@@ -10,6 +10,9 @@ use ciphersuite::{
 
 use crate::GeneralizedSchnorr;
 
+#[cfg(feature = "mpc")]
+mod mpc;
+
 #[test]
 fn test() {
   const OUTPUTS: usize = 3;
