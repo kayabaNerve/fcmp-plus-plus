@@ -417,24 +417,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "frost-schnorrkel"
-version = "0.1.2"
-dependencies = [
- "ciphersuite",
- "flexible-transcript",
- "group",
- "modular-frost",
- "rand_core",
- "schnorr-signatures",
- "schnorrkel",
- "zeroize",
-]
-
-[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6d5a32815ae3f33302d95fdcb2ce17862f8c65363dcfd29360480ba1001fc9c"
+
+[[package]]
+name = "generalized-schnorr"
+version = "0.1.0"
+dependencies = [
+ "ciphersuite",
+ "flexible-transcript",
+ "hex",
+ "multiexp",
+ "rand_core",
+ "std-shims",
+ "zeroize",
+]
 
 [[package]]
 name = "generic-array"
@@ -763,8 +762,6 @@ version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
- "libc",
- "rand_chacha",
  "rand_core",
 ]
 
@@ -824,24 +821,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "schnorrkel"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da18ffd9f2f5d01bc0b3050b37ce7728665f926b4dd1157fe3221b05737d924f"
-dependencies = [
- "arrayref",
- "arrayvec",
- "curve25519-dalek",
- "merlin",
- "rand",
- "rand_core",
- "serde_bytes",
- "sha2",
- "subtle",
- "zeroize",
-]
-
-[[package]]
 name = "sec1"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -882,15 +861,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9846a40c979031340571da2545a4e5b7c4163bdae79b301d5f86d03979451fcc"
 dependencies = [
  "serde_derive",
-]
-
-[[package]]
-name = "serde_bytes"
-version = "0.11.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b8497c313fd43ab992087548117643f6fcd935cbf36f176ffda0aacf9591734"
-dependencies = [
- "serde",
 ]
 
 [[package]]

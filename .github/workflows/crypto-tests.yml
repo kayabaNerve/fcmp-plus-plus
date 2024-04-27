@@ -34,4 +34,4 @@ jobs:
             -p dleq \
             -p dkg \
             -p modular-frost \
-            -p frost-schnorrkel
+            -p generalized-schnorr

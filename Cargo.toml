@@ -17,7 +17,8 @@ members = [
   "crypto/dleq",
   "crypto/dkg",
   "crypto/frost",
-  "crypto/schnorrkel",
+
+  "crypto/generalized-schnorr",
 
   "tests/no-std",
 ]
