@@ -1,24 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-  # Version patches
-  "patches/zstd",
-  "patches/rocksdb",
-  "patches/proc-macro-crate",
-
-  # std patches
-  "patches/matches",
-  "patches/is-terminal",
-
-  # Rewrites/redirects
-  "patches/option-ext",
-  "patches/directories-next",
-
   "common/std-shims",
   "common/zalloc",
-  "common/db",
-  "common/env",
-  "common/request",
 
   "crypto/transcript",
 
@@ -35,54 +19,7 @@ members = [
   "crypto/frost",
   "crypto/schnorrkel",
 
-  "coins/bitcoin",
-  "coins/ethereum/alloy-simple-request-transport",
-  "coins/ethereum",
-  "coins/monero/generators",
-  "coins/monero",
-
-  "message-queue",
-
-  "processor/messages",
-  "processor",
-
-  "coordinator/tributary/tendermint",
-  "coordinator/tributary",
-  "coordinator",
-
-  "substrate/primitives",
-
-  "substrate/coins/primitives",
-  "substrate/coins/pallet",
-
-  "substrate/in-instructions/primitives",
-  "substrate/in-instructions/pallet",
-
-  "substrate/validator-sets/primitives",
-  "substrate/validator-sets/pallet",
-
-  "substrate/signals/primitives",
-  "substrate/signals/pallet",
-
-  "substrate/abi",
-
-  "substrate/runtime",
-  "substrate/node",
-
-  "substrate/client",
-
-  "orchestration",
-
-  "mini",
-
   "tests/no-std",
-
-  "tests/docker",
-  "tests/message-queue",
-  "tests/processor",
-  "tests/coordinator",
-  "tests/full-stack",
-  "tests/reproducible-runtime",
 ]
 
 # Always compile Monero (and a variety of dependencies) with optimizations due
@@ -100,37 +37,12 @@ minimal-ed448 = { opt-level = 3 }
 
 multiexp = { opt-level = 3 }
 
-monero-serai = { opt-level = 3 }
-
 [profile.release]
 panic = "unwind"
 
 [patch.crates-io]
 # https://github.com/rust-lang-nursery/lazy-static.rs/issues/201
 lazy_static = { git = "https://github.com/rust-lang-nursery/lazy-static.rs", rev = "5735630d46572f1e5377c8f2ba0f79d18f53b10c" }
-
-# Needed due to dockertest's usage of `Rc`s when we need `Arc`s
-dockertest = { git = "https://github.com/kayabaNerve/dockertest-rs", branch = "arc" }
-
-# wasmtime pulls in an old version for this
-zstd = { path = "patches/zstd" }
-# Needed for WAL compression
-rocksdb = { path = "patches/rocksdb" }
-# proc-macro-crate 2 binds to an old version of toml for msrv so we patch to 3
-proc-macro-crate = { path = "patches/proc-macro-crate" }
-
-# is-terminal now has an std-based solution with an equivalent API
-is-terminal = { path = "patches/is-terminal" }
-# So does matches
-matches = { path = "patches/matches" }
-
-# directories-next was created because directories was unmaintained
-# directories-next is now unmaintained while directories is maintained
-# The directories author pulls in ridiculously pointless crates and prefers
-# copyleft licenses
-# The following two patches resolve everything
-option-ext = { path = "patches/option-ext" }
-directories-next = { path = "patches/directories-next" }
 
 [workspace.lints.clippy]
 unwrap_or_default = "allow"
