@@ -165,7 +165,7 @@ macro_rules! math_neg {
 
 /// Wrapper around the dalek Scalar type.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Zeroize)]
-pub struct Scalar(pub DScalar);
+pub struct Scalar(DScalar);
 deref_borrow!(Scalar, DScalar);
 constant_time!(Scalar, DScalar);
 math_neg!(Scalar, Scalar, DScalar::add, DScalar::sub, DScalar::mul);
@@ -344,7 +344,7 @@ macro_rules! dalek_group {
   ) => {
     /// Wrapper around the dalek Point type. For Ed25519, this is restricted to the prime subgroup.
     #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
-    pub struct $Point(pub $DPoint);
+    pub struct $Point($DPoint);
     deref_borrow!($Point, $DPoint);
     constant_time!($Point, $DPoint);
     math_neg!($Point, Scalar, $DPoint::add, $DPoint::sub, $DPoint::mul);
@@ -445,12 +445,6 @@ dalek_group!(
   ED25519_BASEPOINT_POINT,
   ED25519_BASEPOINT_TABLE
 );
-
-impl EdwardsPoint {
-  pub fn mul_by_cofactor(&self) -> EdwardsPoint {
-    EdwardsPoint(self.0.mul_by_cofactor())
-  }
-}
 
 dalek_group!(
   RistrettoPoint,
