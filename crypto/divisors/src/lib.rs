@@ -42,6 +42,7 @@ where
   }
 
   /// Convert a point to its x and y coordinates.
+  // TODO: Move to Option upon identity, and handle identity here?
   fn to_xy(point: Self) -> (Self::FieldElement, Self::FieldElement);
 }
 

@@ -328,6 +328,8 @@ impl<F: PrimeField + From<u64>> Rem<&Self> for Poly<F> {
 
 impl<F: PrimeField + From<u64>> Poly<F> {
   /// Evaluate this polynomial with the specified x/y values.
+  ///
+  /// Panics on polynomials with terms whose powers exceed 2**64.
   #[must_use]
   pub fn eval(&self, x: F, y: F) -> F {
     let mut res = self.zero_coefficient;
@@ -416,6 +418,8 @@ impl<F: PrimeField + From<u64>> Poly<F> {
   }
 
   /// Normalize the x coefficient to 1.
+  ///
+  /// Panics if there is no x coefficient to normalize or if it cannot be normalized.
   #[must_use]
   pub fn normalize_x_coefficient(self) -> Self {
     let scalar = self.x_coefficients[0].invert().unwrap();
