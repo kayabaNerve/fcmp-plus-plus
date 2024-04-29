@@ -146,120 +146,80 @@ impl<F: PrimeField + From<u64>> Mul<F> for Poly<F> {
   }
 }
 
+impl<F: PrimeField + From<u64>> Poly<F> {
+  fn shift_by_x(mut self, power_of_x: usize) -> Self {
+    debug_assert_ne!(power_of_x, 0);
+    // Shift up every x coefficient
+    for _ in 0 .. power_of_x {
+      self.x_coefficients.insert(0, F::ZERO);
+      for yx_coeffs in &mut self.yx_coefficients {
+        yx_coeffs.insert(0, F::ZERO);
+      }
+    }
+
+    // Move the zero coefficient
+    self.x_coefficients[power_of_x - 1] = self.zero_coefficient;
+    self.zero_coefficient = F::ZERO;
+
+    // Move the y coefficients
+    // Start by creating yx coefficients with the necessary powers of x
+    let mut yx_coefficients_to_push = vec![];
+    while yx_coefficients_to_push.len() < power_of_x {
+      yx_coefficients_to_push.push(F::ZERO);
+    }
+    // Now, ensure the yx coefficients has the slots for the y coefficients we're moving
+    while self.yx_coefficients.len() < self.y_coefficients.len() {
+      self.yx_coefficients.push(yx_coefficients_to_push.clone());
+    }
+    // Perform the move
+    for (i, y_coeff) in self.y_coefficients.drain(..).enumerate() {
+      self.yx_coefficients[i][power_of_x - 1] = y_coeff;
+    }
+
+    self
+  }
+
+  fn shift_by_y(mut self, power_of_y: usize) -> Self {
+    debug_assert_ne!(power_of_y, 0);
+    // Shift up every y coefficient
+    for _ in 0 .. power_of_y {
+      self.y_coefficients.insert(0, F::ZERO);
+      self.yx_coefficients.insert(0, vec![]);
+    }
+
+    // Move the zero coefficient
+    self.y_coefficients[power_of_y - 1] = self.zero_coefficient;
+    self.zero_coefficient = F::ZERO;
+
+    // Move the x coefficients
+    self.yx_coefficients[power_of_y - 1] = self.x_coefficients;
+    self.x_coefficients = vec![];
+
+    self
+  }
+}
+
 impl<F: PrimeField + From<u64>> Mul for Poly<F> {
   type Output = Self;
 
   fn mul(self, other: Self) -> Self {
-    let mut res =
-      (self.clone() * other.zero_coefficient) + &(other.clone() * self.zero_coefficient);
-    // Because the zero coefficient term was applied twice, correct it
-    res.zero_coefficient = self.zero_coefficient * other.zero_coefficient;
+    let mut res = self.clone() * other.zero_coefficient;
 
-    fn same_scale<F: PrimeField>(lhs: &[F], rhs: &[F], output: &mut Vec<F>) {
-      for (pow_a, coeff_a) in rhs.iter().copied().enumerate().map(|(i, v)| (i + 1, v)) {
-        for (pow_b, coeff_b) in lhs.iter().enumerate().map(|(i, v)| (i + 1, v)) {
-          let pow_c = pow_a + pow_b;
-
-          while output.len() < pow_c {
-            output.push(F::ZERO);
-          }
-          output[pow_c - 1] += coeff_a * coeff_b;
-        }
-      }
-    }
-    fn add_yx<F: PrimeField>(
-      yx_coefficients: &mut Vec<Vec<F>>,
-      y_pow: usize,
-      x_pow: usize,
-      coeff: F,
-    ) {
-      while yx_coefficients.len() < y_pow {
-        yx_coefficients.push(vec![]);
-      }
-      while yx_coefficients[y_pow - 1].len() < x_pow {
-        yx_coefficients[y_pow - 1].push(F::ZERO);
-      }
-      yx_coefficients[y_pow - 1][x_pow - 1] += coeff;
+    for (i, y_coeff) in other.y_coefficients.iter().enumerate() {
+      let scaled = self.clone() * *y_coeff;
+      res = res + &scaled.shift_by_y(i + 1);
     }
 
-    // Scale by y coefficients
-    fn mul_by_y<F: PrimeField + From<u64>>(
-      first: bool,
-      y_coefficients: &[F],
-      other: &Poly<F>,
-      res: &mut Poly<F>,
-    ) {
-      // y y
-      if first {
-        same_scale(y_coefficients, &other.y_coefficients, &mut res.y_coefficients);
-      }
-
-      // y yx
-      for (y_pow_a, y_coeff) in y_coefficients.iter().copied().enumerate().map(|(i, v)| (i + 1, v))
-      {
-        for (y_pow_b, yx_coeffs) in
-          other.yx_coefficients.iter().enumerate().map(|(i, v)| (i + 1, v))
-        {
-          let y_pow_c = y_pow_a + y_pow_b;
-          for (x_pow, yx_coeff) in yx_coeffs.iter().enumerate().map(|(i, v)| (i + 1, v)) {
-            add_yx(&mut res.yx_coefficients, y_pow_c, x_pow, y_coeff * yx_coeff);
-          }
-        }
-      }
-
-      // y x
-      for (y_pow, y_coeff) in y_coefficients.iter().copied().enumerate().map(|(i, v)| (i + 1, v)) {
-        for (x_pow, x_coeff) in other.x_coefficients.iter().enumerate().map(|(i, v)| (i + 1, v)) {
-          add_yx(&mut res.yx_coefficients, y_pow, x_pow, y_coeff * x_coeff);
-        }
+    for (y_i, yx_coeffs) in other.yx_coefficients.iter().enumerate() {
+      for (x_i, yx_coeff) in yx_coeffs.iter().enumerate() {
+        let scaled = self.clone() * *yx_coeff;
+        res = res + &scaled.shift_by_y(y_i + 1).shift_by_x(x_i + 1);
       }
     }
-    mul_by_y(true, &self.y_coefficients, &other, &mut res);
-    mul_by_y(false, &other.y_coefficients, &self, &mut res);
 
-    // Scale by x coefficients
-    fn mul_by_x<F: PrimeField + From<u64>>(
-      first: bool,
-      x_coefficients: &[F],
-      other: &Poly<F>,
-      res: &mut Poly<F>,
-    ) {
-      // x x
-      if first {
-        same_scale(x_coefficients, &other.x_coefficients, &mut res.x_coefficients);
-      }
-
-      // x xy
-      for (x_pow_a, coeff_a) in x_coefficients.iter().copied().enumerate().map(|(i, v)| (i + 1, v))
-      {
-        for (y_pow, yx_coeffs) in other.yx_coefficients.iter().enumerate().map(|(i, v)| (i + 1, v))
-        {
-          for (x_pow_b, coeff_b) in yx_coeffs.iter().enumerate().map(|(i, v)| (i + 1, v)) {
-            let x_pow_c = x_pow_a + x_pow_b;
-            add_yx(&mut res.yx_coefficients, y_pow, x_pow_c, coeff_a * coeff_b);
-          }
-        }
-      }
-
-      // Doesn't do x y since the prior function should have done that
-    }
-    mul_by_x(true, &self.x_coefficients, &other, &mut res);
-    mul_by_x(false, &other.x_coefficients, &self, &mut res);
-
-    // The only thing left is the xy xy product
-    for (y_pow_a, yx_coeffs_a) in other.yx_coefficients.iter().enumerate().map(|(i, v)| (i + 1, v))
-    {
-      for (x_pow_a, coeff_a) in yx_coeffs_a.iter().copied().enumerate().map(|(i, v)| (i + 1, v)) {
-        for (y_pow_b, yx_coeffs_b) in
-          self.yx_coefficients.iter().enumerate().map(|(i, v)| (i + 1, v))
-        {
-          for (x_pow_b, coeff_b) in yx_coeffs_b.iter().enumerate().map(|(i, v)| (i + 1, v)) {
-            let y_pow_c = y_pow_a + y_pow_b;
-            let x_pow_c = x_pow_a + x_pow_b;
-            add_yx(&mut res.yx_coefficients, y_pow_c, x_pow_c, coeff_a * coeff_b);
-          }
-        }
-      }
+    for (i, x_coeff) in other.x_coefficients.iter().enumerate() {
+      let scaled = self.clone() * *x_coeff;
+      res = res + &scaled.shift_by_x(i + 1);
     }
 
     res.tidy();
@@ -268,6 +228,11 @@ impl<F: PrimeField + From<u64>> Mul for Poly<F> {
 }
 
 impl<F: PrimeField + From<u64>> Poly<F> {
+  // Perform multiplication mod `modulus`
+  pub(crate) fn mul_mod(self, other: Self, modulus: &Self) -> Self {
+    ((self % modulus) * (other % modulus)) % modulus
+  }
+
   /// Perform division, returning the result and remainder.
   pub fn div_rem(self, denominator: &Self) -> (Self, Self) {
     let leading_y = |poly: &Self| -> (_, _) {
@@ -369,11 +334,6 @@ impl<F: PrimeField + From<u64>> Rem<&Self> for Poly<F> {
 }
 
 impl<F: PrimeField + From<u64>> Poly<F> {
-  // Perform multiplication mod `modulus`
-  pub(crate) fn mul_mod(self, other: Self, modulus: &Self) -> Self {
-    ((self % modulus) * (other % modulus)) % modulus
-  }
-
   /// Evaluate this polynomial with the specified x/y values.
   pub fn eval(&self, x: F, y: F) -> F {
     let mut res = self.zero_coefficient;
