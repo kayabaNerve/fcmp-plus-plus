@@ -34,4 +34,5 @@ jobs:
             -p dleq \
             -p dkg \
             -p modular-frost \
-            -p generalized-schnorr
+            -p generalized-schnorr \
+            -p ec-divisors

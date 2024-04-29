@@ -19,6 +19,7 @@ members = [
   "crypto/frost",
 
   "crypto/generalized-schnorr",
+  "crypto/divisors",
 
   "tests/no-std",
 ]
