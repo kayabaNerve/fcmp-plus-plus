@@ -11,15 +11,40 @@ pub use poly::*;
 #[cfg(test)]
 pub(crate) mod tests;
 
-pub trait DivisorCurve: Group {
+/// A curve usable with this library.
+pub trait DivisorCurve: Group
+where
+  Self::Scalar: PrimeField,
+{
+  /// An element of the field this curve is defined over.
   type FieldElement: PrimeField;
 
+  /// The A in the curve equation y^2 = x^3 + A x^2 + B x + C.
   const A: u64;
+  /// The B in the curve equation y^2 = x^3 + A x^2 + B x + C.
   const B: u64;
+  /// The C in the curve equation y^2 = x^3 + A x^2 + B x + C.
+  const C: u64;
 
+  /// y^2 - x^3 - A x^2 - B x - C
+  fn divisor_modulus() -> Poly<Self::FieldElement> {
+    Poly {
+      y_coefficients: vec![Self::FieldElement::ZERO, Self::FieldElement::ONE],
+      yx_coefficients: vec![],
+      x_coefficients: vec![
+        -Self::FieldElement::from(Self::B),
+        -Self::FieldElement::from(Self::A),
+        -Self::FieldElement::ONE,
+      ],
+      zero_coefficient: -Self::FieldElement::from(Self::C),
+    }
+  }
+
+  /// Convert a point to its x and y coordinates.
   fn to_xy(point: Self) -> (Self::FieldElement, Self::FieldElement);
 }
 
+// Calculate the slope and intercept for two points.
 fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::FieldElement, C::FieldElement) {
   let (ax, ay) = C::to_xy(a);
   let (bx, by) = C::to_xy(b);
@@ -32,134 +57,94 @@ fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::FieldElement, C::FieldEle
   (slope, intercept)
 }
 
-/// Constructor of a divisor (represented via a Poly) for a set of elliptic curve point.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Divisor<C: DivisorCurve> {
-  pub numerator: Poly<C::FieldElement>,
-  pub denominator: Poly<C::FieldElement>,
+// The line interpolating two points.
+fn line<C: DivisorCurve>(a: C, mut b: C) -> Poly<C::FieldElement> {
+  // If these are additive inverses, the line is 1 * x - x
+  if (a + b) == C::identity() {
+    let (ax, _) = C::to_xy(a);
+    return Poly {
+      y_coefficients: vec![],
+      yx_coefficients: vec![],
+      x_coefficients: vec![C::FieldElement::ONE],
+      zero_coefficient: -ax,
+    };
+  }
+
+  // If the points are equal, we use the line interpolating the sum of these points with identity.
+  if a == b {
+    b = -a.double();
+  }
+
+  let (slope, intercept) = slope_intercept::<C>(a, b);
+
+  // y - (slope * x) - intercept
+  Poly {
+    y_coefficients: vec![C::FieldElement::ONE],
+    yx_coefficients: vec![],
+    x_coefficients: vec![-slope],
+    zero_coefficient: -intercept,
+  }
 }
 
-impl<C: DivisorCurve> Divisor<C> {
-  // TODO: Is this complete? Or will it return garbage in some cases?
-  fn line(a: C, mut b: C) -> Self {
-    let (ax, _) = C::to_xy(a);
-
-    if (a + b) == C::identity() {
-      return Divisor {
-        numerator: Poly {
-          y_coefficients: vec![],
-          yx_coefficients: vec![],
-          x_coefficients: vec![C::FieldElement::ONE],
-          zero_coefficient: -ax,
-        },
-        denominator: Poly {
-          y_coefficients: vec![],
-          yx_coefficients: vec![],
-          x_coefficients: vec![],
-          zero_coefficient: C::FieldElement::ONE,
-        },
-      };
-    }
-
-    if a == b {
-      b = -a.double();
-    }
-
-    let (slope, intercept) = slope_intercept::<C>(a, b);
-
-    // y - (slope * x) - intercept
-    Divisor {
-      numerator: Poly {
-        y_coefficients: vec![C::FieldElement::ONE],
-        yx_coefficients: vec![],
-        x_coefficients: vec![-slope],
-        zero_coefficient: -intercept,
-      },
-      denominator: Poly {
-        y_coefficients: vec![],
-        yx_coefficients: vec![],
-        x_coefficients: vec![],
-        zero_coefficient: C::FieldElement::ONE,
-      },
-    }
+/// Create a divisor interpolating the following points.
+///
+/// Returns None if:
+///   - No points were passed in
+///   - The points don't sum to identity
+///   - A passed in point was identity
+#[allow(clippy::new_ret_no_self)]
+pub fn new_divisor<C: DivisorCurve>(points: &[C]) -> Option<Poly<C::FieldElement>> {
+  // A single point is either identity, or this doesn't sum to identity
+  // Both cause us to return None
+  if points.len() < 2 {
+    None?;
+  }
+  if points.iter().sum::<C>() != C::identity() {
+    None?;
   }
 
-  fn mul(self, other: Self, modulus: &Poly<C::FieldElement>) -> Self {
-    let Divisor { numerator, denominator } = self;
-    Self {
-      numerator: numerator.mul_mod(other.numerator, modulus),
-      denominator: denominator.mul_mod(other.denominator, modulus),
+  // Create the initial set of divisors
+  let mut divs = vec![];
+  let mut iter = points.iter().copied();
+  while let Some(a) = iter.next() {
+    if a == C::identity() {
+      None?;
     }
+
+    let b = iter.next();
+    if b == Some(C::identity()) {
+      None?;
+    }
+
+    // Draw the line between those points
+    divs.push((a + b.unwrap_or(C::identity()), line::<C>(a, b.unwrap_or(-a))));
   }
 
-  fn div(self, other: Self, modulus: &Poly<C::FieldElement>) -> Self {
-    let Divisor { numerator, denominator } = self;
-    Self {
-      numerator: numerator.mul_mod(other.denominator, modulus),
-      denominator: denominator.mul_mod(other.numerator, modulus),
+  let modulus = C::divisor_modulus();
+
+  // Pair them off until only one remains
+  while divs.len() > 1 {
+    let mut next_divs = vec![];
+    // If there's an odd amount of divisors, carry the odd one out to the next iteration
+    if (divs.len() % 2) == 1 {
+      next_divs.push(divs.pop().unwrap());
     }
+
+    while let Some((a, a_div)) = divs.pop() {
+      let (b, b_div) = divs.pop().unwrap();
+
+      // Merge the two divisors
+      let numerator = a_div.mul_mod(b_div, &modulus).mul_mod(line::<C>(a, b), &modulus);
+      let denominator = line::<C>(a, -a).mul_mod(line::<C>(b, -b), &modulus);
+      let (q, r) = numerator.div_rem(&denominator);
+      assert_eq!(r, Poly::zero());
+
+      next_divs.push((a + b, q));
+    }
+
+    divs = next_divs;
   }
 
-  /// Create a divisor interpolating the following points.
-  #[allow(clippy::new_ret_no_self)]
-  pub fn new(points: &[C]) -> Poly<C::FieldElement> {
-    assert!(points.len() > 1);
-    assert_eq!(points.len() % 2, 0); // TODO: Support odd numbers of points
-    assert_eq!(points.iter().sum::<C>(), C::identity());
-
-    let mut divs = vec![];
-    let mut iter = points.iter().copied();
-    while let Some(a) = iter.next() {
-      let b = iter.next();
-
-      assert!(a != C::identity());
-      if let Some(b) = b {
-        assert!(b != C::identity());
-      }
-
-      divs.push((a + b.unwrap_or(C::identity()), Self::line(a, b.unwrap_or(-a))));
-    }
-
-    // y^2 - x^3 - Ax - B
-    let modulus = Poly {
-      y_coefficients: vec![C::FieldElement::ZERO, C::FieldElement::ONE],
-      yx_coefficients: vec![],
-      x_coefficients: vec![
-        -C::FieldElement::from(C::A),
-        C::FieldElement::ZERO,
-        -C::FieldElement::ONE,
-      ],
-      zero_coefficient: -C::FieldElement::from(C::B),
-    };
-
-    while divs.len() > 1 {
-      let mut next_divs = vec![];
-      if (divs.len() % 2) == 1 {
-        next_divs.push(divs.pop().unwrap());
-      }
-
-      while let Some((a, a_div)) = divs.pop() {
-        let (b, b_div) = divs.pop().unwrap();
-
-        next_divs.push((
-          a + b,
-          a_div
-            .mul(b_div, &modulus)
-            .mul(Self::line(a, b), &modulus)
-            .div(Self::line(a, -a).mul(Self::line(b, -b), &modulus), &modulus),
-        ));
-      }
-
-      divs = next_divs;
-    }
-
-    let Divisor { numerator, denominator } = divs.remove(0).1;
-    let (res, rem) = numerator.div_rem(&denominator);
-    debug_assert_eq!(rem, Poly::zero());
-
-    // This has to be asserted in circuit
-    assert_eq!(*res.x_coefficients.last().unwrap(), C::FieldElement::ONE);
-
-    res
-  }
+  // Return the unified divisor
+  Some(divs.remove(0).1)
 }

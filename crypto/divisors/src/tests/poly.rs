@@ -63,3 +63,67 @@ fn test_poly() {
     assert_eq!(res.clone() * res, squared);
   }
 }
+
+#[test]
+fn test_differentation() {
+  let random = || F::random(&mut OsRng);
+
+  let input = Poly {
+    y_coefficients: vec![random()],
+    yx_coefficients: vec![vec![random()]],
+    x_coefficients: vec![random(), random(), random()],
+    zero_coefficient: random(),
+  };
+  let (diff_x, diff_y) = input.differentiate();
+  assert_eq!(
+    diff_x,
+    Poly {
+      y_coefficients: vec![input.yx_coefficients[0][0]],
+      yx_coefficients: vec![],
+      x_coefficients: vec![
+        F::from(2) * input.x_coefficients[1],
+        F::from(3) * input.x_coefficients[2]
+      ],
+      zero_coefficient: input.x_coefficients[0],
+    }
+  );
+  assert_eq!(
+    diff_y,
+    Poly {
+      y_coefficients: vec![],
+      yx_coefficients: vec![],
+      x_coefficients: vec![input.yx_coefficients[0][0]],
+      zero_coefficient: input.y_coefficients[0],
+    }
+  );
+
+  let input = Poly {
+    y_coefficients: vec![random()],
+    yx_coefficients: vec![vec![random(), random()]],
+    x_coefficients: vec![random(), random(), random(), random()],
+    zero_coefficient: random(),
+  };
+  let (diff_x, diff_y) = input.differentiate();
+  assert_eq!(
+    diff_x,
+    Poly {
+      y_coefficients: vec![input.yx_coefficients[0][0]],
+      yx_coefficients: vec![vec![F::from(2) * input.yx_coefficients[0][1]]],
+      x_coefficients: vec![
+        F::from(2) * input.x_coefficients[1],
+        F::from(3) * input.x_coefficients[2],
+        F::from(4) * input.x_coefficients[3],
+      ],
+      zero_coefficient: input.x_coefficients[0],
+    }
+  );
+  assert_eq!(
+    diff_y,
+    Poly {
+      y_coefficients: vec![],
+      yx_coefficients: vec![],
+      x_coefficients: vec![input.yx_coefficients[0][0], input.yx_coefficients[0][1]],
+      zero_coefficient: input.y_coefficients[0],
+    }
+  );
+}
