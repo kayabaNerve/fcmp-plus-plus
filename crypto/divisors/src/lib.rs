@@ -163,27 +163,3 @@ impl<C: DivisorCurve> Divisor<C> {
     res
   }
 }
-
-#[cfg(test)]
-mod pasta {
-  use group::{ff::Field, Curve};
-  use pasta_curves::{
-    arithmetic::{Coordinates, CurveAffine},
-    Ep, Fp,
-  };
-
-  use crate::DivisorCurve;
-
-  impl DivisorCurve for Ep {
-    type FieldElement = Fp;
-
-    const A: u64 = 0;
-    const B: u64 = 5;
-
-    fn to_xy(point: Self) -> (Self::FieldElement, Self::FieldElement) {
-      Option::<Coordinates<_>>::from(point.to_affine().coordinates())
-        .map(|coords| (*coords.x(), *coords.y()))
-        .unwrap_or((Fp::ZERO, Fp::ZERO))
-    }
-  }
-}
