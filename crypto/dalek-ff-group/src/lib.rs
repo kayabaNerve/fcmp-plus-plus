@@ -344,7 +344,7 @@ macro_rules! dalek_group {
   ) => {
     /// Wrapper around the dalek Point type. For Ed25519, this is restricted to the prime subgroup.
     #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
-    pub struct $Point($DPoint);
+    pub struct $Point(pub $DPoint);
     deref_borrow!($Point, $DPoint);
     constant_time!($Point, $DPoint);
     math_neg!($Point, Scalar, $DPoint::add, $DPoint::sub, $DPoint::mul);

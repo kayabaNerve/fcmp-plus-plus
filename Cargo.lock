@@ -338,8 +338,10 @@ dependencies = [
 name = "ec-divisors"
 version = "0.1.0"
 dependencies = [
+ "dalek-ff-group",
  "flexible-transcript",
  "group",
+ "hex",
  "pasta_curves 0.5.1 (git+https://github.com/kayabaNerve/pasta_curves.git)",
  "rand_core",
  "subtle",

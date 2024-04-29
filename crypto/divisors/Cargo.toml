@@ -25,4 +25,6 @@ group = "0.13"
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
 
+hex = "0.4"
+dalek-ff-group = { path = "../dalek-ff-group", features = ["std"] }
 pasta_curves = { version = "0.5", default-features = false, features = ["bits", "alloc"], git = "https://github.com/kayabaNerve/pasta_curves.git" }

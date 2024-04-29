@@ -19,24 +19,25 @@ where
   /// An element of the field this curve is defined over.
   type FieldElement: PrimeField;
 
-  /// The A in the curve equation y^2 = x^3 + A x^2 + B x + C.
-  const A: u64;
-  /// The B in the curve equation y^2 = x^3 + A x^2 + B x + C.
-  const B: u64;
-  /// The C in the curve equation y^2 = x^3 + A x^2 + B x + C.
-  const C: u64;
+  /// The A in the curve equation y^2 = x^3 + A x + B.
+  fn a() -> Self::FieldElement;
+  /// The B in the curve equation y^2 = x^3 + A x + B.
+  fn b() -> Self::FieldElement;
 
-  /// y^2 - x^3 - A x^2 - B x - C
+  /// y^2 - x^3 - A x - B
   fn divisor_modulus() -> Poly<Self::FieldElement> {
     Poly {
       y_coefficients: vec![Self::FieldElement::ZERO, Self::FieldElement::ONE],
       yx_coefficients: vec![],
       x_coefficients: vec![
-        -Self::FieldElement::from(Self::B),
-        -Self::FieldElement::from(Self::A),
+        // A x
+        -Self::a(),
+        // x^2
+        Self::FieldElement::ZERO,
+        // x^3
         -Self::FieldElement::ONE,
       ],
-      zero_coefficient: -Self::FieldElement::from(Self::C),
+      zero_coefficient: -Self::b(),
     }
   }
 
@@ -47,7 +48,9 @@ where
 // Calculate the slope and intercept for two points.
 fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::FieldElement, C::FieldElement) {
   let (ax, ay) = C::to_xy(a);
+  debug_assert_eq!(C::divisor_modulus().eval(ax, ay), C::FieldElement::ZERO);
   let (bx, by) = C::to_xy(b);
+  debug_assert_eq!(C::divisor_modulus().eval(bx, by), C::FieldElement::ZERO);
   let slope = (by - ay) *
     Option::<C::FieldElement>::from((bx - ax).invert())
       .expect("trying to get slope/intercept of points sharing an x coordinate");
