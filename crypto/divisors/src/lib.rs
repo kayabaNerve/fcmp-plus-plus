@@ -1,8 +1,8 @@
 #![allow(non_snake_case)]
 
 use group::{
-ff::{Field, PrimeField},
-Group,
+  ff::{Field, PrimeField},
+  Group,
 };
 
 mod poly;
@@ -167,7 +167,10 @@ impl<C: DivisorCurve> Divisor<C> {
 #[cfg(test)]
 mod pasta {
   use group::{ff::Field, Curve};
-  use pasta_curves::{arithmetic::{Coordinates, CurveAffine}, Ep, Fp};
+  use pasta_curves::{
+    arithmetic::{Coordinates, CurveAffine},
+    Ep, Fp,
+  };
 
   use crate::DivisorCurve;
 

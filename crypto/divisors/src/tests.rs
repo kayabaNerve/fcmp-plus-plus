@@ -5,9 +5,10 @@ use pasta_curves::Ep;
 
 use crate::{DivisorCurve, Poly, Divisor};
 
+type F = <Ep as DivisorCurve>::FieldElement;
+
 #[test]
 fn test_poly() {
-  type F = <Ep as DivisorCurve>::FieldElement;
   let zero = F::ZERO;
   let one = F::ONE;
 
@@ -17,7 +18,7 @@ fn test_poly() {
 
     let mut modulus = Poly::zero();
     modulus.y_coefficients = vec![one];
-    assert_eq!(poly.rem(&modulus), Poly::zero());
+    assert_eq!(poly % &modulus, Poly::zero());
   }
 
   {
@@ -84,7 +85,7 @@ fn test_divisor() {
     let challenge = Ep::random(&mut OsRng);
     let (x, y) = Ep::to_xy(challenge);
 
-    let mut rhs = <Ep as DivisorCurve>::FieldElement::ONE;
+    let mut rhs = F::ONE;
     for point in points {
       rhs *= x - Ep::to_xy(point).0;
     }
@@ -105,7 +106,7 @@ fn test_same_point() {
   let challenge = Ep::random(&mut OsRng);
   let (x, y) = Ep::to_xy(challenge);
 
-  let mut rhs = <Ep as DivisorCurve>::FieldElement::ONE;
+  let mut rhs = F::ONE;
   for point in points {
     rhs *= x - Ep::to_xy(point).0;
   }
@@ -114,7 +115,7 @@ fn test_same_point() {
 
 #[test]
 fn test_differentation() {
-  let random = || <Ep as DivisorCurve>::FieldElement::random(&mut OsRng);
+  let random = || F::random(&mut OsRng);
 
   let input = Poly {
     y_coefficients: vec![random()],
@@ -129,8 +130,8 @@ fn test_differentation() {
       y_coefficients: vec![input.yx_coefficients[0][0]],
       yx_coefficients: vec![],
       x_coefficients: vec![
-        <Ep as DivisorCurve>::FieldElement::from(2) * input.x_coefficients[1],
-        <Ep as DivisorCurve>::FieldElement::from(3) * input.x_coefficients[2]
+        F::from(2) * input.x_coefficients[1],
+        F::from(3) * input.x_coefficients[2]
       ],
       zero_coefficient: input.x_coefficients[0],
     }
@@ -156,13 +157,11 @@ fn test_differentation() {
     diff_x,
     Poly {
       y_coefficients: vec![input.yx_coefficients[0][0]],
-      yx_coefficients: vec![vec![
-        <Ep as DivisorCurve>::FieldElement::from(2) * input.yx_coefficients[0][1]
-      ]],
+      yx_coefficients: vec![vec![F::from(2) * input.yx_coefficients[0][1]]],
       x_coefficients: vec![
-        <Ep as DivisorCurve>::FieldElement::from(2) * input.x_coefficients[1],
-        <Ep as DivisorCurve>::FieldElement::from(3) * input.x_coefficients[2],
-        <Ep as DivisorCurve>::FieldElement::from(4) * input.x_coefficients[3],
+        F::from(2) * input.x_coefficients[1],
+        F::from(3) * input.x_coefficients[2],
+        F::from(4) * input.x_coefficients[3],
       ],
       zero_coefficient: input.x_coefficients[0],
     }
@@ -199,7 +198,7 @@ fn test_log_deriv_eval() {
     {
       let (x, y) = <Ep as DivisorCurve>::to_xy(challenge);
       let lhs = divisor.eval(x, y) * divisor.eval(x, -y);
-      let mut rhs = <Ep as DivisorCurve>::FieldElement::ONE;
+      let mut rhs = F::ONE;
       for point in &points {
         rhs *= x - <Ep as DivisorCurve>::to_xy(*point).0;
       }
@@ -212,12 +211,52 @@ fn test_log_deriv_eval() {
       // (dx(x, y) / D(x, y)) + (dy(x, y) * ((3x**2 + A) / 2y) / D(x, y)) =
       // eval of logarithmic derivative
 
-      let log_deriv = divisor.logarithmic_derivative::<Ep>();
+      let log_deriv = {
+        let (dx, dy) = divisor.differentiate();
+
+        // Dz = Dx + (Dy * ((3*x^2 + A) / (2*y)))
+
+        let dy_numerator = dy.clone() *
+          Poly {
+            y_coefficients: vec![],
+            yx_coefficients: vec![],
+            x_coefficients: vec![F::ZERO, F::from(3)],
+            zero_coefficient: F::from(<Ep as DivisorCurve>::A),
+          };
+
+        let denominator = Poly {
+          y_coefficients: vec![F::from(2)],
+          yx_coefficients: vec![],
+          x_coefficients: vec![],
+          zero_coefficient: F::ZERO,
+        };
+
+        let numerator = (dx * denominator.clone()) + &dy_numerator;
+
+        // Dz is numerator / denominator
+        // Dz / D
+        let denominator = denominator * divisor;
+
+        let modulus = Poly {
+          y_coefficients: vec![F::ZERO, F::ONE],
+          yx_coefficients: vec![],
+          x_coefficients: vec![-F::from(<Ep as DivisorCurve>::A), F::ZERO, -F::ONE],
+          zero_coefficient: -F::from(<Ep as DivisorCurve>::B),
+        };
+
+        let numerator = numerator % &modulus;
+        let denominator = denominator % &modulus;
+
+        assert_eq!(numerator.y_coefficients.len(), 1);
+        assert_eq!(denominator.y_coefficients.len(), 1);
+
+        Divisor::<Ep> { numerator, denominator }
+      };
       let lhs = (log_deriv.numerator.eval(x, y) *
         log_deriv.denominator.eval(x, y).invert().unwrap()) +
         (log_deriv.numerator.eval(x, -y) * log_deriv.denominator.eval(x, -y).invert().unwrap());
 
-      let mut rhs = <Ep as DivisorCurve>::FieldElement::ZERO;
+      let mut rhs = F::ZERO;
       for point in &points {
         rhs += (x - <Ep as DivisorCurve>::to_xy(*point).0).invert().unwrap();
       }
@@ -260,7 +299,7 @@ fn test_log_deriv_z_eval() {
       let lhs = divisor.eval(c0_xy.0, c0_xy.1) *
         divisor.eval(c1_xy.0, c1_xy.1) *
         divisor.eval(c2_xy.0, c2_xy.1);
-      let mut rhs = <Ep as DivisorCurve>::FieldElement::ONE;
+      let mut rhs = F::ONE;
       for point in &points {
         let (x, y) = <Ep as DivisorCurve>::to_xy(*point);
         rhs *= intercept - (y - (slope * x));
@@ -268,34 +307,43 @@ fn test_log_deriv_z_eval() {
       assert_eq!(lhs, rhs);
     }
 
-    let sanity = (Poly::dx_over_dz::<Ep>(slope).numerator.eval(c0_xy.0, c0_xy.1) *
-      Poly::dx_over_dz::<Ep>(slope).denominator.eval(c0_xy.0, c0_xy.1).invert().unwrap()) +
-      (Poly::dx_over_dz::<Ep>(slope).numerator.eval(c1_xy.0, c1_xy.1) *
-        Poly::dx_over_dz::<Ep>(slope)
-          .denominator
-          .eval(c1_xy.0, c1_xy.1)
-          .invert()
-          .unwrap()) +
-      (Poly::dx_over_dz::<Ep>(slope).numerator.eval(c2_xy.0, c2_xy.1) *
-        Poly::dx_over_dz::<Ep>(slope)
-          .denominator
-          .eval(c2_xy.0, c2_xy.1)
-          .invert()
-          .unwrap());
-    assert_eq!(sanity, <Ep as DivisorCurve>::FieldElement::ZERO);
+    let dx_slope_over_dz = {
+      let dx = Poly {
+        y_coefficients: vec![],
+        yx_coefficients: vec![],
+        x_coefficients: vec![F::ZERO, F::from(3)],
+        zero_coefficient: F::from(<Ep as DivisorCurve>::A),
+      };
+
+      let dy = Poly {
+        y_coefficients: vec![F::from(2)],
+        yx_coefficients: vec![],
+        x_coefficients: vec![],
+        zero_coefficient: F::ZERO,
+      };
+
+      let dz = (dy.clone() * -slope) + &dx;
+
+      Divisor::<Ep> { numerator: dy, denominator: dz }
+    };
+
+    {
+      let sanity = (dx_slope_over_dz.numerator.eval(c0_xy.0, c0_xy.1) *
+        dx_slope_over_dz.denominator.eval(c0_xy.0, c0_xy.1).invert().unwrap()) +
+        (dx_slope_over_dz.numerator.eval(c1_xy.0, c1_xy.1) *
+          dx_slope_over_dz.denominator.eval(c1_xy.0, c1_xy.1).invert().unwrap()) +
+        (dx_slope_over_dz.numerator.eval(c2_xy.0, c2_xy.1) *
+          dx_slope_over_dz.denominator.eval(c2_xy.0, c2_xy.1).invert().unwrap());
+      assert_eq!(sanity, F::ZERO);
+    }
 
     // Logarithmic derivative check
     let test = |divisor: Poly<_>| {
       let (dx, dy) = divisor.differentiate();
-      let dx_over_dz = Poly::dx_over_dz::<Ep>(slope);
 
-      let lhs = |c: (
-        <Ep as DivisorCurve>::FieldElement,
-        <Ep as DivisorCurve>::FieldElement,
-      )| {
-        let n_0 = (<Ep as DivisorCurve>::FieldElement::from(3) * (c.0 * c.0)) +
-          <Ep as DivisorCurve>::FieldElement::from(<Ep as DivisorCurve>::A);
-        let d_0 = (<Ep as DivisorCurve>::FieldElement::from(2) * c.1).invert().unwrap();
+      let lhs = |c: (F, F)| {
+        let n_0 = (F::from(3) * (c.0 * c.0)) + F::from(<Ep as DivisorCurve>::A);
+        let d_0 = (F::from(2) * c.1).invert().unwrap();
         let nd_0 = n_0 * d_0;
 
         let n_1 = dy.eval(c.0, c.1);
@@ -306,13 +354,13 @@ fn test_log_deriv_z_eval() {
         let d_1 = divisor.eval(c.0, c.1);
         let fraction_1 = (first + second) * d_1.invert().unwrap();
 
-        let fraction_2 = dx_over_dz.numerator.eval(c.0, c.1) *
-          dx_over_dz.denominator.eval(c.0, c.1).invert().unwrap();
+        let fraction_2 = dx_slope_over_dz.numerator.eval(c.0, c.1) *
+          dx_slope_over_dz.denominator.eval(c.0, c.1).invert().unwrap();
         fraction_1 * fraction_2
       };
       let lhs = lhs(c0_xy) + lhs(c1_xy) + lhs(c2_xy);
 
-      let mut rhs = <Ep as DivisorCurve>::FieldElement::ZERO;
+      let mut rhs = F::ZERO;
       for point in &points {
         let (x, y) = <Ep as DivisorCurve>::to_xy(*point);
         rhs += (intercept - (y - (slope * x))).invert().unwrap();

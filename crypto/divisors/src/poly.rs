@@ -1,8 +1,6 @@
-use core::ops::{Add, Neg, Sub, Mul};
+use core::ops::{Add, Neg, Sub, Mul, Rem};
 
 use group::ff::PrimeField;
-
-use crate::{DivisorCurve, Divisor};
 
 /// A structure representing a Polynomial with x and y terms.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -270,12 +268,8 @@ impl<F: PrimeField + From<u64>> Mul for Poly<F> {
 }
 
 impl<F: PrimeField + From<u64>> Poly<F> {
-  // Perform division, returning the result and remainder
-  // This is incomplete, apparently in undocumented ways
-  // It should be incomplete for any denominator with just a zero coefficient, and otherwise
-  // complete
-  // TODO: Confirm and document exactly how this is complete/incomplete
-  pub(crate) fn div_rem(self, denominator: &Self) -> (Self, Self) {
+  /// Perform division, returning the result and remainder.
+  pub fn div_rem(self, denominator: &Self) -> (Self, Self) {
     let leading_y = |poly: &Self| -> (_, _) {
       if poly.y_coefficients.len() > poly.yx_coefficients.len() {
         (poly.y_coefficients.len(), 0)
@@ -364,15 +358,20 @@ impl<F: PrimeField + From<u64>> Poly<F> {
 
     (q, r)
   }
+}
 
-  // Compute the modulus via long division
-  pub(crate) fn rem(self, modulus: &Self) -> Self {
+impl<F: PrimeField + From<u64>> Rem<&Self> for Poly<F> {
+  type Output = Self;
+
+  fn rem(self, modulus: &Self) -> Self {
     self.div_rem(modulus).1
   }
+}
 
-  // Perform multiplication mod modulus
+impl<F: PrimeField + From<u64>> Poly<F> {
+  // Perform multiplication mod `modulus`
   pub(crate) fn mul_mod(self, other: Self, modulus: &Self) -> Self {
-    (self * other).rem(modulus)
+    ((self % modulus) * (other % modulus)) % modulus
   }
 
   /// Evaluate this polynomial with the specified x/y values.
@@ -458,68 +457,5 @@ impl<F: PrimeField + From<u64>> Poly<F> {
   pub fn normalize_x_coefficient(self) -> Self {
     let scalar = self.x_coefficients[0].invert().unwrap();
     self * scalar
-  }
-
-  pub fn dx_over_dz<C: DivisorCurve<FieldElement = F>>(slope: F) -> Divisor<C> {
-    let dx = Poly {
-      y_coefficients: vec![],
-      yx_coefficients: vec![],
-      x_coefficients: vec![F::ZERO, F::from(3)],
-      zero_coefficient: F::from(C::A),
-    };
-
-    let dy = Poly {
-      y_coefficients: vec![F::from(2)],
-      yx_coefficients: vec![],
-      x_coefficients: vec![],
-      zero_coefficient: F::ZERO,
-    };
-
-    let dz = (dy.clone() * -slope) + &dx;
-
-    Divisor { numerator: dy, denominator: dz }
-  }
-
-  // Calculate the logarithmic derivative of a polynomial.
-  pub fn logarithmic_derivative<C: DivisorCurve<FieldElement = F>>(self) -> Divisor<C> {
-    let (dx, dy) = self.differentiate();
-
-    // Dz = Dx + (Dy * ((3*x^2 + A) / (2*y)))
-
-    let dy_numerator = dy.clone() *
-      Poly {
-        y_coefficients: vec![],
-        yx_coefficients: vec![],
-        x_coefficients: vec![F::ZERO, F::from(3)],
-        zero_coefficient: F::from(C::A),
-      };
-
-    let denominator = Poly {
-      y_coefficients: vec![F::from(2)],
-      yx_coefficients: vec![],
-      x_coefficients: vec![],
-      zero_coefficient: F::ZERO,
-    };
-
-    let numerator = (dx * denominator.clone()) + &dy_numerator;
-
-    // Dz is numerator / denominator
-    // Dz / D
-    let denominator = denominator * self;
-
-    let modulus = Poly {
-      y_coefficients: vec![F::ZERO, F::ONE],
-      yx_coefficients: vec![],
-      x_coefficients: vec![-F::from(C::A), F::ZERO, -F::ONE],
-      zero_coefficient: -F::from(C::B),
-    };
-
-    let numerator = numerator.rem(&modulus);
-    let denominator = denominator.rem(&modulus);
-
-    assert_eq!(numerator.y_coefficients.len(), 1);
-    assert_eq!(denominator.y_coefficients.len(), 1);
-
-    Divisor { numerator, denominator }
   }
 }
