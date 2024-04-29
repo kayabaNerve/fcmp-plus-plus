@@ -17,7 +17,7 @@ pub struct Poly<F: PrimeField + From<u64>> {
 
 impl<F: PrimeField + From<u64>> Poly<F> {
   /// A polynomial for zero.
-  pub(crate) fn zero() -> Self {
+  pub fn zero() -> Self {
     Poly {
       y_coefficients: vec![],
       yx_coefficients: vec![],
@@ -28,6 +28,7 @@ impl<F: PrimeField + From<u64>> Poly<F> {
 
   /// The amount of non-zero terms in the polynomial.
   #[allow(clippy::len_without_is_empty)]
+  #[must_use]
   pub fn len(&self) -> usize {
     self.y_coefficients.len() +
       self.yx_coefficients.iter().map(Vec::len).sum::<usize>() +
@@ -147,6 +148,7 @@ impl<F: PrimeField + From<u64>> Mul<F> for Poly<F> {
 }
 
 impl<F: PrimeField + From<u64>> Poly<F> {
+  #[must_use]
   fn shift_by_x(mut self, power_of_x: usize) -> Self {
     if power_of_x == 0 {
       return self;
@@ -182,6 +184,7 @@ impl<F: PrimeField + From<u64>> Poly<F> {
     self
   }
 
+  #[must_use]
   fn shift_by_y(mut self, power_of_y: usize) -> Self {
     if power_of_y == 0 {
       return self;
@@ -235,17 +238,16 @@ impl<F: PrimeField + From<u64>> Mul for Poly<F> {
 
 impl<F: PrimeField + From<u64>> Poly<F> {
   /// Perform multiplication mod `modulus`.
+  #[must_use]
   pub fn mul_mod(self, other: Self, modulus: &Self) -> Self {
     ((self % modulus) * (other % modulus)) % modulus
   }
 
   /// Perform division, returning the result and remainder.
   ///
-  /// Panics upon division by zero.
-  pub fn div_rem(self, divisor: Self) -> (Self, Self) {
-    // Ensure the divisor is tidy
-    let divisor = divisor.tidy();
-
+  /// Panics upon division by zero, with undefined behavior if a non-tidy divisor is used.
+  #[must_use]
+  pub fn div_rem(self, divisor: &Self) -> (Self, Self) {
     // The leading y coefficient and associated x coefficient.
     let leading_y = |poly: &Self| -> (_, _) {
       if poly.y_coefficients.len() > poly.yx_coefficients.len() {
@@ -260,7 +262,7 @@ impl<F: PrimeField + From<u64>> Poly<F> {
     let (div_y, div_x) = leading_y(divisor);
     // If this divisor is actually a scalar, don't perform long division
     if (div_y == 0) && (div_x == 0) {
-      return self * divisor.zero_coefficient.invert().unwrap();
+      return (self * divisor.zero_coefficient.invert().unwrap(), Poly::zero());
     }
 
     // Remove leading terms until the value is less than the divisor
@@ -326,6 +328,7 @@ impl<F: PrimeField + From<u64>> Rem<&Self> for Poly<F> {
 
 impl<F: PrimeField + From<u64>> Poly<F> {
   /// Evaluate this polynomial with the specified x/y values.
+  #[must_use]
   pub fn eval(&self, x: F, y: F) -> F {
     let mut res = self.zero_coefficient;
     for (pow, coeff) in
@@ -351,49 +354,57 @@ impl<F: PrimeField + From<u64>> Poly<F> {
     res
   }
 
-  /// Differentiate a polynomial, reduced y**2, by x and y.
+  /// Differentiate a polynomial, reduced by a modulus with a leading y term y**2 x**0, by x and y.
+  ///
+  /// This function panics if a y**2 term is present within the polynomial.
+  #[must_use]
   pub fn differentiate(&self) -> (Poly<F>, Poly<F>) {
-    assert!(self.yx_coefficients.len() <= 1);
     assert!(self.y_coefficients.len() <= 1);
+    assert!(self.yx_coefficients.len() <= 1);
 
     // Differentation by x practically involves:
     // - Dropping everything without an x component
     // - Shifting everything down a power of x
-    // - If the x power is greater than 2, multiplying the new term's coefficient by the x power in
-    //   question
-    let mut diff_x = Poly {
-      y_coefficients: vec![],
-      yx_coefficients: vec![],
-      x_coefficients: vec![],
-      zero_coefficient: F::ZERO,
-    };
-    diff_x.zero_coefficient = self.x_coefficients.first().cloned().unwrap_or(F::ZERO);
-    for i in 1 .. self.x_coefficients.len() {
-      let power = i + 1;
-      diff_x.x_coefficients.push(self.x_coefficients[i] * F::from(u64::try_from(power).unwrap()));
-    }
+    // - Multiplying the new coefficient by the power it prior was used with
+    let diff_x = {
+      let mut diff_x = Poly {
+        y_coefficients: vec![],
+        yx_coefficients: vec![],
+        x_coefficients: vec![],
+        zero_coefficient: F::ZERO,
+      };
+      if !self.x_coefficients.is_empty() {
+        let mut x_coeffs = self.x_coefficients.clone();
+        diff_x.zero_coefficient = x_coeffs.remove(0);
+        diff_x.x_coefficients = x_coeffs;
 
-    for (i, yx_coeff) in
-      self.yx_coefficients.first().cloned().unwrap_or(vec![]).into_iter().enumerate()
-    {
-      // Keep the y power, reduce an x power
-      let power = i + 1;
-      if i == 0 {
-        diff_x.y_coefficients.push(yx_coeff);
-      } else {
-        if diff_x.yx_coefficients.is_empty() {
-          diff_x.yx_coefficients.push(vec![]);
+        let mut prior_x_power = F::from(2);
+        for x_coeff in &mut diff_x.x_coefficients {
+          *x_coeff *= prior_x_power;
+          prior_x_power += F::ONE;
         }
-        diff_x.yx_coefficients[0].push(yx_coeff * F::from(u64::try_from(power).unwrap()));
       }
-    }
+
+      if !self.yx_coefficients.is_empty() {
+        let mut yx_coeffs = self.yx_coefficients[0].clone();
+        diff_x.y_coefficients = vec![yx_coeffs.remove(0)];
+        diff_x.yx_coefficients = vec![yx_coeffs];
+
+        let mut prior_x_power = F::from(2);
+        for yx_coeff in &mut diff_x.yx_coefficients[0] {
+          *yx_coeff *= prior_x_power;
+          prior_x_power += F::ONE;
+        }
+      }
+
+      diff_x.tidy();
+      diff_x
+    };
 
     // Differentation by y is trivial
     // It's the y coefficient as the zero coefficient, and the yx coefficients as the x
     // coefficients
     // This is thanks to any y term over y^2 being reduced out
-    assert!(self.y_coefficients.len() <= 1);
-    assert!(self.yx_coefficients.len() <= 1);
     let diff_y = Poly {
       y_coefficients: vec![],
       yx_coefficients: vec![],
@@ -405,6 +416,7 @@ impl<F: PrimeField + From<u64>> Poly<F> {
   }
 
   /// Normalize the x coefficient to 1.
+  #[must_use]
   pub fn normalize_x_coefficient(self) -> Self {
     let scalar = self.x_coefficients[0].invert().unwrap();
     self * scalar
