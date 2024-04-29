@@ -111,10 +111,14 @@ fn test_divisor() {
           let second = dx.eval(x, y);
 
           let d_1 = divisor.eval(x, y);
-          let fraction_1 = (first + second) * d_1.invert().unwrap();
 
-          let fraction_2 = dx_over_dz.0.eval(x, y) * dx_over_dz.1.eval(x, y).invert().unwrap();
-          fraction_1 * fraction_2
+          let fraction_1_n = first + second;
+          let fraction_1_d = d_1;
+
+          let fraction_2_n = dx_over_dz.0.eval(x, y);
+          let fraction_2_d = dx_over_dz.1.eval(x, y);
+
+          fraction_1_n * fraction_2_n * (fraction_1_d * fraction_2_d).invert().unwrap()
         };
         let lhs = lhs(c0) + lhs(c1) + lhs(c2);
 
