@@ -9,13 +9,13 @@ use ciphersuite::{group::GroupEncoding, Ciphersuite};
 #[cfg(test)]
 use multiexp::multiexp;
 
-use crate::ScalarVector;
+// use crate::ScalarVector;
 
 /// A point vector struct with the functionality necessary for Bulletproofs.
 ///
 /// The math operations for this panic upon any invalid operation, such as if vectors of different
-/// lengths are added. The full extent of invalidity is not fully defined. Only field access is
-/// guaranteed to have a safe, public API.
+/// lengths are added. The full extent of invalidity is not fully defined. Only field access and
+/// `transcript` is guaranteed to have a safe, public API.
 #[derive(Clone, PartialEq, Eq, Debug, Zeroize)]
 pub struct PointVector<C: Ciphersuite>(pub Vec<C::G>);
 
@@ -48,7 +48,6 @@ impl<C: Ciphersuite> PointVector<C> {
     }
     res
   }
-  */
 
   pub(crate) fn mul(&self, scalar: impl core::borrow::Borrow<C::F>) -> Self {
     let mut res = self.clone();
@@ -67,7 +66,6 @@ impl<C: Ciphersuite> PointVector<C> {
     res
   }
 
-  /*
   pub(crate) fn sub_vec(&self, vector: &Self) -> Self {
     assert_eq!(self.len(), vector.len());
     let mut res = self.clone();
@@ -76,7 +74,6 @@ impl<C: Ciphersuite> PointVector<C> {
     }
     res
   }
-  */
 
   pub(crate) fn mul_vec(&self, vector: &ScalarVector<C::F>) -> Self {
     assert_eq!(self.len(), vector.len());
@@ -86,9 +83,10 @@ impl<C: Ciphersuite> PointVector<C> {
     }
     res
   }
+  */
 
   #[cfg(test)]
-  pub(crate) fn multiexp(&self, vector: &ScalarVector<C::F>) -> C::G {
+  pub(crate) fn multiexp(&self, vector: &crate::ScalarVector<C::F>) -> C::G {
     assert_eq!(self.len(), vector.len());
     let mut res = Vec::with_capacity(self.len());
     for (point, scalar) in self.0.iter().copied().zip(vector.0.iter().copied()) {
@@ -106,11 +104,11 @@ impl<C: Ciphersuite> PointVector<C> {
     }
     multiexp_vartime(&res)
   }
-  */
 
   pub(crate) fn sum(&self) -> C::G {
     self.0.iter().sum()
   }
+  */
 
   pub(crate) fn len(&self) -> usize {
     self.0.len()
@@ -123,11 +121,10 @@ impl<C: Ciphersuite> PointVector<C> {
     (self, PointVector(r))
   }
 
-  pub(crate) fn transcript<T: 'static + Transcript>(
-    &self,
-    transcript: &mut T,
-    label: &'static [u8],
-  ) {
+  /// Transcript a point vector.
+  ///
+  /// This does not transcript its length. This must be called with a unique label accordingly.
+  pub fn transcript<T: 'static + Transcript>(&self, transcript: &mut T, label: &'static [u8]) {
     for point in &self.0 {
       transcript.append_message(label, point.to_bytes());
     }

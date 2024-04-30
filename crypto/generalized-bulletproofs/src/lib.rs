@@ -1,11 +1,13 @@
 #![allow(non_snake_case)]
-#![allow(unused)] // TODO
-#![allow(dead_code)] // TODO
 
 use core::fmt;
 use std::collections::HashSet;
 
+use zeroize::Zeroize;
+
 use transcript::Transcript;
+
+use multiexp::multiexp;
 use ciphersuite::{
   group::{Group, GroupEncoding},
   Ciphersuite,
@@ -50,6 +52,7 @@ pub struct Generators<T: 'static + Transcript, C: Ciphersuite> {
 
   g_bold: Vec<C::G>,
   h_bold: Vec<C::G>,
+  h_sum: Vec<C::G>,
 
   transcript: T,
 }
@@ -75,6 +78,7 @@ pub struct ProofGenerators<'a, T: 'static + Transcript, C: Ciphersuite> {
 
   g_bold: &'a [C::G],
   h_bold: &'a [C::G],
+  h_sum: C::G,
 
   transcript: T::Challenge,
 }
@@ -135,7 +139,18 @@ impl<T: 'static + Transcript, C: Ciphersuite> Generators<T, C> {
       }
     }
 
-    Ok(Generators { g, h, g_bold, h_bold, transcript })
+    let mut running_h_sum = C::G::identity();
+    let mut h_sum = vec![];
+    let mut next_pow_of_2 = 1;
+    for (i, h) in h_bold.iter().enumerate() {
+      running_h_sum += h;
+      if (i + 1) == next_pow_of_2 {
+        h_sum.push(running_h_sum);
+        next_pow_of_2 *= 2;
+      }
+    }
+
+    Ok(Generators { g, h, g_bold, h_bold, h_sum, transcript })
   }
 
   pub fn g(&self) -> C::G {
@@ -146,23 +161,35 @@ impl<T: 'static + Transcript, C: Ciphersuite> Generators<T, C> {
     self.h
   }
 
-  /// Reduce a set of generators to a specific power of two as needed for a proof.
-  pub(crate) fn reduce(&self, generators: usize) -> ProofGenerators<'_, T, C> {
+  /// Reduce a set of generators to the quantity necessary to support a certain amount of
+  /// in-circuit multiplications/terms in a Pedersen vector commitment.
+  ///
+  /// Returns None if the generators reduced are insufficient to provide this many generators.
+  pub fn reduce(&self, generators: usize) -> Option<ProofGenerators<'_, T, C>> {
     // Round to the nearest power of 2
     let generators = padded_pow_of_2(generators);
-    assert!(generators <= self.g_bold.len());
+    if generators > self.g_bold.len() {
+      None?;
+    }
+
     let mut transcript = self.transcript.clone();
     transcript.append_message(b"used_generators", u32::try_from(generators).unwrap().to_le_bytes());
 
-    ProofGenerators {
+    let mut pow_of_2 = 0;
+    while (1 << pow_of_2) != generators {
+      pow_of_2 += 1;
+    }
+
+    Some(ProofGenerators {
       g: &self.g,
       h: &self.h,
 
       g_bold: &self.g_bold[.. generators],
       h_bold: &self.h_bold[.. generators],
+      h_sum: self.h_sum[pow_of_2],
 
       transcript: transcript.challenge(b"summary"),
-    }
+    })
   }
 }
 
@@ -187,11 +214,46 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ProofGenerators<'a, T, C> {
     self.h_bold[i]
   }
 
+  pub(crate) fn h_sum(&self) -> C::G {
+    self.h_sum
+  }
+
   pub(crate) fn g_bold_slice(&self) -> &[C::G] {
     self.g_bold
   }
 
+  #[cfg(test)]
   pub(crate) fn h_bold_slice(&self) -> &[C::G] {
     self.h_bold
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
+pub struct PedersenCommitment<C: Ciphersuite> {
+  pub value: C::F,
+  pub mask: C::F,
+}
+
+impl<C: Ciphersuite> PedersenCommitment<C> {
+  pub fn commit(&self, g: C::G, h: C::G) -> C::G {
+    multiexp(&[(self.value, g), (self.mask, h)])
+  }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Zeroize)]
+pub struct PedersenVectorCommitment<C: Ciphersuite> {
+  pub values: ScalarVector<C::F>,
+  pub mask: C::F,
+}
+
+impl<C: Ciphersuite> PedersenVectorCommitment<C> {
+  pub fn commit(&self, g_bold: &[C::G], h: C::G) -> C::G {
+    let mut terms = vec![(self.mask, h)];
+    for pair in self.values.0.iter().cloned().zip(g_bold.iter().cloned()) {
+      terms.push(pair);
+    }
+    let res = multiexp(&terms);
+    terms.zeroize();
+    res
   }
 }

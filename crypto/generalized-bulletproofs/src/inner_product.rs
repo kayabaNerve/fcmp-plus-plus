@@ -243,9 +243,14 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       let x_inv = x.invert().unwrap();
 
       // The prover and verifier now calculate the following (28-31)
-      // TODO: We can calculate this with a ((g1, x_inv), (g2, x)) multiexp
-      g_bold = g_bold1.mul(x_inv).add_vec(&g_bold2.mul(x));
-      h_bold = h_bold1.mul(x).add_vec(&h_bold2.mul(x_inv));
+      g_bold = PointVector(Vec::with_capacity(g_bold1.len()));
+      for (a, b) in g_bold1.0.into_iter().zip(g_bold2.0.into_iter()) {
+        g_bold.0.push(multiexp_vartime(&[(x_inv, a), (x, b)]));
+      }
+      h_bold = PointVector(Vec::with_capacity(h_bold1.len()));
+      for (a, b) in h_bold1.0.into_iter().zip(h_bold2.0.into_iter()) {
+        h_bold.0.push(multiexp_vartime(&[(x, a), (x_inv, b)]));
+      }
       P = (L * (x * x)) + P + (R * (x_inv * x_inv));
 
       // 32-34

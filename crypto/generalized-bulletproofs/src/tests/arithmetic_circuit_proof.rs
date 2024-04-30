@@ -6,7 +6,7 @@ use multiexp::BatchVerifier;
 use ciphersuite::{group::ff::Field, Ciphersuite, Ristretto};
 
 use crate::{
-  ScalarVector, ScalarMatrix, PointVector,
+  ScalarVector, ScalarMatrix, PointVector, PedersenCommitment, PedersenVectorCommitment,
   arithmetic_circuit_proof::{ArithmeticCircuitStatement, ArithmeticCircuitWitness},
   tests::generators,
 };
@@ -37,7 +37,7 @@ fn test_zero_arithmetic_circuit() {
   let c = zero_vec();
 
   let statement = ArithmeticCircuitStatement::<_, Ristretto>::new(
-    generators.reduce(1),
+    generators.reduce(1).unwrap(),
     WL,
     WR,
     WO,
@@ -52,9 +52,7 @@ fn test_zero_arithmetic_circuit() {
     aL,
     aR,
     vec![],
-    vec![],
-    ScalarVector(vec![value]),
-    ScalarVector(vec![gamma]),
+    vec![PedersenCommitment { value, mask: gamma }],
   )
   .unwrap();
 
@@ -68,13 +66,12 @@ fn test_zero_arithmetic_circuit() {
 #[test]
 fn test_vector_commitment_arithmetic_circuit() {
   let generators = generators(2);
+  let reduced = generators.reduce(2).unwrap();
 
   let v1 = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
   let v2 = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
   let gamma = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-  let commitment = (generators.reduce(2).g_bold(0) * v1) +
-    (generators.reduce(2).g_bold(1) * v2) +
-    (generators.h() * gamma);
+  let commitment = (reduced.g_bold(0) * v1) + (reduced.g_bold(1) * v2) + (generators.h() * gamma);
   let V = PointVector(vec![]);
   let C = PointVector(vec![commitment]);
 
@@ -97,25 +94,13 @@ fn test_vector_commitment_arithmetic_circuit() {
     .push(vec![(0, <Ristretto as Ciphersuite>::F::ONE), (1, <Ristretto as Ciphersuite>::F::ONE)]);
   let c = ScalarVector::<<Ristretto as Ciphersuite>::F>(vec![v1 + v2]);
 
-  let statement = ArithmeticCircuitStatement::<_, Ristretto>::new(
-    generators.reduce(2),
-    WL,
-    WR,
-    WO,
-    WC,
-    WV,
-    c,
-    C,
-    V,
-  )
-  .unwrap();
+  let statement =
+    ArithmeticCircuitStatement::<_, Ristretto>::new(reduced, WL, WR, WO, WC, WV, c, C, V).unwrap();
   let witness = ArithmeticCircuitWitness::<Ristretto>::new(
     aL,
     aR,
-    vec![ScalarVector(vec![v1, v2])],
-    vec![gamma],
-    ScalarVector(vec![]),
-    ScalarVector(vec![]),
+    vec![PedersenVectorCommitment { values: ScalarVector(vec![v1, v2]), mask: gamma }],
+    vec![],
   )
   .unwrap();
 
@@ -128,6 +113,7 @@ fn test_vector_commitment_arithmetic_circuit() {
 
 #[test]
 fn test_multiplication_arithmetic_circuit() {
+  #[allow(unused)]
   let m = 4; // Input secrets
   let n = 1; // Multiplications
   let q = 5; // Constraints
@@ -146,7 +132,8 @@ fn test_multiplication_arithmetic_circuit() {
   let x_commitment = commit(x, x_mask);
 
   let x_vector_mask = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-  let x_vector_commitment = (generators.reduce(1).g_bold(0) * x) + (generators.h() * x_vector_mask);
+  let x_vector_commitment =
+    (generators.reduce(1).unwrap().g_bold(0) * x) + (generators.h() * x_vector_mask);
 
   let y = x.double();
   let y_mask = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
@@ -213,7 +200,7 @@ fn test_multiplication_arithmetic_circuit() {
   ]);
 
   let statement = ArithmeticCircuitStatement::<_, Ristretto>::new(
-    generators.reduce(1),
+    generators.reduce(1).unwrap(),
     WL,
     WR,
     WO,
@@ -227,10 +214,13 @@ fn test_multiplication_arithmetic_circuit() {
   let witness = ArithmeticCircuitWitness::<Ristretto>::new(
     aL,
     aR,
-    vec![ScalarVector(vec![x])],
-    vec![x_vector_mask],
-    ScalarVector(vec![x, y, z, z1]),
-    ScalarVector(vec![x_mask, y_mask, z_mask, z1_mask]),
+    vec![PedersenVectorCommitment { values: ScalarVector(vec![x]), mask: x_vector_mask }],
+    vec![
+      PedersenCommitment { value: x, mask: x_mask },
+      PedersenCommitment { value: y, mask: y_mask },
+      PedersenCommitment { value: z, mask: z_mask },
+      PedersenCommitment { value: z1, mask: z1_mask },
+    ],
   )
   .unwrap();
 

@@ -13,14 +13,14 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-rand_core = { version = "0.6", default-features = false }
+rand_core = { version = "0.6", default-features = false, features = ["std"] }
 
 zeroize = { version = "^1.5", default-features = false, features = ["zeroize_derive"] }
 
 transcript = { package = "flexible-transcript", path = "../transcript", version = "0.3" }
 
-multiexp = { path = "../multiexp", default-features = false, features = ["batch"] }
-ciphersuite = { path = "../ciphersuite", default-features = false }
+multiexp = { path = "../multiexp", version = "0.4", default-features = false, features = ["std", "batch"] }
+ciphersuite = { path = "../ciphersuite", version = "0.4", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
