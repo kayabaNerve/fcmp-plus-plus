@@ -20,6 +20,7 @@ members = [
 
   "crypto/generalized-schnorr",
   "crypto/divisors",
+  "crypto/generalized-bulletproofs",
 
   "tests/no-std",
 ]
