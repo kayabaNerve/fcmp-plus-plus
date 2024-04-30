@@ -3,7 +3,7 @@ use core::ops::{Add, Neg, Sub, Mul, Rem};
 use group::ff::PrimeField;
 
 /// A structure representing a Polynomial with x and y terms.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, zeroize::Zeroize)]
 pub struct Poly<F: PrimeField + From<u64>> {
   /// c[i] * y ** (i + 1)
   pub y_coefficients: Vec<F>,

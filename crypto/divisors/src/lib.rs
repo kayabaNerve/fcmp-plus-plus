@@ -46,8 +46,10 @@ where
   fn to_xy(point: Self) -> (Self::FieldElement, Self::FieldElement);
 }
 
-// Calculate the slope and intercept for two points.
-fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::FieldElement, C::FieldElement) {
+/// Calculate the slope and intercept between two points.
+///
+/// This function panics when `a == b`.
+pub fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::FieldElement, C::FieldElement) {
   let (ax, ay) = C::to_xy(a);
   debug_assert_eq!(C::divisor_modulus().eval(ax, ay), C::FieldElement::ZERO);
   let (bx, by) = C::to_xy(b);

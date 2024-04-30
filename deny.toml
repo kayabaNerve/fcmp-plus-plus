@@ -97,9 +97,5 @@ unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
   "https://github.com/rust-lang-nursery/lazy-static.rs",
-  "https://github.com/serai-dex/substrate-bip39",
-  "https://github.com/serai-dex/substrate",
-  "https://github.com/alloy-rs/alloy",
-  "https://github.com/monero-rs/base58-monero",
-  "https://github.com/kayabaNerve/dockertest-rs",
+  "https://github.com/kayabaNerve/pasta_curves",
 ]
