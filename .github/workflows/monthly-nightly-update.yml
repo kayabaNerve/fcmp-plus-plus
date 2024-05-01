@@ -9,6 +9,7 @@ jobs:
   update:
     name: Update nightly
     permissions:
+      contents: write
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
