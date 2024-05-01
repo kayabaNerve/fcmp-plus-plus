@@ -26,6 +26,9 @@ impl<C: Ciphersuite> ScalarMatrix<C> {
   }
 
   /// Push a sparse row of scalars onto the matrix.
+  ///
+  /// If this row has multiple scalars for the same index, they'll be treated as a single sum
+  /// scalar.
   pub fn push(&mut self, row: Vec<(usize, C::F)>) {
     let mut high_index = 0;
     for (i, _) in &row {

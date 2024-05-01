@@ -160,10 +160,10 @@ fn test_divisor<C: DivisorCurve>() {
 
           let n_0 = (C::FieldElement::from(3) * (x * x)) + C::a();
           let d_0 = (C::FieldElement::from(2) * y).invert().unwrap();
-          let nd_0 = n_0 * d_0;
+          let p_0_n_0 = n_0 * d_0;
 
           let n_1 = dy.eval(x, y);
-          let first = nd_0 * n_1;
+          let first = p_0_n_0 * n_1;
 
           let second = dx.eval(x, y);
 

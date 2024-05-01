@@ -429,6 +429,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "full-chain-membership-proofs"
+version = "0.1.0"
+dependencies = [
+ "ciphersuite",
+ "flexible-transcript",
+ "multiexp",
+ "rand_core",
+ "zeroize",
+]
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

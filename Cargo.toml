@@ -21,6 +21,7 @@ members = [
   "crypto/generalized-schnorr",
   "crypto/divisors",
   "crypto/generalized-bulletproofs",
+  "crypto/fcmps",
 
   "tests/no-std",
 ]
