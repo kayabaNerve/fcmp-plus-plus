@@ -9,7 +9,7 @@ use ciphersuite::{group::GroupEncoding, Ciphersuite};
 #[cfg(test)]
 use multiexp::multiexp;
 
-// use crate::ScalarVector;
+use crate::ScalarVector;
 
 /// A point vector struct with the functionality necessary for Bulletproofs.
 ///
@@ -74,6 +74,7 @@ impl<C: Ciphersuite> PointVector<C> {
     }
     res
   }
+  */
 
   pub(crate) fn mul_vec(&self, vector: &ScalarVector<C::F>) -> Self {
     assert_eq!(self.len(), vector.len());
@@ -83,7 +84,6 @@ impl<C: Ciphersuite> PointVector<C> {
     }
     res
   }
-  */
 
   #[cfg(test)]
   pub(crate) fn multiexp(&self, vector: &crate::ScalarVector<C::F>) -> C::G {

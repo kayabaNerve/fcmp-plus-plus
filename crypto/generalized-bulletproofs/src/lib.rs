@@ -222,7 +222,6 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ProofGenerators<'a, T, C> {
     self.g_bold
   }
 
-  #[cfg(test)]
   pub(crate) fn h_bold_slice(&self) -> &[C::G] {
     self.h_bold
   }

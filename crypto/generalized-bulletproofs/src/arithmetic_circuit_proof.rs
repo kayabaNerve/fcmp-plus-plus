@@ -511,14 +511,10 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     let ip = {
       // P = t_caret * g + l * g_bold + r * (y_inv * h_bold)
 
-      let mut hi = vec![]; // y_inv * h_bold
       let mut P_terms = Vec::with_capacity(1 + (2 * self.generators.len()));
       for (i, (l, r)) in l.0.iter().zip(r.0.iter()).enumerate() {
         P_terms.push((*l, self.generators.g_bold(i)));
-
-        let new_hi = self.generators.h_bold(i) * y_inv[i];
-        P_terms.push((*r, new_hi));
-        hi.push(new_hi);
+        P_terms.push((y_inv[i] * r, self.generators.h_bold(i)));
       }
 
       // Protocol 1, inlined, since our IpStatement is for Protocol 2
@@ -526,7 +522,8 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       P_terms.push((ip_x * t_caret, self.generators.g()));
       IpStatement::new_without_P_transcript(
         self.generators.g_bold_slice(),
-        &hi,
+        self.generators.h_bold_slice(),
+        y_inv,
         self.generators.g() * ip_x,
         P_terms,
       )
@@ -572,18 +569,6 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     let delta = (self.WR.mul_vec(n, &z) * &y_inv).inner_product(&self.WL.mul_vec(n, &z));
 
     let x = Self::transcript_Ts(transcript, &proof.T_before_ni, &proof.T_after_ni);
-
-    // h' is described as the inverted powers of y * h_bold
-    // We keep it in terms of the discrete logarithm to save on intermediary group operations
-    // TODO let hi = y_inv.clone()
-    let hi = {
-      let mut hi = vec![];
-      for i in 0 .. n {
-        hi.push(self.generators.h_bold(i) * y_inv[i]);
-      }
-      debug_assert_eq!(self.generators.h_bold(0), hi[0]);
-      PointVector::<C>(hi)
-    };
 
     // Lines 88-90, modified per Generalized Bulletproofs as needed w.r.t. t
     {
@@ -660,7 +645,8 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     P_terms.push((ip_x * proof.t_caret, self.generators.g()));
     IpStatement::new_without_P_transcript(
       self.generators.g_bold_slice(),
-      &hi.0,
+      self.generators.h_bold_slice(),
+      y_inv,
       self.generators.g() * ip_x,
       P_terms,
     )

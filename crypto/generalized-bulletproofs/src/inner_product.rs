@@ -35,6 +35,8 @@ pub struct IpStatement<'a, C: Ciphersuite> {
   g_bold: &'a [C::G],
   // h
   h_bold: &'a [C::G],
+  // Weights for h_bold
+  h_bold_weights: ScalarVector<C::F>,
   // u
   u: C::G,
   // P
@@ -86,36 +88,53 @@ pub struct IpProof<C: Ciphersuite> {
 impl<'a, C: Ciphersuite> IpStatement<'a, C> {
   /// Create a new Inner-Product statement.
   ///
-  /// The generators are not transcripted. If your generators are variable, independently
-  /// transcript them.
-  pub fn new(g_bold: &'a [C::G], h_bold: &'a [C::G], u: C::G, P: C::G) -> Result<Self, IpError> {
+  /// `h_bold_weights` is weights for `h_bold` making the effective `h_bold`
+  /// `h_bold_weights * h_bold`, while remaining in terms of `h_bold`.
+  ///
+  /// The generators are not transcripted (nor weights for the generators). If your generators are
+  /// variable, independently transcript them. If your weights aren't deterministic to the
+  /// transcript, independently transcript them.
+  pub fn new(
+    g_bold: &'a [C::G],
+    h_bold: &'a [C::G],
+    h_bold_weights: ScalarVector<C::F>,
+    u: C::G,
+    P: C::G,
+  ) -> Result<Self, IpError> {
     if g_bold.len() != h_bold.len() {
       Err(IpError::IncorrectAmountOfGenerators)?
     }
-    Ok(Self { g_bold, h_bold, u, P: P::Point(P) })
+    if g_bold.len() != h_bold_weights.len() {
+      Err(IpError::IncorrectAmountOfGenerators)?
+    }
+    Ok(Self { g_bold, h_bold, h_bold_weights, u, P: P::Point(P) })
   }
 
   /// Create a new Inner-Product statement which won't transcript P.
   ///
   /// This MUST only be called when P is deterministic to already transcripted elements.
   ///
-  /// The generators are not transcripted. If your generators are variable, independently
-  /// transcript them.
+  /// The generators are not transcripted (nor weights for the generators). If your generators are
+  /// variable, independently transcript them. If your weights aren't deterministic to the
+  /// transcript, independently transcript them.
   pub(crate) fn new_without_P_transcript(
     g_bold: &'a [C::G],
     h_bold: &'a [C::G],
+    h_bold_weights: ScalarVector<C::F>,
     u: C::G,
     P: Vec<(C::F, C::G)>,
   ) -> Result<Self, IpError> {
     if g_bold.len() != h_bold.len() {
       Err(IpError::IncorrectAmountOfGenerators)?
     }
-    Ok(Self { g_bold, h_bold, u, P: P::Terms(P) })
+    if g_bold.len() != h_bold_weights.len() {
+      Err(IpError::IncorrectAmountOfGenerators)?
+    }
+    Ok(Self { g_bold, h_bold, h_bold_weights, u, P: P::Terms(P) })
   }
 
   fn initial_transcript<T: Transcript>(&mut self, transcript: &mut T) {
     transcript.domain_separate(b"inner_product");
-    transcript.append_message(b"u", self.u.to_bytes());
     // If P is a point, transcript it
     // If P is terms, as it will be if this was constructed by `new_without_P_transcript`, P
     // is expected to be deterministic to already transcripted items (and therefore not need
@@ -152,7 +171,7 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
     self.initial_transcript(transcript);
 
     let (mut g_bold, mut h_bold, u, mut P, mut a, mut b) = {
-      let IpStatement { g_bold, h_bold, u, P } = self;
+      let IpStatement { g_bold, h_bold, h_bold_weights, u, P } = self;
 
       // Ensure we have the exact amount of generators
       if g_bold.len() != witness.a.len() {
@@ -160,7 +179,7 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       }
       // Acquire a local copy of the generators
       let g_bold = PointVector::<C>(g_bold.to_vec());
-      let h_bold = PointVector::<C>(h_bold.to_vec());
+      let h_bold = PointVector::<C>(h_bold.to_vec()).mul_vec(&h_bold_weights);
 
       let IpWitness { a, b } = witness;
 
@@ -329,7 +348,7 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
   ) -> Result<(), IpError> {
     self.initial_transcript(transcript);
 
-    let IpStatement { g_bold, h_bold, u, P } = self;
+    let IpStatement { g_bold, h_bold, h_bold_weights, u, P } = self;
 
     // Verify the L/R lengths
     {
@@ -411,7 +430,10 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
     }
     // The h_bold * b term case from line 16
     for i in 0 .. g_bold.len() {
-      multiexp.push((-(product_cache[product_cache.len() - 1 - i] * proof.b), h_bold[i]));
+      multiexp.push((
+        -(product_cache[product_cache.len() - 1 - i] * proof.b * h_bold_weights[i]),
+        h_bold[i],
+      ));
     }
     // The c * u term case from line 16
     multiexp.push((-c, u));

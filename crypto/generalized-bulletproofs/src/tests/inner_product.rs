@@ -25,6 +25,7 @@ fn test_zero_inner_product() {
   let statement = IpStatement::<Ristretto>::new(
     reduced.g_bold_slice(),
     reduced.h_bold_slice(),
+    ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; 1]),
     generators.g(),
     P,
   )
@@ -74,6 +75,7 @@ fn test_inner_product() {
     let statement = IpStatement::<Ristretto>::new(
       generators.g_bold_slice(),
       generators.h_bold_slice(),
+      ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; i]),
       generators.g(),
       P,
     )
