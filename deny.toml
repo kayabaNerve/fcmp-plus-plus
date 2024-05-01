@@ -7,10 +7,7 @@ yanked = "deny"
 notice = "warn"
 unmaintained = "warn"
 
-ignore = [
-  "RUSTSEC-2021-0139", # https://github.com/serai-dex/serai/228
-  "RUSTSEC-2022-0061", # https://github.com/serai-dex/serai/227
-]
+ignore = []
 
 [licenses]
 unlicensed = "deny"
@@ -29,53 +26,13 @@ allow = [
   "Unicode-DFS-2016",
   "OpenSSL",
 
-  # Non-invasive copyleft
-  "MPL-2.0",
-  "Apache-2.0",
-  "Apache-2.0 WITH LLVM-exception",
-  "GPL-3.0 WITH Classpath-exception-2.0",
 ]
 
 copyleft = "deny"
 allow-osi-fsf-free = "neither"
 default = "deny"
 
-exceptions = [
-  { allow = ["AGPL-3.0"], name = "serai-env" },
-
-  { allow = ["AGPL-3.0"], name = "ethereum-serai" },
-
-  { allow = ["AGPL-3.0"], name = "serai-message-queue" },
-
-  { allow = ["AGPL-3.0"], name = "serai-processor-messages" },
-  { allow = ["AGPL-3.0"], name = "serai-processor" },
-
-  { allow = ["AGPL-3.0"], name = "tributary-chain" },
-  { allow = ["AGPL-3.0"], name = "serai-coordinator" },
-
-  { allow = ["AGPL-3.0"], name = "serai-coins-pallet" },
-  { allow = ["AGPL-3.0"], name = "serai-dex-pallet" },
-
-  { allow = ["AGPL-3.0"], name = "serai-in-instructions-pallet" },
-
-  { allow = ["AGPL-3.0"], name = "serai-validator-sets-pallet" },
-
-  { allow = ["AGPL-3.0"], name = "serai-signals-pallet" },
-
-  { allow = ["AGPL-3.0"], name = "serai-runtime" },
-  { allow = ["AGPL-3.0"], name = "serai-node" },
-
-  { allow = ["AGPL-3.0"], name = "serai-orchestrator" },
-
-  { allow = ["AGPL-3.0"], name = "mini-serai" },
-
-  { allow = ["AGPL-3.0"], name = "serai-docker-tests" },
-  { allow = ["AGPL-3.0"], name = "serai-message-queue-tests" },
-  { allow = ["AGPL-3.0"], name = "serai-processor-tests" },
-  { allow = ["AGPL-3.0"], name = "serai-coordinator-tests" },
-  { allow = ["AGPL-3.0"], name = "serai-full-stack-tests" },
-  { allow = ["AGPL-3.0"], name = "serai-reproducible-runtime-tests" },
-]
+exceptions = []
 
 [[licenses.clarify]]
 name = "ring"
