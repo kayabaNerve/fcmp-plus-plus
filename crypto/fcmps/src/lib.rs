@@ -37,7 +37,7 @@ impl<C: Ciphersuite> Circuit<C> {
   /// Returns None if not a prover.
   fn eval(&self, constraint: &LinComb<C::F>) -> Option<C::F> {
     self.prover.as_ref().map(|prover| {
-      let mut res = -constraint.c;
+      let mut res = constraint.c;
       for (index, weight) in &constraint.WL {
         res += prover.aL[*index] * weight;
       }
@@ -122,10 +122,7 @@ impl<C: Ciphersuite> Circuit<C> {
     // An honest verifier will generate the intended circuit (using a consistent set of variables)
     // and still reject such proofs
     // This check only exists for sanity/safety to ensure an honest verifier doesn't mis-call this
-    assert_eq!(
-      i_blind_u.dlog, i_blind_v.dlog,
-      "first layer passed differing variables for the dlog"
-    );
+    assert_eq!(i_blind_u.dlog, i_blind_v.dlog, "first layer passed differing variables for the dlog");
 
     let i_blind_u = self.discrete_log(transcript, curve, i_blind_u);
     let I = self.on_curve(curve, I);

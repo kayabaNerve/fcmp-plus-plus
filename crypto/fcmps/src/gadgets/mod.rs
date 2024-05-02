@@ -54,7 +54,7 @@ impl<C: Ciphersuite> Circuit<C> {
     let (l, r, o) = self.mul(a, None, witness.map(|f| (f, f.invert().unwrap())));
     // The output of a value multiplied by its inverse is 1
     // Constrain `1 o - 1 = 0`
-    self.constraints.push(LinComb::from(o).constant(C::F::ONE));
+    self.constraints.push(LinComb::from(o).constant(-C::F::ONE));
     (l, r)
   }
 
@@ -91,17 +91,13 @@ impl<C: Ciphersuite> Circuit<C> {
   }
 
   /// Constrain an x and y coordinate as being on curve to a towered elliptic curve.
-  pub(crate) fn on_curve(
-    &mut self,
-    curve: &CurveSpec<C::F>,
-    (x, y): (Variable, Variable),
-  ) -> OnCurve {
+  pub(crate) fn on_curve(&mut self, curve: &CurveSpec<C::F>, (x, y): (Variable, Variable)) -> OnCurve {
     let x_eval = self.eval(&LinComb::from(x));
     let (_x, _x_2, x2) =
       self.mul(Some(LinComb::from(x)), Some(LinComb::from(x)), x_eval.map(|x| (x, x)));
     let (_x, _x_2, x3) =
       self.mul(Some(LinComb::from(x2)), Some(LinComb::from(x)), x_eval.map(|x| (x * x, x)));
-    let expected_y2 = LinComb::from(x3).term(curve.a, x).constant(-curve.b);
+    let expected_y2 = LinComb::from(x3).term(curve.a, x).constant(curve.b);
 
     let y_eval = self.eval(&LinComb::from(y));
     let (_y, _y_2, y2) =
@@ -119,7 +115,7 @@ impl<C: Ciphersuite> Circuit<C> {
     {
       let bx_lincomb = LinComb::from(b.x);
       let bx_eval = self.eval(&bx_lincomb);
-      self.inequality(bx_lincomb, &LinComb::empty().constant(-a.0), bx_eval.map(|bx| (bx, a.0)));
+      self.inequality(bx_lincomb, &LinComb::empty().constant(a.0), bx_eval.map(|bx| (bx, a.0)));
     }
 
     let (x0, y0) = (a.0, a.1);
@@ -133,26 +129,26 @@ impl<C: Ciphersuite> Circuit<C> {
     });
 
     // slope * (x1 - x0) = y1 - y0
-    let x1_minus_x0 = LinComb::from(x1).constant(x0);
+    let x1_minus_x0 = LinComb::from(x1).constant(-x0);
     let x1_minus_x0_eval = self.eval(&x1_minus_x0);
     let (slope, _r, o) =
       self.mul(None, Some(x1_minus_x0), slope_eval.map(|slope| (slope, x1_minus_x0_eval.unwrap())));
-    self.equality(LinComb::from(o), &LinComb::from(y1).constant(y0));
+    self.equality(LinComb::from(o), &LinComb::from(y1).constant(-y0));
 
     // slope * (x2 - x0) = -y2 - y0
-    let x2_minus_x0 = LinComb::from(x2).constant(x0);
+    let x2_minus_x0 = LinComb::from(x2).constant(-x0);
     let x2_minus_x0_eval = self.eval(&x2_minus_x0);
     let (_slope, _x2_minus_x0, o) = self.mul(
       Some(slope.into()),
       Some(x2_minus_x0),
       slope_eval.map(|slope| (slope, x2_minus_x0_eval.unwrap())),
     );
-    self.equality(o.into(), &LinComb::empty().term(-C::F::ONE, y2).constant(y0));
+    self.equality(o.into(), &LinComb::empty().term(-C::F::ONE, y2).constant(-y0));
 
     // slope * slope = x0 + x1 + x2
     let (_slope, _slope_2, o) =
       self.mul(Some(slope.into()), Some(slope.into()), slope_eval.map(|slope| (slope, slope)));
-    self.equality(o.into(), &LinComb::from(x1).term(C::F::ONE, x2).constant(-x0));
+    self.equality(o.into(), &LinComb::from(x1).term(C::F::ONE, x2).constant(x0));
 
     OnCurve { x: x2, y: y2 }
   }
@@ -162,7 +158,7 @@ impl<C: Ciphersuite> Circuit<C> {
   /// Panics if the prover and the `y` coordinate isn't permissible.
   pub(crate) fn permissible(&mut self, a: C::F, b: C::F, y: Variable) {
     // a y - -b = ay + b
-    let p = LinComb::empty().term(a, y).constant(-b);
+    let p = LinComb::empty().term(a, y).constant(b);
     let p_eval = self.eval(&p);
     let p_eval_sqrt = p_eval.map(|p_eval| p_eval.sqrt().unwrap());
 

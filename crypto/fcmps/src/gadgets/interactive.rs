@@ -24,7 +24,7 @@ pub(crate) struct ClaimedPointWithDlog<F: Field> {
   generator: (F, F),
   divisor: Divisor,
   pub(crate) dlog: Vec<Variable>,
-  point: (Variable, Variable),
+  point: (Variable, Variable)
 }
 
 impl<C: Ciphersuite> Circuit<C> {
@@ -77,7 +77,7 @@ impl<C: Ciphersuite> Circuit<C> {
 
   fn divisor_challenge_invert(&mut self, scalar: C::F) -> C::F {
     let res = Option::from(scalar.invert());
-    // If somehow, we are trying to invert zero, push a constraint requiring -1 = 0
+    // If somehow, we are trying to invert zero, push a constraint requiring 1 = 0
     // This will cause the proof to fail to verify
     // TODO: Properly propagate this error
     if res.is_none() {
@@ -119,8 +119,7 @@ impl<C: Ciphersuite> Circuit<C> {
     // The evaluation of the divisor differentiated by x
     let p_0_n_2 = {
       // The coefficient for x**1 is 1, so 1 becomes the new zero coefficient
-      // Since the constant is subtracted, we use -1 for the constant (making it +1)
-      let mut p_0_n_2 = LinComb::empty().constant(-C::F::ONE);
+      let mut p_0_n_2 = LinComb::empty().constant(C::F::ONE);
 
       // Handle the new y coefficient
       p_0_n_2 = p_0_n_2.term(c_y, divisor.yx[0]);
@@ -180,10 +179,8 @@ impl<C: Ciphersuite> Circuit<C> {
         c_x_eval *= c_x;
       }
 
-      // We add -c_x to c so this evaluates as `+ c_x` (since c is subtracted from the linear
-      // combination)
       // Adding c_x effectively adds a `1 x` term, ensuring the divisor isn't 0
-      p_0_d.term(C::F::ONE, divisor.zero).constant(-c_x)
+      p_0_d.term(C::F::ONE, divisor.zero).constant(c_x)
     };
 
     let p_1_n = two_c_y;
@@ -301,9 +298,8 @@ impl<C: Ciphersuite> Circuit<C> {
     // intercept - (y - (slope * x))
     // intercept - y + (slope * x))
     // -y + (slope * x)) + intercept
-    // We use -intercept since constants are subtracted
     let output_interpolation =
-      LinComb::empty().constant(-intercept).term(-C::F::ONE, point.y).term(slope, point.x);
+      LinComb::empty().constant(intercept).term(-C::F::ONE, point.y).term(slope, point.x);
     let output_interpolation_eval = self.eval(&output_interpolation);
     let (_output_interpolation, inverse) =
       self.inverse(Some(output_interpolation), output_interpolation_eval);

@@ -14,7 +14,7 @@ pub(crate) enum Variable {
 
 /// A linear combination.
 ///
-/// Specifically, this is WL aL + WR aR + WO aO + WC C - c.
+/// Specifically, this is WL aL + WR aR + WO aO + WC C + c.
 // We don't model WV as we don't use Pedersen commitments
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[must_use]
@@ -97,7 +97,7 @@ impl<F: Field> LinComb<F> {
     self
   }
 
-  /// Add to the constant c which is subtracted from the rest of the linear combination.
+  /// Add to the constant c, which is added to the rest of the linear combination.
   pub(crate) fn constant(mut self, scalar: F) -> Self {
     self.c += scalar;
     self
