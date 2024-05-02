@@ -18,8 +18,17 @@ pub(crate) struct Divisor {
   zero: Variable,
 }
 
+/// A claimed point and associated discrete logarithm claim.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) struct ClaimedPointWithDlog<F: Field> {
+  generator: (F, F),
+  divisor: Divisor,
+  pub(crate) dlog: Vec<Variable>,
+  point: (Variable, Variable),
+}
+
 impl<C: Ciphersuite> Circuit<C> {
-  fn tuple_member_of_list<T: Transcript>(
+  pub(crate) fn tuple_member_of_list<T: Transcript>(
     &mut self,
     transcript: &mut T,
     member: Vec<Variable>,
@@ -204,28 +213,28 @@ impl<C: Ciphersuite> Circuit<C> {
   /// proven for with this exact representation.
   ///
   /// Ensures the point is on-curve.
-  fn discrete_log<T: Transcript>(
+  pub(crate) fn discrete_log<T: Transcript>(
     &mut self,
     transcript: &mut T,
     curve: &CurveSpec<C::F>,
-    mut generator_x: C::F,
-    mut generator_y: C::F,
-    divisor: Divisor,
-    dlog: Vec<Variable>,
-    x: Variable,
-    y: Variable,
+    claim: ClaimedPointWithDlog<C::F>,
   ) -> OnCurve {
+    let ClaimedPointWithDlog { mut generator, divisor, dlog, point } = claim;
     assert_eq!(dlog.len(), <C::F as PrimeField>::CAPACITY.try_into().unwrap());
 
     // Ensure this is being safely called
-    for variable in dlog.iter().chain(core::iter::once(&x)).chain(core::iter::once(&y)) {
+    let arg_iter = core::iter::once(&divisor.y).chain(divisor.yx.iter());
+    let arg_iter =
+      arg_iter.chain(divisor.x_from_power_of_2.iter()).chain(core::iter::once(&divisor.zero));
+    let arg_iter = arg_iter.chain(dlog.iter());
+    for variable in arg_iter.chain(core::iter::once(&point.0)).chain(core::iter::once(&point.1)) {
       assert!(
         matches!(variable, Variable::C(_, _)),
         "discrete log requires all arguments belong to vector commitments",
       );
     }
 
-    let point = self.on_curve(curve, x, y);
+    let point = self.on_curve(curve, point);
 
     // TODO: Implement a proper hash to curve
     let (c0_x, c0_y) = loop {
@@ -238,7 +247,7 @@ impl<C: Ciphersuite> Circuit<C> {
       break (c0_x, if bool::from(c0_y.is_odd()) { -c0_y } else { c0_y });
     };
     let (c1_x, c1_y) = loop {
-      let c1_x = C::hash_to_F(b"fcmp", transcript.challenge(b"discrete_log_0").as_ref());
+      let c1_x = C::hash_to_F(b"fcmp", transcript.challenge(b"discrete_log_1").as_ref());
       if c0_x == c1_x {
         continue;
       }
@@ -282,10 +291,10 @@ impl<C: Ciphersuite> Circuit<C> {
 
     // Interpolate the powers of the generator
     for bit in dlog {
-      let weight = self.divisor_challenge_invert(intercept - (generator_y - (slope * generator_x)));
+      let weight = self.divisor_challenge_invert(intercept - (generator.1 - (slope * generator.0)));
       eval = eval.term(-weight, bit);
       // TODO: Take in a table as an argument
-      (generator_x, generator_y) = double(self, generator_x, generator_y);
+      generator = double(self, generator.0, generator.1);
     }
 
     // Interpolate the output point
@@ -294,7 +303,7 @@ impl<C: Ciphersuite> Circuit<C> {
     // -y + (slope * x)) + intercept
     // We use -intercept since constants are subtracted
     let output_interpolation =
-      LinComb::empty().constant(-intercept).term(-C::F::ONE, y).term(slope, x);
+      LinComb::empty().constant(-intercept).term(-C::F::ONE, point.y).term(slope, point.x);
     let output_interpolation_eval = self.eval(&output_interpolation);
     let (_output_interpolation, inverse) =
       self.inverse(Some(output_interpolation), output_interpolation_eval);
@@ -313,19 +322,14 @@ impl<C: Ciphersuite> Circuit<C> {
   /// reuse).
   ///
   /// Ensures the point is on-curve.
-  fn discrete_log_pok<T: Transcript>(
+  pub(crate) fn discrete_log_pok<T: Transcript>(
     &mut self,
     transcript: &mut T,
     curve: &CurveSpec<C::F>,
-    generator_x: C::F,
-    generator_y: C::F,
-    divisor: Divisor,
-    dlog_knowledge: Vec<Variable>,
-    x: Variable,
-    y: Variable,
+    claim: ClaimedPointWithDlog<C::F>,
   ) -> OnCurve {
     // For now, we use the more expensive Discrete Log instead of attempting any more optimized
     // versions of this gadget
-    self.discrete_log(transcript, curve, generator_x, generator_y, divisor, dlog_knowledge, x, y)
+    self.discrete_log(transcript, curve, claim)
   }
 }

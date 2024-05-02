@@ -3,18 +3,20 @@ use ciphersuite::{group::ff::Field, Ciphersuite};
 use crate::*;
 
 mod interactive;
+pub(crate) use interactive::*;
 
 /// A Short Weierstrass curve specification for a towered curve.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct CurveSpec<F> {
-  a: F,
-  b: F,
+  pub(crate) a: F,
+  pub(crate) b: F,
 }
 
 /// A struct for a point on a towered curve which has been confirmed to be on-curve.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct OnCurve {
-  x: Variable,
-  y: Variable,
+  pub(crate) x: Variable,
+  pub(crate) y: Variable,
 }
 
 // mmadd-1998-cmo
@@ -66,7 +68,7 @@ impl<C: Ciphersuite> Circuit<C> {
   /// Constrain an item as being a member of a list.
   ///
   /// Panics if the list is empty.
-  fn member_of_list(&mut self, member: LinComb<C::F>, list: Vec<LinComb<C::F>>) {
+  pub(crate) fn member_of_list(&mut self, member: LinComb<C::F>, list: Vec<LinComb<C::F>>) {
     let mut list = list.into_iter();
 
     // Initialize the carry to the first list member minus the claimed member
@@ -89,7 +91,11 @@ impl<C: Ciphersuite> Circuit<C> {
   }
 
   /// Constrain an x and y coordinate as being on curve to a towered elliptic curve.
-  fn on_curve(&mut self, curve: &CurveSpec<C::F>, x: Variable, y: Variable) -> OnCurve {
+  pub(crate) fn on_curve(
+    &mut self,
+    curve: &CurveSpec<C::F>,
+    (x, y): (Variable, Variable),
+  ) -> OnCurve {
     let x_eval = self.eval(&LinComb::from(x));
     let (_x, _x_2, x2) =
       self.mul(Some(LinComb::from(x)), Some(LinComb::from(x)), x_eval.map(|x| (x, x)));
@@ -106,8 +112,54 @@ impl<C: Ciphersuite> Circuit<C> {
     OnCurve { x, y }
   }
 
+  /// Perform checked incomplete addition for a public point and an on-curve point.
+  // TODO: Do we need to constrain c on-curve? That may be redundant
+  pub(crate) fn incomplete_add_pub(&mut self, a: (C::F, C::F), b: OnCurve, c: OnCurve) -> OnCurve {
+    // Check b.x != a.0 by checking b.x - a.0 has an inverse
+    {
+      let lincomb = LinComb::from(b.x) + &LinComb::empty().constant(a.0);
+      let eval = self.eval(&lincomb);
+      self.inverse(Some(lincomb), eval);
+    }
+
+    let (x0, y0) = (a.0, a.1);
+    let (x1, y1) = (b.x, b.y);
+    let (x2, y2) = (c.x, c.y);
+
+    let slope_eval = self.eval(&LinComb::from(x1)).map(|x1| {
+      let y1 = self.eval(&LinComb::from(b.y)).unwrap();
+
+      (y1 - y0) * (x1 - x0).invert().unwrap()
+    });
+
+    // slope * (x1 - x0) = y1 - y0
+    let x1_minus_x0 = LinComb::from(x1).constant(x0);
+    let x1_minus_x0_eval = self.eval(&x1_minus_x0);
+    let (slope, _r, o) =
+      self.mul(None, Some(x1_minus_x0), slope_eval.map(|slope| (slope, x1_minus_x0_eval.unwrap())));
+    self.equality(LinComb::from(o), &LinComb::from(y1).constant(y0));
+
+    // slope * (x2 - x0) = -y2 - y0
+    let x2_minus_x0 = LinComb::from(x2).constant(x0);
+    let x2_minus_x0_eval = self.eval(&x2_minus_x0);
+    let (_slope, _x2_minus_x0, o) = self.mul(
+      Some(slope.into()),
+      Some(x2_minus_x0),
+      slope_eval.map(|slope| (slope, x2_minus_x0_eval.unwrap())),
+    );
+    self.equality(o.into(), &LinComb::empty().term(-C::F::ONE, y2).constant(y0));
+
+    // slope * slope = x0 + x1 + x2
+    let (_slope, _slope_2, o) =
+      self.mul(Some(slope.into()), Some(slope.into()), slope_eval.map(|slope| (slope, slope)));
+    self.equality(o.into(), &LinComb::from(x1).term(C::F::ONE, x2).constant(-x0));
+
+    OnCurve { x: x2, y: y2 }
+  }
+
   /// Perform checked incomplete addition for two on-curve points.
-  fn incomplete_add(&mut self, a: OnCurve, b: OnCurve, x2: Variable, y2: Variable) -> OnCurve {
+  // TODO: Do we need to constrain c on-curve? That may be redundant
+  fn incomplete_add(&mut self, a: OnCurve, b: OnCurve, c: OnCurve) -> OnCurve {
     self.inequality(
       a.x,
       b.x,
@@ -116,6 +168,7 @@ impl<C: Ciphersuite> Circuit<C> {
 
     let (x0, y0) = (a.x, a.y);
     let (x1, y1) = (b.x, b.y);
+    let (x2, y2) = (c.x, c.y);
 
     let slope_eval = self.eval(&LinComb::from(a.x)).map(|x0| {
       let y0 = self.eval(&LinComb::from(a.y)).unwrap();
@@ -153,7 +206,7 @@ impl<C: Ciphersuite> Circuit<C> {
   /// Constrain a `y` coordinate as being permissible.
   ///
   /// Panics if the prover and the `y` coordinate isn't permissible.
-  fn permissible(&mut self, a: C::F, b: C::F, y: Variable) {
+  pub(crate) fn permissible(&mut self, a: C::F, b: C::F, y: Variable) {
     // a y - -b = ay + b
     let p = LinComb::empty().term(a, y).constant(-b);
     let p_eval = self.eval(&p);

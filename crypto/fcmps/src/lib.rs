@@ -1,9 +1,12 @@
+use transcript::Transcript;
+
 use ciphersuite::{group::ff::Field, Ciphersuite};
 
 mod lincomb;
 use lincomb::*;
 
 mod gadgets;
+use gadgets::*;
 
 /// The witness for the satisfaction of this circuit.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -81,5 +84,79 @@ impl<C: Ciphersuite> Circuit<C> {
     }
 
     (l, r, o)
+  }
+
+  #[allow(non_snake_case, clippy::too_many_arguments)]
+  pub(crate) fn first_layer<T: Transcript>(
+    &mut self,
+    transcript: &mut T,
+    curve: &CurveSpec<C::F>,
+
+    O_tilde: (C::F, C::F),
+    o_blind: ClaimedPointWithDlog<C::F>,
+    O: (Variable, Variable),
+
+    I_tilde: (C::F, C::F),
+    i_blind_u: ClaimedPointWithDlog<C::F>,
+    I: (Variable, Variable),
+
+    R: (C::F, C::F),
+    i_blind_v: ClaimedPointWithDlog<C::F>,
+    i_blind_blind: ClaimedPointWithDlog<C::F>,
+
+    C_tilde: (C::F, C::F),
+    c_blind: ClaimedPointWithDlog<C::F>,
+    C: (Variable, Variable),
+
+    branch: Vec<Vec<Variable>>,
+  ) {
+    let o_blind = self.discrete_log_pok(transcript, curve, o_blind);
+    let O = self.on_curve(curve, O);
+    self.incomplete_add_pub(O_tilde, o_blind, O);
+
+    // This cannot simply be removed in order to cheat this proof
+    // The discrete logarithms we assert equal are actually asserting the variables we use to refer
+    // to the discrete logarithms are equal
+    // If a dishonest prover removes this assertion and passes two different sets of variables,
+    // they'll generate a different circuit
+    // An honest verifier will generate the intended circuit (using a consistent set of variables)
+    // and still reject such proofs
+    // This check only exists for sanity/safety to ensure an honest verifier doesn't mis-call this
+    assert_eq!(
+      i_blind_u.dlog, i_blind_v.dlog,
+      "first layer passed differing variables for the dlog"
+    );
+
+    let i_blind_u = self.discrete_log(transcript, curve, i_blind_u);
+    let I = self.on_curve(curve, I);
+    self.incomplete_add_pub(I_tilde, i_blind_u, I);
+
+    let i_blind_v = self.discrete_log(transcript, curve, i_blind_v);
+    let i_blind_blind = self.discrete_log_pok(transcript, curve, i_blind_blind);
+    self.incomplete_add_pub(R, i_blind_blind, i_blind_v);
+
+    let c_blind = self.discrete_log_pok(transcript, curve, c_blind);
+    let C = self.on_curve(curve, C);
+    self.incomplete_add_pub(C_tilde, c_blind, C);
+
+    self.permissible(C::F::ONE, C::F::ONE, O.y);
+    self.permissible(C::F::ONE, C::F::ONE, C.y);
+    self.tuple_member_of_list(transcript, vec![O.x, I.x, I.y, C.x], branch);
+  }
+
+  pub(crate) fn additional_layer<T: Transcript>(
+    &mut self,
+    transcript: &mut T,
+    curve: &CurveSpec<C::F>,
+    blinded_hash: (C::F, C::F),
+    blind: ClaimedPointWithDlog<C::F>,
+    hash: (Variable, Variable),
+    branch: Vec<Variable>,
+  ) {
+    let blind = self.discrete_log_pok(transcript, curve, blind);
+    let hash = self.on_curve(curve, hash);
+    self.incomplete_add_pub(blinded_hash, blind, hash);
+    self.permissible(C::F::ONE, C::F::ONE, hash.y);
+    self.member_of_list(hash.x.into(), branch.into_iter().map(Into::into).collect::<Vec<_>>());
   }
 }
