@@ -59,8 +59,8 @@ impl<C: Ciphersuite> Circuit<C> {
   }
 
   /// Constrain two items as inequal.
-  fn inequality(&mut self, a: Variable, b: Variable, witness: Option<(C::F, C::F)>) {
-    let l_constraint = LinComb::from(a).term(-C::F::ONE, b);
+  fn inequality(&mut self, a: LinComb<C::F>, b: &LinComb<C::F>, witness: Option<(C::F, C::F)>) {
+    let l_constraint = a - b;
     // The existence of a multiplicative inverse means a-b != 0, which means a != b
     self.inverse(Some(l_constraint), witness.map(|(a, b)| a - b));
   }
@@ -115,11 +115,11 @@ impl<C: Ciphersuite> Circuit<C> {
   /// Perform checked incomplete addition for a public point and an on-curve point.
   // TODO: Do we need to constrain c on-curve? That may be redundant
   pub(crate) fn incomplete_add_pub(&mut self, a: (C::F, C::F), b: OnCurve, c: OnCurve) -> OnCurve {
-    // Check b.x != a.0 by checking b.x - a.0 has an inverse
+    // Check b.x != a.0
     {
-      let lincomb = LinComb::from(b.x) + &LinComb::empty().constant(a.0);
-      let eval = self.eval(&lincomb);
-      self.inverse(Some(lincomb), eval);
+      let bx_lincomb = LinComb::from(b.x);
+      let bx_eval = self.eval(&bx_lincomb);
+      self.inequality(bx_lincomb, &LinComb::empty().constant(-a.0), bx_eval.map(|bx| (bx, a.0)));
     }
 
     let (x0, y0) = (a.0, a.1);
@@ -153,52 +153,6 @@ impl<C: Ciphersuite> Circuit<C> {
     let (_slope, _slope_2, o) =
       self.mul(Some(slope.into()), Some(slope.into()), slope_eval.map(|slope| (slope, slope)));
     self.equality(o.into(), &LinComb::from(x1).term(C::F::ONE, x2).constant(-x0));
-
-    OnCurve { x: x2, y: y2 }
-  }
-
-  /// Perform checked incomplete addition for two on-curve points.
-  // TODO: Do we need to constrain c on-curve? That may be redundant
-  fn incomplete_add(&mut self, a: OnCurve, b: OnCurve, c: OnCurve) -> OnCurve {
-    self.inequality(
-      a.x,
-      b.x,
-      self.eval(&LinComb::from(a.x)).map(|ax| (ax, self.eval(&LinComb::from(b.x)).unwrap())),
-    );
-
-    let (x0, y0) = (a.x, a.y);
-    let (x1, y1) = (b.x, b.y);
-    let (x2, y2) = (c.x, c.y);
-
-    let slope_eval = self.eval(&LinComb::from(a.x)).map(|x0| {
-      let y0 = self.eval(&LinComb::from(a.y)).unwrap();
-      let x1 = self.eval(&LinComb::from(b.x)).unwrap();
-      let y1 = self.eval(&LinComb::from(b.y)).unwrap();
-
-      (y1 - y0) * (x1 - x0).invert().unwrap()
-    });
-
-    // slope * (x1 - x0) = y1 - y0
-    let x1_minus_x0 = LinComb::from(x1).term(-C::F::ONE, x0);
-    let x1_minus_x0_eval = self.eval(&x1_minus_x0);
-    let (slope, _r, o) =
-      self.mul(None, Some(x1_minus_x0), slope_eval.map(|slope| (slope, x1_minus_x0_eval.unwrap())));
-    self.equality(LinComb::from(o), &LinComb::from(y1).term(-C::F::ONE, y0));
-
-    // slope * (x2 - x0) = -y2 - y0
-    let x2_minus_x0 = LinComb::from(x2).term(-C::F::ONE, x0);
-    let x2_minus_x0_eval = self.eval(&x2_minus_x0);
-    let (_slope, _x2_minus_x0, o) = self.mul(
-      Some(slope.into()),
-      Some(x2_minus_x0),
-      slope_eval.map(|slope| (slope, x2_minus_x0_eval.unwrap())),
-    );
-    self.equality(o.into(), &LinComb::empty().term(-C::F::ONE, y2).term(-C::F::ONE, y0));
-
-    // slope * slope = x0 + x1 + x2
-    let (_slope, _slope_2, o) =
-      self.mul(Some(slope.into()), Some(slope.into()), slope_eval.map(|slope| (slope, slope)));
-    self.equality(o.into(), &LinComb::from(x0).term(C::F::ONE, x1).term(C::F::ONE, x2));
 
     OnCurve { x: x2, y: y2 }
   }
