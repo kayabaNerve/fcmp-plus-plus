@@ -157,6 +157,7 @@ pub enum TreeRoot<C1: Ciphersuite, C2: Ciphersuite> {
 }
 
 /// The parameters for full-chain membership proofs.
+#[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct FcmpParams<T: 'static + Transcript, OC: Ciphersuite, C1: Ciphersuite, C2: Ciphersuite> {
   /// The towered curve, defined over the initial curve's scalar field.
@@ -171,13 +172,9 @@ pub struct FcmpParams<T: 'static + Transcript, OC: Ciphersuite, C1: Ciphersuite,
   /// Generators for the second curve.
   curve_two_generators: Generators<T, C2>,
 
-  #[allow(non_snake_case)]
   G: OC::G,
-  #[allow(non_snake_case)]
   T: OC::G,
-  #[allow(non_snake_case)]
   U: OC::G,
-  #[allow(non_snake_case)]
   V: OC::G,
 }
 
@@ -208,10 +205,16 @@ where
 {
   fn transcript<T: Transcript>(
     transcript: &mut T,
+    tree: TreeRoot<C1, C2>,
     input: Input<C1::F>,
-    commitments_1: Vec<C1::G>,
-    commitments_2: Vec<C2::G>,
+    commitments_1: &[C1::G],
+    commitments_2: &[C2::G],
   ) {
+    // Transcript the tree root
+    match tree {
+      TreeRoot::C1(p) => transcript.append_message(b"root_1", p.to_bytes()),
+      TreeRoot::C2(p) => transcript.append_message(b"root_2", p.to_bytes()),
+    }
     // Transcript the input tuple
     transcript.append_message(b"O_tilde_x", input.O_tilde.0.to_repr());
     transcript.append_message(b"O_tilde_y", input.O_tilde.1.to_repr());
@@ -243,6 +246,8 @@ where
   where
     OC::G: DivisorCurve<FieldElement = C1::F>,
   {
+    let leaves_len = branches.leaves.len();
+
     // Re-format the leaves into the expected branch format
     let mut branches_1 = vec![vec![]];
     for leaf in branches.leaves {
@@ -380,7 +385,7 @@ where
     // as all existing commitments are in use)
 
     // Calculate all of the PVCs and transcript them
-    {
+    let calculated_commitments = {
       fn calc_commitments<T: Transcript, C: Ciphersuite>(
         generators: &Generators<T, C>,
         branches: Vec<Vec<C::F>>,
@@ -418,41 +423,24 @@ where
         interactive_witness_2_blinds.clone(),
       );
 
-      Self::transcript(transcript, output_blinds.input, commitments_1, commitments_2);
-    }
+      Self::transcript(transcript, tree, output_blinds.input, &commitments_1, &commitments_2);
+      (commitments_1, commitments_2)
+    };
 
     // Create the circuits
     let branches_1_len = branches_1.len();
     let mut all_commitments_1 = branches_1;
     all_commitments_1.append(&mut interactive_witness_1);
-    let mut c1_circuit = Circuit::<C1>::prove(all_commitments_1);
+    // TODO: Only clone branches_1
+    let mut c1_circuit = Circuit::<C1>::prove(all_commitments_1.clone());
 
+    let branches_2_len = branches_2.len();
     let mut all_commitments_2 = branches_2;
     all_commitments_2.append(&mut interactive_witness_2);
-    let mut c2_circuit = Circuit::<C2>::prove(all_commitments_2);
+    let mut c2_circuit = Circuit::<C2>::prove(all_commitments_2.clone());
 
-    /*
-
-    #[derive(Clone, PartialEq, Eq, Debug)]
-    pub(crate) struct Divisor {
-      y: Variable,
-      yx: Vec<Variable>,
-      x_from_power_of_2: Vec<Variable>,
-      zero: Variable,
-    }
-
-    /// A claimed point and associated discrete logarithm claim.
-    #[derive(Clone, PartialEq, Eq, Debug)]
-    pub(crate) struct ClaimedPointWithDlog<F: Field> {
-      generator: (F, F),
-      divisor: Divisor,
-      pub(crate) dlog: Vec<Variable>,
-      point: (Variable, Variable),
-    }
-    */
-
-    let cpwd = |G, dlog_commitment, divisor_commitment| ClaimedPointWithDlog {
-      generator: OC::G::to_xy(G),
+    let cpwd = |generator, dlog_commitment, divisor_commitment| ClaimedPointWithDlog {
+      generator,
       divisor: Divisor {
         y: Variable::C(dlog_commitment, 0),
         yx: (1 .. (1 + 126)).map(|i| Variable::C(dlog_commitment, i)).collect(),
@@ -466,26 +454,78 @@ where
     };
 
     // Perform the layers
+    let (ox, oy, _) = c1_circuit.mul(None, None, Some(OC::G::to_xy(output.O)));
+    let (ix, iy, _) = c1_circuit.mul(None, None, Some(OC::G::to_xy(output.I)));
+    let (cx, cy, _) = c1_circuit.mul(None, None, Some(OC::G::to_xy(output.C)));
     c1_circuit.first_layer(
       transcript,
       &params.towered,
       output_blinds.input.O_tilde,
       // TODO: Create an iter to read these divisors
-      cpwd(params.T, branches_1_len, branches_1_len + 1),
-      todo!("O point"),
+      cpwd(OC::G::to_xy(params.T), branches_1_len, branches_1_len + 1),
+      (ox, oy),
       output_blinds.input.I_tilde,
-      cpwd(params.U, branches_1_len + 2, branches_1_len + 3),
-      todo!("I point"),
+      cpwd(OC::G::to_xy(params.U), branches_1_len + 2, branches_1_len + 3),
+      (ix, iy),
       output_blinds.input.R,
-      cpwd(params.V, branches_1_len + 2, branches_1_len + 4),
-      cpwd(params.T, branches_1_len + 5, branches_1_len + 6),
+      cpwd(OC::G::to_xy(params.V), branches_1_len + 2, branches_1_len + 4),
+      cpwd(OC::G::to_xy(params.T), branches_1_len + 5, branches_1_len + 6),
       output_blinds.input.C_tilde,
-      cpwd(params.G, branches_1_len + 7, branches_1_len + 8),
-      todo!("C point"),
-      (0 .. (all_commitments_1[0].len() / 4))
+      cpwd(OC::G::to_xy(params.G), branches_1_len + 7, branches_1_len + 8),
+      (cx, cy),
+      (0 .. leaves_len)
         .map(|i| (0 .. 4).map(|j| Variable::C(0, (i * 4) + j)).collect::<Vec<_>>())
         .collect(),
     );
+    for i in 1 .. branches_1_len {
+      let unblinded_hash = calculated_commitments.1[i - 1] -
+        (params.curve_two_generators.h() * branches_2_blinds[i - 1]);
+      let (hash_x, hash_y, _) = c1_circuit.mul(None, None, Some(C2::G::to_xy(unblinded_hash)));
+      c1_circuit.additional_layer(
+        transcript,
+        &params.secondary,
+        C2::G::to_xy(calculated_commitments.1[i - 1]),
+        cpwd(
+          C2::G::to_xy(params.curve_two_generators.h()),
+          branches_1_len + (2 * (i - 1)) + 9,
+          branches_1_len + (2 * (i - 1)) + 10,
+        ),
+        (hash_x, hash_y),
+        (0 .. all_commitments_1[i].len()).map(|j| Variable::C(i, j)).collect(),
+      );
+    }
+
+    let cpwd = |generator, dlog_commitment, divisor_commitment| ClaimedPointWithDlog {
+      generator,
+      divisor: Divisor {
+        y: Variable::C(dlog_commitment, 0),
+        yx: (1 .. (1 + 126)).map(|i| Variable::C(dlog_commitment, i)).collect(),
+        x_from_power_of_2: ((1 + 126) .. (1 + 126 + 127))
+          .map(|i| Variable::C(dlog_commitment, i))
+          .collect(),
+        zero: Variable::C(dlog_commitment, 254),
+      },
+      dlog: (0 .. 255).map(|i| Variable::C(dlog_commitment, i)).collect(),
+      point: (Variable::C(dlog_commitment, 255), Variable::C(divisor_commitment, 255)),
+    };
+
+    for i in 0 .. branches_2_len {
+      let unblinded_hash =
+        calculated_commitments.0[i] - (params.curve_one_generators.h() * branches_1_blinds[i]);
+      let (hash_x, hash_y, _) = c2_circuit.mul(None, None, Some(C1::G::to_xy(unblinded_hash)));
+      c2_circuit.additional_layer(
+        transcript,
+        &params.initial,
+        C1::G::to_xy(calculated_commitments.0[i]),
+        cpwd(
+          C1::G::to_xy(params.curve_one_generators.h()),
+          branches_2_len + (2 * i),
+          branches_2_len + (2 * i) + 1,
+        ),
+        (hash_x, hash_y),
+        (0 .. all_commitments_2[i].len()).map(|j| Variable::C(i, j)).collect(),
+      );
+    }
 
     // Escape to the raw weights to form a GBP with
     todo!("TODO")
