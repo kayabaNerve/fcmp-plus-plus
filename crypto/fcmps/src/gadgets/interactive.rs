@@ -217,7 +217,7 @@ impl<C: Ciphersuite> Circuit<C> {
     claim: ClaimedPointWithDlog<C::F>,
   ) -> OnCurve {
     let ClaimedPointWithDlog { mut generator, divisor, dlog, point } = claim;
-    assert_eq!(dlog.len(), <C::F as PrimeField>::CAPACITY.try_into().unwrap());
+    assert_eq!(dlog.len(), <C::F as PrimeField>::NUM_BITS.try_into().unwrap());
 
     // Ensure this is being safely called
     let arg_iter = core::iter::once(&divisor.y).chain(divisor.yx.iter());
