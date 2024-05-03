@@ -26,7 +26,7 @@ pub(crate) use circuit::*;
 
 /// The blinds used with an output.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Blinds<F: PrimeFieldBits> {
+pub struct OutputBlinds<F: PrimeFieldBits> {
   o_blind: F,
   i_blind: F,
   i_blind_blind: F,
@@ -74,12 +74,14 @@ impl<F: PrimeFieldBits> PreparedBlind<F> {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PreparedBlinds<F: PrimeFieldBits> {
   o_blind: PreparedBlind<F>,
-  i_blind: PreparedBlind<F>,
+  i_blind_u: PreparedBlind<F>,
+  i_blind_v: PreparedBlind<F>,
   i_blind_blind: PreparedBlind<F>,
   c_blind: PreparedBlind<F>,
+  input: Input<F>,
 }
 
-impl<F: PrimeFieldBits> Blinds<F> {
+impl<F: PrimeFieldBits> OutputBlinds<F> {
   pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
     let o_blind = F::random(&mut *rng);
     let i_blind = F::random(&mut *rng);
@@ -91,16 +93,39 @@ impl<F: PrimeFieldBits> Blinds<F> {
     let i_blind = -i_blind;
     let c_blind = -c_blind;
 
-    Blinds { o_blind, i_blind, i_blind_blind, c_blind }
+    OutputBlinds { o_blind, i_blind, i_blind_blind, c_blind }
   }
 
-  pub fn prepare(&self) -> PreparedBlinds<F> {
-    let prepare = |blind: F| todo!("TODO");
+  #[allow(non_snake_case)]
+  pub fn prepare<C: Ciphersuite<F = F>>(
+    &self,
+    G: C::G,
+    T: C::G,
+    U: C::G,
+    V: C::G,
+    output: Output<C>,
+  ) -> PreparedBlinds<<C::G as DivisorCurve>::FieldElement>
+  where
+    C::G: DivisorCurve,
+    <C::G as DivisorCurve>::FieldElement: PrimeFieldBits,
+  {
+    let O_tilde = output.O + (T * self.o_blind);
+    let I_tilde = output.I + (U * self.i_blind);
+    let R = (V * self.i_blind) + (T * self.i_blind_blind);
+    let C_tilde = output.C + (G * self.c_blind);
+
     PreparedBlinds {
-      o_blind: prepare(self.o_blind),
-      i_blind: prepare(self.i_blind),
-      i_blind_blind: prepare(self.i_blind_blind),
-      c_blind: prepare(self.c_blind),
+      o_blind: PreparedBlind::new::<C>(T, self.o_blind),
+      i_blind_u: PreparedBlind::new::<C>(U, self.i_blind),
+      i_blind_v: PreparedBlind::new::<C>(V, self.i_blind),
+      i_blind_blind: PreparedBlind::new::<C>(T, self.i_blind_blind),
+      c_blind: PreparedBlind::new::<C>(G, self.c_blind),
+      input: Input {
+        O_tilde: C::G::to_xy(O_tilde),
+        I_tilde: C::G::to_xy(I_tilde),
+        R: C::G::to_xy(R),
+        C_tilde: C::G::to_xy(C_tilde),
+      },
     }
   }
 }
@@ -108,10 +133,10 @@ impl<F: PrimeFieldBits> Blinds<F> {
 /// A struct representing an output tuple.
 #[allow(non_snake_case)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Output<F: Field> {
-  O: (F, F),
-  I: (F, F),
-  C: (F, F),
+pub struct Output<OC: Ciphersuite> {
+  O: OC::G,
+  I: OC::G,
+  C: OC::G,
 }
 
 /// A struct representing an input tuple.
@@ -133,7 +158,7 @@ pub enum TreeRoot<C1: Ciphersuite, C2: Ciphersuite> {
 
 /// The parameters for full-chain membership proofs.
 #[derive(Clone, Debug)]
-pub struct FcmpParams<T: 'static + Transcript, C1: Ciphersuite, C2: Ciphersuite> {
+pub struct FcmpParams<T: 'static + Transcript, OC: Ciphersuite, C1: Ciphersuite, C2: Ciphersuite> {
   /// The towered curve, defined over the initial curve's scalar field.
   towered: CurveSpec<C1::F>,
   /// The initial curve, defined over the secondary curve's scalar field.
@@ -145,11 +170,26 @@ pub struct FcmpParams<T: 'static + Transcript, C1: Ciphersuite, C2: Ciphersuite>
   curve_one_generators: Generators<T, C1>,
   /// Generators for the second curve.
   curve_two_generators: Generators<T, C2>,
+
+  #[allow(non_snake_case)]
+  G: OC::G,
+  #[allow(non_snake_case)]
+  T: OC::G,
+  #[allow(non_snake_case)]
+  U: OC::G,
+  #[allow(non_snake_case)]
+  V: OC::G,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Branches<C1: Ciphersuite, C2: Ciphersuite> {
-  leaves: Vec<Output<C1::F>>,
+pub struct Branches<
+  OC: Ciphersuite,
+  C1: Ciphersuite<F = <OC::G as DivisorCurve>::FieldElement>,
+  C2: Ciphersuite,
+> where
+  OC::G: DivisorCurve,
+{
+  leaves: Vec<Output<OC>>,
   curve_2_layers: Vec<Vec<C2::F>>,
   curve_1_layers: Vec<Vec<C1::F>>,
 }
@@ -191,24 +231,64 @@ where
     }
   }
 
-  pub fn prove<R: RngCore + CryptoRng, T: Transcript>(
+  pub fn prove<R: RngCore + CryptoRng, T: Transcript, OC: Ciphersuite>(
     rng: &mut R,
     transcript: &mut T,
-    params: &FcmpParams<T, C1, C2>,
+    params: &FcmpParams<T, OC, C1, C2>,
     tree: TreeRoot<C1, C2>,
-    output: Output<C1::F>,
+    output: Output<OC>,
     output_blinds: PreparedBlinds<C1::F>,
-    mut branches: Branches<C1, C2>,
-  ) -> Self {
+    mut branches: Branches<OC, C1, C2>,
+  ) -> Self
+  where
+    OC::G: DivisorCurve<FieldElement = C1::F>,
+  {
     // Re-format the leaves into the expected branch format
     let mut branches_1 = vec![vec![]];
     for leaf in branches.leaves {
-      branches_1[0].extend(&[leaf.O.0, leaf.I.0, leaf.I.1, leaf.C.0]);
+      branches_1[0].extend(&[
+        OC::G::to_xy(leaf.O).0,
+        OC::G::to_xy(leaf.I).0,
+        OC::G::to_xy(leaf.I).1,
+        OC::G::to_xy(leaf.C).0,
+      ]);
     }
 
     // Append the rest of the branches
     let branches_2 = branches.curve_2_layers;
     branches_1.append(&mut branches.curve_1_layers);
+
+    // Accumulate a divisor
+    fn accum_divisor<C: Ciphersuite>(divisor: Poly<C::F>) -> Vec<C::F> {
+      // Divisor y
+      // This takes 1 slot
+      let mut divisor_witness = vec![];
+      divisor_witness.push(*divisor.y_coefficients.first().unwrap_or(&C::F::ZERO));
+
+      // Divisor yx
+      // We allocate 126 slots for this
+      let empty_vec = vec![];
+      let yx = divisor.yx_coefficients.first().unwrap_or(&empty_vec);
+      assert!(yx.len() <= 126);
+      for i in 0 .. 126 {
+        divisor_witness.push(*yx.get(i).unwrap_or(&C::F::ZERO));
+      }
+
+      // Divisor x
+      assert!(divisor.x_coefficients.len() <= 128);
+      assert_eq!(divisor.x_coefficients[0], C::F::ONE);
+      // Transcript from 1 given we expect a normalization of the first coefficient
+      // We allocate 127 slots for this
+      for i in 1 .. 128 {
+        divisor_witness.push(*divisor.x_coefficients.get(i).unwrap_or(&C::F::ZERO));
+      }
+
+      // Divisor 0
+      // This takes 1 slot
+      divisor_witness.push(divisor.zero_coefficient);
+
+      divisor_witness
+    }
 
     // Accumulate a blind into a witness vector
     fn accum_blind<C: Ciphersuite>(
@@ -228,32 +308,8 @@ where
         });
       }
 
-      // Divisor y
-      // This takes 1 slot
-      let mut divisor_witness = vec![];
-      divisor_witness.push(*prepared_blind.divisor.y_coefficients.first().unwrap_or(&C::F::ZERO));
-
-      // Divisor yx
-      // We allocate 126 slots for this
-      let empty_vec = vec![];
-      let yx = prepared_blind.divisor.yx_coefficients.first().unwrap_or(&empty_vec);
-      assert!(yx.len() <= 126);
-      for i in 0 .. 126 {
-        divisor_witness.push(*yx.get(i).unwrap_or(&C::F::ZERO));
-      }
-
-      // Divisor x
-      assert!(prepared_blind.divisor.x_coefficients.len() <= 128);
-      assert_eq!(prepared_blind.divisor.x_coefficients[0], C::F::ONE);
-      // Transcript from 1 given we expect a normalization of the first coefficient
-      // We allocate 127 slots for this
-      for i in 1 .. 128 {
-        divisor_witness.push(*prepared_blind.divisor.x_coefficients.get(i).unwrap_or(&C::F::ZERO));
-      }
-
-      // Divisor 0
-      // This takes 1 slot
-      divisor_witness.push(prepared_blind.divisor.zero_coefficient);
+      // Divisor
+      let mut divisor_witness = accum_divisor::<C>(prepared_blind.divisor);
 
       assert_eq!(bit_witness.len(), 255);
       assert_eq!(divisor_witness.len(), 255);
@@ -291,7 +347,8 @@ where
     let mut interactive_witness_1 = vec![];
     let mut interactive_witness_1_blinds = vec![];
     accum_blind::<C1>(&mut interactive_witness_1, output_blinds.o_blind);
-    accum_blind::<C1>(&mut interactive_witness_1, output_blinds.i_blind);
+    accum_blind::<C1>(&mut interactive_witness_1, output_blinds.i_blind_u);
+    interactive_witness_1.push(accum_divisor::<C1>(output_blinds.i_blind_v.divisor));
     accum_blind::<C1>(&mut interactive_witness_1, output_blinds.i_blind_blind);
     accum_blind::<C1>(&mut interactive_witness_1, output_blinds.c_blind);
     // We open the blinds from the other curve
@@ -324,8 +381,6 @@ where
 
     // Calculate all of the PVCs and transcript them
     {
-      let input = todo!("TODO");
-
       fn calc_commitments<T: Transcript, C: Ciphersuite>(
         generators: &Generators<T, C>,
         branches: Vec<Vec<C::F>>,
@@ -363,45 +418,74 @@ where
         interactive_witness_2_blinds.clone(),
       );
 
-      Self::transcript(transcript, input, commitments_1, commitments_2);
+      Self::transcript(transcript, output_blinds.input, commitments_1, commitments_2);
     }
 
     // Create the circuits
+    let branches_1_len = branches_1.len();
     let mut all_commitments_1 = branches_1;
     all_commitments_1.append(&mut interactive_witness_1);
-    let c1_circuit = Circuit::<C1>::prove(all_commitments_1);
+    let mut c1_circuit = Circuit::<C1>::prove(all_commitments_1);
 
     let mut all_commitments_2 = branches_2;
     all_commitments_2.append(&mut interactive_witness_2);
-    let c2_circuit = Circuit::<C2>::prove(all_commitments_2);
+    let mut c2_circuit = Circuit::<C2>::prove(all_commitments_2);
+
+    /*
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub(crate) struct Divisor {
+      y: Variable,
+      yx: Vec<Variable>,
+      x_from_power_of_2: Vec<Variable>,
+      zero: Variable,
+    }
+
+    /// A claimed point and associated discrete logarithm claim.
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub(crate) struct ClaimedPointWithDlog<F: Field> {
+      generator: (F, F),
+      divisor: Divisor,
+      pub(crate) dlog: Vec<Variable>,
+      point: (Variable, Variable),
+    }
+    */
+
+    let cpwd = |G, dlog_commitment, divisor_commitment| ClaimedPointWithDlog {
+      generator: OC::G::to_xy(G),
+      divisor: Divisor {
+        y: Variable::C(dlog_commitment, 0),
+        yx: (1 .. (1 + 126)).map(|i| Variable::C(dlog_commitment, i)).collect(),
+        x_from_power_of_2: ((1 + 126) .. (1 + 126 + 127))
+          .map(|i| Variable::C(dlog_commitment, i))
+          .collect(),
+        zero: Variable::C(dlog_commitment, 254),
+      },
+      dlog: (0 .. 255).map(|i| Variable::C(dlog_commitment, i)).collect(),
+      point: (Variable::C(dlog_commitment, 255), Variable::C(divisor_commitment, 255)),
+    };
 
     // Perform the layers
-    todo!("TODO");
-    /*
-    first_layer
-      &mut self,
-      transcript: &mut T,
-      curve: &CurveSpec<C::F>,
-
-      O_tilde: (C::F, C::F),
-      o_blind: ClaimedPointWithDlog<C::F>,
-      O: (Variable, Variable),
-
-      I_tilde: (C::F, C::F),
-      i_blind_u: ClaimedPointWithDlog<C::F>,
-      I: (Variable, Variable),
-
-      R: (C::F, C::F),
-      i_blind_v: ClaimedPointWithDlog<C::F>,
-      i_blind_blind: ClaimedPointWithDlog<C::F>,
-
-      C_tilde: (C::F, C::F),
-      c_blind: ClaimedPointWithDlog<C::F>,
-      C: (Variable, Variable),
-
-      branch: Vec<Vec<Variable>>,
-    )
-    */
+    c1_circuit.first_layer(
+      transcript,
+      &params.towered,
+      output_blinds.input.O_tilde,
+      // TODO: Create an iter to read these divisors
+      cpwd(params.T, branches_1_len, branches_1_len + 1),
+      todo!("O point"),
+      output_blinds.input.I_tilde,
+      cpwd(params.U, branches_1_len + 2, branches_1_len + 3),
+      todo!("I point"),
+      output_blinds.input.R,
+      cpwd(params.V, branches_1_len + 2, branches_1_len + 4),
+      cpwd(params.T, branches_1_len + 5, branches_1_len + 6),
+      output_blinds.input.C_tilde,
+      cpwd(params.G, branches_1_len + 7, branches_1_len + 8),
+      todo!("C point"),
+      (0 .. (all_commitments_1[0].len() / 4))
+        .map(|i| (0 .. 4).map(|j| Variable::C(0, (i * 4) + j)).collect::<Vec<_>>())
+        .collect(),
+    );
 
     // Escape to the raw weights to form a GBP with
     todo!("TODO")

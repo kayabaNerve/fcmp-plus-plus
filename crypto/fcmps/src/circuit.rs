@@ -31,12 +31,12 @@ pub(crate) struct Circuit<C: Ciphersuite> {
 
 impl<C: Ciphersuite> Circuit<C> {
   // Create an instance to prove with.
-  pub(crate) fn prove(C: Vec<Vec<C::F>>) -> Self {
+  pub(crate) fn prove(commitments: Vec<Vec<C::F>>) -> Self {
     Self {
       muls: 0,
-      commitments: C.len(),
+      commitments: commitments.len(),
       constraints: vec![],
-      prover: Some(ProverData { aL: vec![], aR: vec![], C }),
+      prover: Some(ProverData { aL: vec![], aR: vec![], C: commitments }),
     }
   }
 

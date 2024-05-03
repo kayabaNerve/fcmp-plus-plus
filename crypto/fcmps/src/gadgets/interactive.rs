@@ -12,19 +12,19 @@ use crate::{
 /// The coefficient for x**1 is explicitly excluded.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) struct Divisor {
-  y: Variable,
-  yx: Vec<Variable>,
-  x_from_power_of_2: Vec<Variable>,
-  zero: Variable,
+  pub(crate) y: Variable,
+  pub(crate) yx: Vec<Variable>,
+  pub(crate) x_from_power_of_2: Vec<Variable>,
+  pub(crate) zero: Variable,
 }
 
 /// A claimed point and associated discrete logarithm claim.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) struct ClaimedPointWithDlog<F: Field> {
-  generator: (F, F),
-  divisor: Divisor,
+  pub(crate) generator: (F, F),
+  pub(crate) divisor: Divisor,
   pub(crate) dlog: Vec<Variable>,
-  point: (Variable, Variable),
+  pub(crate) point: (Variable, Variable),
 }
 
 impl<C: Ciphersuite> Circuit<C> {
