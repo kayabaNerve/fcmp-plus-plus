@@ -30,6 +30,16 @@ pub(crate) struct Circuit<C: Ciphersuite> {
 }
 
 impl<C: Ciphersuite> Circuit<C> {
+  // Create an instance to prove with.
+  pub(crate) fn prove(C: Vec<Vec<C::F>>) -> Self {
+    Self {
+      muls: 0,
+      commitments: C.len(),
+      constraints: vec![],
+      prover: Some(ProverData { aL: vec![], aR: vec![], C }),
+    }
+  }
+
   /// Evaluate a constraint.
   ///
   /// Yields WL aL + WR aR + WO aO + WC C.

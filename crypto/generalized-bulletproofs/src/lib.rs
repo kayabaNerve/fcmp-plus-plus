@@ -161,6 +161,14 @@ impl<T: 'static + Transcript, C: Ciphersuite> Generators<T, C> {
     self.h
   }
 
+  pub fn g_bold_slice(&self) -> &[C::G] {
+    &self.g_bold
+  }
+
+  pub fn h_bold_slice(&self) -> &[C::G] {
+    &self.h_bold
+  }
+
   /// Reduce a set of generators to the quantity necessary to support a certain amount of
   /// in-circuit multiplications/terms in a Pedersen vector commitment.
   ///
