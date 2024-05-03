@@ -433,7 +433,9 @@ name = "full-chain-membership-proofs"
 version = "0.1.0"
 dependencies = [
  "ciphersuite",
+ "ec-divisors",
  "flexible-transcript",
+ "generalized-bulletproofs",
  "multiexp",
  "rand_core",
  "zeroize",

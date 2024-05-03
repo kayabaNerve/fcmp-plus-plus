@@ -21,6 +21,10 @@ pub(crate) struct OnCurve {
 
 // mmadd-1998-cmo
 fn incomplete_add<F: Field>(x1: F, y1: F, x2: F, y2: F) -> Option<(F, F)> {
+  if x1 == x2 {
+    None?
+  }
+
   let u = y2 - y1;
   let uu = u * u;
   let v = x2 - x1;
@@ -91,7 +95,11 @@ impl<C: Ciphersuite> Circuit<C> {
   }
 
   /// Constrain an x and y coordinate as being on curve to a towered elliptic curve.
-  pub(crate) fn on_curve(&mut self, curve: &CurveSpec<C::F>, (x, y): (Variable, Variable)) -> OnCurve {
+  pub(crate) fn on_curve(
+    &mut self,
+    curve: &CurveSpec<C::F>,
+    (x, y): (Variable, Variable),
+  ) -> OnCurve {
     let x_eval = self.eval(&LinComb::from(x));
     let (_x, _x_2, x2) =
       self.mul(Some(LinComb::from(x)), Some(LinComb::from(x)), x_eval.map(|x| (x, x)));

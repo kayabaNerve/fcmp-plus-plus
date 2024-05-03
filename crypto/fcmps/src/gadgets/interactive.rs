@@ -24,7 +24,7 @@ pub(crate) struct ClaimedPointWithDlog<F: Field> {
   generator: (F, F),
   divisor: Divisor,
   pub(crate) dlog: Vec<Variable>,
-  point: (Variable, Variable)
+  point: (Variable, Variable),
 }
 
 impl<C: Ciphersuite> Circuit<C> {

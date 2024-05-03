@@ -22,6 +22,9 @@ transcript = { package = "flexible-transcript", path = "../transcript", version 
 multiexp = { path = "../multiexp", version = "0.4", default-features = false, features = ["std", "batch"] }
 ciphersuite = { path = "../ciphersuite", version = "0.4", default-features = false, features = ["std"] }
 
+ec-divisors = { path = "../divisors" }
+generalized-bulletproofs = { path = "../generalized-bulletproofs" }
+
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
 
