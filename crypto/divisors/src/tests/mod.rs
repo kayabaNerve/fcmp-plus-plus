@@ -84,7 +84,7 @@ impl DivisorCurve for EdwardsPoint {
 
 fn test_divisor<C: DivisorCurve>() {
   for i in 1 ..= 255 {
-    dbg!(i);
+    println!("Test iteration {i}");
 
     // Select points
     let mut points = vec![];
@@ -92,9 +92,22 @@ fn test_divisor<C: DivisorCurve>() {
       points.push(C::random(&mut OsRng));
     }
     points.push(-points.iter().sum::<C>());
+    println!("Points {}", points.len());
 
     // Create the divisor
     let divisor = new_divisor::<C>(&points).unwrap();
+
+    // For a divisor interpolating 256 points, as one does when interpreting a 255-bit discrete log
+    // with the result of its scalar multiplication against a fixed generator, the lengths of the
+    // yx/x coefficients shouldn't supersede the following bounds
+    assert!((divisor.yx_coefficients.first().unwrap_or(&vec![]).len()) <= 126);
+    assert!((divisor.x_coefficients.len() - 1) <= 127);
+    assert!(
+      (1 + divisor.yx_coefficients.first().unwrap_or(&vec![]).len() +
+        (divisor.x_coefficients.len() - 1) +
+        1) <=
+        255
+    );
 
     // Decide challgenges
     let c0 = C::random(&mut OsRng);
