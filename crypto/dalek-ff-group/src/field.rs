@@ -216,6 +216,11 @@ impl PrimeFieldBits for FieldElement {
 }
 
 impl FieldElement {
+  /// Perform a wide reduction, presumably to obtain a non-biased Helioselene field element.
+  pub fn wide_reduce(bytes: [u8; 64]) -> FieldElement {
+    FieldElement(reduce(U512::from_le_slice(bytes.as_ref())))
+  }
+
   /// Interpret the value as a little-endian integer, square it, and reduce it into a FieldElement.
   pub fn from_square(value: [u8; 32]) -> FieldElement {
     let value = U256::from_le_bytes(value);

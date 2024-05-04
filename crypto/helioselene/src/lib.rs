@@ -5,6 +5,8 @@
 #[macro_use]
 mod backend;
 
+pub use dalek_ff_group::FieldElement as Field25519;
+
 mod field;
 pub use field::HelioseleneField;
 

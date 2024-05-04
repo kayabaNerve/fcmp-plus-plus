@@ -169,6 +169,7 @@ dependencies = [
 name = "ciphersuite"
 version = "0.4.1"
 dependencies = [
+ "blake2",
  "dalek-ff-group",
  "digest",
  "elliptic-curve",
@@ -176,6 +177,7 @@ dependencies = [
  "ff-group-tests",
  "flexible-transcript",
  "group",
+ "helioselene",
  "hex",
  "k256",
  "minimal-ed448",

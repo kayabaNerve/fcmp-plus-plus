@@ -28,6 +28,7 @@ digest = { version = "0.10", default-features = false }
 transcript = { package = "flexible-transcript", path = "../transcript", version = "^0.3.2", default-features = false }
 sha2 = { version = "0.10", default-features = false, optional = true }
 sha3 = { version = "0.10", default-features = false, optional = true }
+blake2 = { version = "0.10", default-features = false, optional = true }
 
 ff = { version = "0.13", default-features = false, features = ["bits"] }
 group = { version = "0.13", default-features = false }
@@ -39,6 +40,8 @@ p256 = { version = "^0.13.1", default-features = false, features = ["arithmetic"
 k256 = { version = "^0.13.1", default-features = false, features = ["arithmetic", "bits", "hash2curve"], optional = true }
 
 minimal-ed448 = { path = "../ed448", version = "0.4", default-features = false, optional = true }
+
+helioselene = { path = "../helioselene", optional = true }
 
 [dev-dependencies]
 hex = { version = "0.4", default-features = false, features = ["std"] }
@@ -81,5 +84,7 @@ p256 = ["kp256", "dep:p256"]
 secp256k1 = ["kp256", "k256"]
 
 ed448 = ["sha3", "minimal-ed448"]
+
+helioselene = ["blake2", "dep:helioselene"]
 
 default = ["std"]

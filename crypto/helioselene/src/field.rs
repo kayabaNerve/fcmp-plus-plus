@@ -36,7 +36,7 @@ field!(
 );
 
 impl HelioseleneField {
-  /// Perform a wide reduction to obtain a non-biased Helioselene.
+  /// Perform a wide reduction, presumably to obtain a non-biased Helioselene field element.
   pub fn wide_reduce(bytes: [u8; 64]) -> HelioseleneField {
     HelioseleneField(Residue::new(&reduce(U512::from_le_slice(bytes.as_ref()))))
   }
