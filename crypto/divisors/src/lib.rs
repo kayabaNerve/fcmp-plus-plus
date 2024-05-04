@@ -154,3 +154,62 @@ pub fn new_divisor<C: DivisorCurve>(points: &[C]) -> Option<Poly<C::FieldElement
   // Return the unified divisor
   Some(divs.remove(0).1)
 }
+
+#[cfg(any(test, feature = "ed25519"))]
+mod ed25519 {
+  use group::{ff::{Field, PrimeField}, GroupEncoding};
+  use dalek_ff_group::{FieldElement, EdwardsPoint};
+
+  impl crate::DivisorCurve for EdwardsPoint {
+    type FieldElement = FieldElement;
+
+    // Wei25519 a/b
+    // https://www.ietf.org/archive/id/draft-ietf-lwig-curve-representations-02.pdf E.3
+    fn a() -> Self::FieldElement {
+      let mut be_bytes =
+        hex::decode("2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa984914a144").unwrap();
+      be_bytes.reverse();
+      let le_bytes = be_bytes;
+      Self::FieldElement::from_repr(le_bytes.try_into().unwrap()).unwrap()
+    }
+    fn b() -> Self::FieldElement {
+      let mut be_bytes =
+        hex::decode("7b425ed097b425ed097b425ed097b425ed097b425ed097b4260b5e9c7710c864").unwrap();
+      be_bytes.reverse();
+      let le_bytes = be_bytes;
+
+      Self::FieldElement::from_repr(le_bytes.try_into().unwrap()).unwrap()
+    }
+
+    // https://www.ietf.org/archive/id/draft-ietf-lwig-curve-representations-02.pdf E.2
+    fn to_xy(point: Self) -> (Self::FieldElement, Self::FieldElement) {
+      // Extract the y coordinate from the compressed point
+      let mut edwards_y = point.to_bytes();
+      let x_is_odd = edwards_y[31] >> 7;
+      edwards_y[31] &= (1 << 7) - 1;
+      let edwards_y = Self::FieldElement::from_repr(edwards_y).unwrap();
+
+      // Recover the x coordinate
+      let edwards_y_sq = edwards_y * edwards_y;
+      let D =
+        -Self::FieldElement::from(121665u64) * Self::FieldElement::from(121666u64).invert().unwrap();
+      let mut edwards_x = ((edwards_y_sq - Self::FieldElement::ONE) *
+        ((D * edwards_y_sq) + Self::FieldElement::ONE).invert().unwrap())
+      .sqrt()
+      .unwrap();
+      if u8::from(bool::from(edwards_x.is_odd())) != x_is_odd {
+        edwards_x = -edwards_x;
+      }
+
+      // Calculate the x and y coordinates for Wei25519
+      let edwards_y_plus_one = Self::FieldElement::ONE + edwards_y;
+      let one_minus_edwards_y = Self::FieldElement::ONE - edwards_y;
+      let wei_x = (edwards_y_plus_one * one_minus_edwards_y.invert().unwrap()) +
+        (Self::FieldElement::from(486662u64) * Self::FieldElement::from(3u64).invert().unwrap());
+      let c =
+        (-(Self::FieldElement::from(486662u64) + Self::FieldElement::from(2u64))).sqrt().unwrap();
+      let wei_y = c * edwards_y_plus_one * (one_minus_edwards_y * edwards_x).invert().unwrap();
+      (wei_x, wei_y)
+    }
+  }
+}

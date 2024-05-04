@@ -33,9 +33,10 @@ impl Ciphersuite for Helios {
   }
 }
 
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
 pub struct Selene;
-impl Ciphersuite for SelenePoint {
+impl Ciphersuite for Selene {
   type F = Field25519;
   type G = SelenePoint;
   type H = Blake2b512;

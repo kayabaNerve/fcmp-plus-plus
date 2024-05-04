@@ -435,9 +435,11 @@ name = "full-chain-membership-proofs"
 version = "0.1.0"
 dependencies = [
  "ciphersuite",
+ "dalek-ff-group",
  "ec-divisors",
  "flexible-transcript",
  "generalized-bulletproofs",
+ "helioselene",
  "multiexp",
  "rand_core",
  "zeroize",
@@ -531,6 +533,7 @@ version = "0.1.0"
 dependencies = [
  "crypto-bigint",
  "dalek-ff-group",
+ "ec-divisors",
  "ff",
  "ff-group-tests",
  "group",

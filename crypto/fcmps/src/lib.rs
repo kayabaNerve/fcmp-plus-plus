@@ -15,15 +15,15 @@ use ciphersuite::{
 use ec_divisors::{Poly, DivisorCurve, new_divisor};
 use generalized_bulletproofs::{Generators, arithmetic_circuit_proof::ArithmeticCircuitProof};
 
-#[allow(unused)] // TODO
 mod lincomb;
 pub(crate) use lincomb::*;
-#[allow(unused)] // TODO
 mod gadgets;
 pub(crate) use gadgets::*;
-#[allow(unused)] // TODO
 mod circuit;
 pub(crate) use circuit::*;
+
+#[cfg(test)]
+mod tests;
 
 /// The variables used for Vector Commitments.
 struct VectorCommitmentTape<F: Zeroize + PrimeFieldBits>(Vec<Vec<F>>);
@@ -65,27 +65,25 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
   /// elements are provided in `padding` than free spaces remaining.
   fn append_dlog(
     &mut self,
+    dlog_bits: usize,
     dlog: Option<Vec<bool>>,
     padding: Option<Vec<F>>,
     extra: Option<F>,
   ) -> (Vec<Variable>, Vec<Variable>, Variable) {
-    assert!(F::NUM_BITS <= 255);
+    assert!(dlog_bits <= 255);
 
     let witness = dlog.map(|dlog| {
       let mut bit_witness = vec![];
-      assert_eq!(dlog.len(), usize::try_from(F::NUM_BITS).unwrap());
-      for i in 0 .. F::NUM_BITS {
-        bit_witness.push(if *dlog.get(usize::try_from(i).unwrap()).unwrap_or(&false) {
-          F::ONE
-        } else {
-          F::ZERO
-        });
+      assert_eq!(dlog.len(), dlog_bits);
+      for i in 0 .. dlog_bits {
+        bit_witness.push(if *dlog.get(i).unwrap_or(&false) { F::ONE } else { F::ZERO });
       }
       let mut witness = bit_witness;
 
       let padding = padding.unwrap();
-      for i in F::NUM_BITS .. 255 {
-        witness.push(*padding.get(usize::try_from(i).unwrap()).unwrap_or(&F::ZERO));
+      assert!(padding.len() <= (255 - dlog_bits));
+      for i in 0 .. (255 - dlog_bits) {
+        witness.push(*padding.get(i).unwrap_or(&F::ZERO));
       }
       assert_eq!(witness.len(), 255);
 
@@ -96,13 +94,11 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
 
     let mut variables = self.append(witness);
     let extra = variables.pop().unwrap();
-    let padding = variables.drain(usize::try_from(F::NUM_BITS).unwrap() .. 255).collect();
+    let padding = variables.drain(dlog_bits .. 255).collect::<Vec<_>>();
     (variables, padding, extra)
   }
 
   fn append_divisor(&mut self, divisor: Option<Poly<F>>, extra: Option<F>) -> (Divisor, Variable) {
-    assert!(F::NUM_BITS <= 255);
-
     let witness = divisor.map(|divisor| {
       // Divisor y
       // This takes 1 slot
@@ -152,20 +148,26 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     (divisor, extra)
   }
 
-  fn append_claimed_point(
+  fn append_claimed_point<C: DivisorCurve<FieldElement = F>>(
     &mut self,
-    generator: (F, F),
+    mut generator: C,
+    dlog_bits: usize,
     dlog: Option<Vec<bool>>,
     divisor: Option<Poly<F>>,
     point: Option<(F, F)>,
     padding: Option<Vec<F>>,
   ) -> (ClaimedPointWithDlog<F>, Vec<Variable>) {
     // Append the x coordinate with the discrete logarithm
-    let (dlog, padding, x) = self.append_dlog(dlog, padding, point.map(|point| point.0));
+    let (dlog, padding, x) = self.append_dlog(dlog_bits, dlog, padding, point.map(|point| point.0));
     // Append the y coordinate with the divisor
     let (divisor, y) = self.append_divisor(divisor, point.map(|point| point.1));
 
-    (ClaimedPointWithDlog { generator, divisor, dlog, point: (x, y) }, padding)
+    let mut powers = vec![C::to_xy(generator)];
+    for _ in 1 .. C::Scalar::NUM_BITS {
+      generator = generator.double();
+      powers.push(C::to_xy(generator));
+    }
+    (ClaimedPointWithDlog { generator: powers, divisor, dlog, point: (x, y) }, padding)
   }
 
   fn commit<T: Transcript, C: Ciphersuite<F = F>>(
@@ -210,10 +212,10 @@ impl<F: PrimeFieldBits> PreparedBlind<F> {
   where
     C1::G: DivisorCurve<FieldElement = F>,
   {
-    let bits = blind.to_le_bits().into_iter().collect::<Vec<_>>();
-    assert_eq!(u32::try_from(bits.len()).unwrap(), C1::F::NUM_BITS);
+    let mut bits = blind.to_le_bits().into_iter().collect::<Vec<_>>();
+    bits.truncate(usize::try_from(C1::F::NUM_BITS).unwrap());
 
-    let res_point = blinding_generator * -blind;
+    let res_point = blinding_generator * blind;
 
     let divisor = {
       let mut gen_pow_2 = blinding_generator;
@@ -224,13 +226,32 @@ impl<F: PrimeFieldBits> PreparedBlind<F> {
         }
         gen_pow_2 = gen_pow_2.double();
       }
-      points.push(res_point);
-      new_divisor::<C1::G>(&points).unwrap()
+      points.push(-res_point);
+      new_divisor::<C1::G>(&points).unwrap().normalize_x_coefficient()
     };
 
     let (x, y) = C1::G::to_xy(res_point);
     Self { bits, divisor, x, y }
   }
+}
+
+/// A struct representing an output tuple.
+#[allow(non_snake_case)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Output<OC: Ciphersuite> {
+  O: OC::G,
+  I: OC::G,
+  C: OC::G,
+}
+
+/// A struct representing an input tuple.
+#[allow(non_snake_case)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Input<F: Field> {
+  O_tilde: (F, F),
+  I_tilde: (F, F),
+  R: (F, F),
+  C_tilde: (F, F),
 }
 
 /// The blinds used for an output, prepared for usage within the circuit.
@@ -250,11 +271,6 @@ impl<F: PrimeFieldBits> OutputBlinds<F> {
     let i_blind = F::random(&mut *rng);
     let i_blind_blind = F::random(&mut *rng);
     let c_blind = F::random(&mut *rng);
-
-    // o_blind, i_blind, c_blind are used in-circuit as negative
-    let o_blind = -o_blind;
-    let i_blind = -i_blind;
-    let c_blind = -c_blind;
 
     OutputBlinds { o_blind, i_blind, i_blind_blind, c_blind }
   }
@@ -278,11 +294,12 @@ impl<F: PrimeFieldBits> OutputBlinds<F> {
     let C_tilde = output.C + (G * self.c_blind);
 
     PreparedBlinds {
-      o_blind: PreparedBlind::new::<C>(T, self.o_blind),
-      i_blind_u: PreparedBlind::new::<C>(U, self.i_blind),
-      i_blind_v: PreparedBlind::new::<C>(V, self.i_blind),
+      // o_blind, i_blind, c_blind are used in-circuit as negative
+      o_blind: PreparedBlind::new::<C>(T, -self.o_blind),
+      i_blind_u: PreparedBlind::new::<C>(U, -self.i_blind),
+      i_blind_v: PreparedBlind::new::<C>(V, -self.i_blind),
       i_blind_blind: PreparedBlind::new::<C>(T, self.i_blind_blind),
-      c_blind: PreparedBlind::new::<C>(G, self.c_blind),
+      c_blind: PreparedBlind::new::<C>(G, -self.c_blind),
       input: Input {
         O_tilde: C::G::to_xy(O_tilde),
         I_tilde: C::G::to_xy(I_tilde),
@@ -291,25 +308,6 @@ impl<F: PrimeFieldBits> OutputBlinds<F> {
       },
     }
   }
-}
-
-/// A struct representing an output tuple.
-#[allow(non_snake_case)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Output<OC: Ciphersuite> {
-  O: OC::G,
-  I: OC::G,
-  C: OC::G,
-}
-
-/// A struct representing an input tuple.
-#[allow(non_snake_case)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Input<F: Field> {
-  O_tilde: (F, F),
-  I_tilde: (F, F),
-  R: (F, F),
-  C_tilde: (F, F),
 }
 
 /// A tree root, represented as a point from either curve.
@@ -453,10 +451,12 @@ where
     // Accumulate the opening for the leaves
     let append_claimed_point_1 = |c1_tape: &mut VectorCommitmentTape<C1::F>,
                                   generator,
+                                  dlog_bits,
                                   blind: PreparedBlind<C1::F>,
                                   padding| {
       c1_tape.append_claimed_point(
         generator,
+        dlog_bits,
         Some(blind.bits),
         Some(blind.divisor),
         Some((blind.x, blind.y)),
@@ -470,10 +470,12 @@ where
     #[allow(non_snake_case)]
     let (o_blind_claim, O) = {
       let (x, y) = OC::G::to_xy(output.O);
+
       append_claimed_point_1(
         &mut c1_tape,
-        OC::G::to_xy(params.T),
-        output_blinds.o_blind,
+        params.T,
+        usize::try_from(OC::F::NUM_BITS).unwrap(),
+        output_blinds.o_blind.clone(),
         vec![x, y],
       )
     };
@@ -483,7 +485,8 @@ where
       let (x, y) = OC::G::to_xy(output.I);
       append_claimed_point_1(
         &mut c1_tape,
-        OC::G::to_xy(params.U),
+        params.U,
+        usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.i_blind_u,
         vec![x, y],
       )
@@ -500,14 +503,23 @@ where
       let (x, y) = (output_blinds.i_blind_v.x, output_blinds.i_blind_v.y);
       append_claimed_point_1(
         &mut c1_tape,
-        OC::G::to_xy(params.T),
+        params.T,
+        usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.i_blind_blind,
         vec![x, y],
       )
     };
 
     let i_blind_v_claim = ClaimedPointWithDlog {
-      generator: OC::G::to_xy(params.V),
+      generator: {
+        let mut powers = vec![OC::G::to_xy(params.V)];
+        let mut last = params.V;
+        for _ in 1 .. OC::F::NUM_BITS {
+          last = last.double();
+          powers.push(OC::G::to_xy(last));
+        }
+        powers
+      },
       // This has the same discrete log, i_blind, as i_blind_u
       dlog: i_blind_u_claim.dlog.clone(),
       divisor: i_blind_v_divisor,
@@ -520,7 +532,8 @@ where
       let (x, y) = OC::G::to_xy(output.C);
       append_claimed_point_1(
         &mut c1_tape,
-        OC::G::to_xy(params.G),
+        params.G,
+        usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.c_blind,
         vec![x, y],
       )
@@ -532,13 +545,16 @@ where
     let mut commitment_blind_claims_1 = vec![];
     for blind in branches_2_blinds_prepared {
       commitment_blind_claims_1.push(
-        append_claimed_point_1(
-          &mut c1_tape,
-          C2::G::to_xy(params.curve_2_generators.h()),
-          blind,
-          vec![],
-        )
-        .0,
+        c1_tape
+          .append_claimed_point(
+            params.curve_2_generators.h(),
+            usize::try_from(C2::F::NUM_BITS).unwrap(),
+            Some(blind.bits),
+            Some(blind.divisor),
+            Some((blind.x, blind.y)),
+            Some(vec![]),
+          )
+          .0,
       );
     }
 
@@ -548,7 +564,8 @@ where
       commitment_blind_claims_2.push(
         c2_tape
           .append_claimed_point(
-            C1::G::to_xy(params.curve_1_generators.h()),
+            params.curve_1_generators.h(),
+            usize::try_from(C1::F::NUM_BITS).unwrap(),
             Some(blind.bits),
             Some(blind.divisor),
             Some((blind.x, blind.y)),
@@ -602,6 +619,15 @@ where
       //
       c1_branches[0].chunks(4).map(|chunk| chunk.to_vec()).collect(),
     );
+
+    // We do have a spare blind for the last branch
+    // If the first curve has more layers, it has the final blind
+    // If the amount of layers are even, the blind is from the second curve
+    if c1_branches.len() > c2_branches.len() {
+      commitment_blind_claims_2.pop();
+    } else {
+      commitment_blind_claims_1.pop();
+    }
 
     assert_eq!(commitments_2.len(), pvc_blinds_2.len());
     // - 1, as the leaves are the first branch

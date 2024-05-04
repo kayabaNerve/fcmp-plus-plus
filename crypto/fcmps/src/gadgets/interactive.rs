@@ -21,7 +21,7 @@ pub(crate) struct Divisor {
 /// A claimed point and associated discrete logarithm claim.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) struct ClaimedPointWithDlog<F: Field> {
-  pub(crate) generator: (F, F),
+  pub(crate) generator: Vec<(F, F)>,
   pub(crate) divisor: Divisor,
   pub(crate) dlog: Vec<Variable>,
   pub(crate) point: (Variable, Variable),
@@ -184,7 +184,7 @@ impl<C: Ciphersuite> Circuit<C> {
     };
 
     let p_1_n = two_c_y;
-    let p_1_d = (-slope * p_1_n) + three_x_sq_plus_a;
+    let p_1_d = (-slope * two_c_y) + three_x_sq_plus_a;
 
     // Calculate the joint numerator
     let p_n = p_0_n * p_1_n;
@@ -216,15 +216,15 @@ impl<C: Ciphersuite> Circuit<C> {
     curve: &CurveSpec<C::F>,
     claim: ClaimedPointWithDlog<C::F>,
   ) -> OnCurve {
-    let ClaimedPointWithDlog { mut generator, divisor, dlog, point } = claim;
-    assert_eq!(dlog.len(), <C::F as PrimeField>::NUM_BITS.try_into().unwrap());
+    dbg!("in discrete_log");
+    let ClaimedPointWithDlog { generator, divisor, dlog, point } = claim;
 
     // Ensure this is being safely called
     let arg_iter = core::iter::once(&divisor.y).chain(divisor.yx.iter());
     let arg_iter =
       arg_iter.chain(divisor.x_from_power_of_2.iter()).chain(core::iter::once(&divisor.zero));
     let arg_iter = arg_iter.chain(dlog.iter());
-    for variable in arg_iter.chain(core::iter::once(&point.0)).chain(core::iter::once(&point.1)) {
+    for variable in arg_iter.chain([point.0, point.1].iter()) {
       assert!(
         matches!(variable, Variable::C(_, _)),
         "discrete log requires all arguments belong to vector commitments",
@@ -256,56 +256,39 @@ impl<C: Ciphersuite> Circuit<C> {
       break (c1_x, if bool::from(c1_y.is_odd()) { -c1_y } else { c1_y });
     };
 
-    // mdbl-2007-bl
-    let double = |circuit: &mut Self, x: C::F, y: C::F| {
-      let xx = x * x;
-      let w = curve.a + (xx.double() + xx);
-      let y1y1 = y * y;
-      let r = y1y1.double();
-      let y1r = y * r;
-      let sss = y1r.double().double();
-      let rr = r * r;
-      let b = (x + r).square() - xx - rr;
-      let h = (w * w) - b.double();
-      let x3 = h.double() * y;
-      let y3 = (w * (b - h)) - rr.double();
-      let z3 = sss;
-
-      let z3_inv = circuit.divisor_challenge_invert(z3);
-      (x3 * z3_inv, y3 * z3_inv)
-    };
-
     let (c2_x, c2_y) = incomplete_add::<C::F>(c0_x, c0_y, c1_x, c1_y)
       .expect("couldn't perform incomplete addition on two distinct, on curve points");
+    let c2_y = -c2_y;
 
     let slope = (c1_y - c0_y) * self.divisor_challenge_invert(c1_x - c0_x);
     let intercept = c1_y - (slope * c1_x);
 
     // lhs from the paper, evaluating the divisor
-    let mut eval = LinComb::from(self.divisor_challenge(curve, &divisor, slope, c0_x, c0_y)) +
+    let lhs_eval = LinComb::from(self.divisor_challenge(curve, &divisor, slope, c0_x, c0_y)) +
       &LinComb::from(self.divisor_challenge(curve, &divisor, slope, c1_x, c1_y)) +
       &LinComb::from(self.divisor_challenge(curve, &divisor, slope, c2_x, c2_y));
 
     // Interpolate the powers of the generator
-    for bit in dlog {
+    let mut rhs_eval = LinComb::empty();
+    for (bit, generator) in dlog.into_iter().zip(generator) {
       let weight = self.divisor_challenge_invert(intercept - (generator.1 - (slope * generator.0)));
-      eval = eval.term(-weight, bit);
-      // TODO: Take in a table as an argument
-      generator = double(self, generator.0, generator.1);
+      rhs_eval = rhs_eval.term(weight, bit);
     }
 
     // Interpolate the output point
     // intercept - (y - (slope * x))
     // intercept - y + (slope * x))
     // -y + (slope * x)) + intercept
+    // EXCEPT the output point we're proving the discrete log for isn't the one interpolated
+    // Its negative is, so -y becomes y
     let output_interpolation =
-      LinComb::empty().constant(intercept).term(-C::F::ONE, point.y).term(slope, point.x);
+      LinComb::empty().constant(intercept).term(C::F::ONE, point.y).term(slope, point.x);
     let output_interpolation_eval = self.eval(&output_interpolation);
     let (_output_interpolation, inverse) =
       self.inverse(Some(output_interpolation), output_interpolation_eval);
-    eval = eval.term(-C::F::ONE, inverse);
+    rhs_eval = rhs_eval.term(C::F::ONE, inverse);
 
-    self.constrain_equal_to_zero(eval);
+    self.equality(lhs_eval, &rhs_eval);
 
     point
   }

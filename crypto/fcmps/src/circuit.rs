@@ -1,11 +1,6 @@
-use rand_core::{RngCore, CryptoRng};
-
 use transcript::Transcript;
 
-use ciphersuite::{
-  group::ff::{Field, PrimeField, PrimeFieldBits},
-  Ciphersuite,
-};
+use ciphersuite::{group::ff::Field, Ciphersuite};
 
 use crate::lincomb::*;
 use crate::gadgets::*;
@@ -81,18 +76,18 @@ impl<C: Ciphersuite> Circuit<C> {
     let o = Variable::aO(self.muls);
     self.muls += 1;
 
-    if let Some(a) = a {
-      self.constrain_equal_to_zero(a.term(-C::F::ONE, l));
-    }
-    if let Some(b) = b {
-      self.constrain_equal_to_zero(b.term(-C::F::ONE, r));
-    }
-
     assert_eq!(self.prover.is_some(), witness.is_some());
     if let Some(witness) = witness {
       let prover = self.prover.as_mut().unwrap();
       prover.aL.push(witness.0);
       prover.aR.push(witness.1);
+    }
+
+    if let Some(a) = a {
+      self.constrain_equal_to_zero(a.term(-C::F::ONE, l));
+    }
+    if let Some(b) = b {
+      self.constrain_equal_to_zero(b.term(-C::F::ONE, r));
     }
 
     (l, r, o)
