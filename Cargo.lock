@@ -524,6 +524,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "helioselene"
+version = "0.1.0"
+dependencies = [
+ "crypto-bigint",
+ "dalek-ff-group",
+ "ff",
+ "ff-group-tests",
+ "group",
+ "hex",
+ "rand_core",
+ "rustversion",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

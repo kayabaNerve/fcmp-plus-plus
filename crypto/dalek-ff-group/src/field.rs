@@ -35,8 +35,8 @@ impl_modulus!(
 type ResidueType = Residue<FieldModulus, { FieldModulus::LIMBS }>;
 
 /// A constant-time implementation of the Ed25519 field.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub struct FieldElement(ResidueType);
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Zeroize)]
+pub struct FieldElement(pub ResidueType);
 
 // Square root of -1.
 // Formula from RFC-8032 (modp_sqrt_m1/sqrt8k5 z)

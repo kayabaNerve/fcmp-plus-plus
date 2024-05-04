@@ -9,6 +9,7 @@ members = [
   "crypto/ff-group-tests",
   "crypto/dalek-ff-group",
   "crypto/ed448",
+  "crypto/helioselene",
   "crypto/ciphersuite",
 
   "crypto/multiexp",
