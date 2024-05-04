@@ -104,12 +104,24 @@ pub fn test_mul<G: Group>() {
     "generator * 2 != generator + generator"
   );
   assert_eq!(G::identity() * G::Scalar::from(2), G::identity(), "identity * 2 != identity");
+
+  let s = rand_core::OsRng.next_u64() >> 56;
+  let mut res = G::identity();
+  for _ in 0 .. s {
+    res += G::generator();
+  }
+  assert_eq!(
+    G::generator() * G::Scalar::from(s),
+    res,
+    "generator * rand_u8() != generator + .. + generator"
+  );
 }
 
 /// Test `((order - 1) * G) + G == identity`.
 pub fn test_order<G: Group>() {
   let minus_one = G::generator() * (G::Scalar::ZERO - G::Scalar::ONE);
   assert!(minus_one != G::identity(), "(modulus - 1) * G was identity");
+  assert_eq!(minus_one, -G::generator(), "((modulus - 1) * G) wasn't -G");
   assert_eq!(minus_one + G::generator(), G::identity(), "((modulus - 1) * G) + G wasn't identity");
 }
 
