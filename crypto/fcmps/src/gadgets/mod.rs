@@ -47,7 +47,7 @@ fn incomplete_add<F: Field>(x1: F, y1: F, x2: F, y2: F) -> Option<(F, F)> {
 impl<C: Ciphersuite> Circuit<C> {
   /// Constrain two constrainable items as equal.
   fn equality(&mut self, a: LinComb<C::F>, b: &LinComb<C::F>) {
-    self.constraints.push(a - b);
+    self.constrain_equal_to_zero(a - b);
   }
 
   /// Obtain the inverse of a value. Returns a constrainable reference to the value and its
@@ -58,7 +58,7 @@ impl<C: Ciphersuite> Circuit<C> {
     let (l, r, o) = self.mul(a, None, witness.map(|f| (f, f.invert().unwrap())));
     // The output of a value multiplied by its inverse is 1
     // Constrain `1 o - 1 = 0`
-    self.constraints.push(LinComb::from(o).constant(-C::F::ONE));
+    self.constrain_equal_to_zero(LinComb::from(o).constant(-C::F::ONE));
     (l, r)
   }
 
@@ -91,7 +91,7 @@ impl<C: Ciphersuite> Circuit<C> {
     }
 
     // Constrain the carry to be 0, meaning one of the products multiplied was zero
-    self.constraints.push(carry);
+    self.constrain_equal_to_zero(carry);
   }
 
   /// Constrain an x and y coordinate as being on curve to a towered elliptic curve.

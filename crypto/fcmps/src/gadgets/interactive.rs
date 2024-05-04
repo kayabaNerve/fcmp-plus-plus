@@ -81,7 +81,7 @@ impl<C: Ciphersuite> Circuit<C> {
     // This will cause the proof to fail to verify
     // TODO: Properly propagate this error
     if res.is_none() {
-      self.constraints.push(LinComb::empty().constant(C::F::ONE));
+      self.constrain_equal_to_zero(LinComb::empty().constant(C::F::ONE));
       return C::F::ONE;
     }
     res.unwrap()
@@ -305,7 +305,7 @@ impl<C: Ciphersuite> Circuit<C> {
       self.inverse(Some(output_interpolation), output_interpolation_eval);
     eval = eval.term(-C::F::ONE, inverse);
 
-    self.constraints.push(eval);
+    self.constrain_equal_to_zero(eval);
 
     point
   }

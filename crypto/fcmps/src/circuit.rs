@@ -25,7 +25,7 @@ pub(crate) struct Circuit<C: Ciphersuite> {
   muls: usize,
   commitments: usize,
   // A series of linear combinations which must evaluate to 0.
-  pub(crate) constraints: Vec<LinComb<C::F>>,
+  constraints: Vec<LinComb<C::F>>,
   prover: Option<ProverData<C::F>>,
 }
 
@@ -82,10 +82,10 @@ impl<C: Ciphersuite> Circuit<C> {
     self.muls += 1;
 
     if let Some(a) = a {
-      self.constraints.push(a.term(-C::F::ONE, l));
+      self.constrain_equal_to_zero(a.term(-C::F::ONE, l));
     }
     if let Some(b) = b {
-      self.constraints.push(b.term(-C::F::ONE, r));
+      self.constrain_equal_to_zero(b.term(-C::F::ONE, r));
     }
 
     assert_eq!(self.prover.is_some(), witness.is_some());
@@ -96,6 +96,13 @@ impl<C: Ciphersuite> Circuit<C> {
     }
 
     (l, r, o)
+  }
+
+  pub(crate) fn constrain_equal_to_zero(&mut self, constraint: LinComb<C::F>) {
+    if let Some(eval) = self.eval(&constraint) {
+      assert_eq!(eval, C::F::ZERO);
+    }
+    self.constraints.push(constraint);
   }
 
   #[allow(non_snake_case, clippy::too_many_arguments)]
