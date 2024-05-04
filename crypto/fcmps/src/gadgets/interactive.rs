@@ -216,7 +216,6 @@ impl<C: Ciphersuite> Circuit<C> {
     curve: &CurveSpec<C::F>,
     claim: ClaimedPointWithDlog<C::F>,
   ) -> OnCurve {
-    dbg!("in discrete_log");
     let ClaimedPointWithDlog { generator, divisor, dlog, point } = claim;
 
     // Ensure this is being safely called

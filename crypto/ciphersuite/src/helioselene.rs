@@ -33,7 +33,6 @@ impl Ciphersuite for Helios {
   }
 }
 
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
 pub struct Selene;
 impl Ciphersuite for Selene {

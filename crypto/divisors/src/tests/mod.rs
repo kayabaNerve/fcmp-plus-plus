@@ -1,9 +1,6 @@
 use rand_core::OsRng;
 
-use group::{
-  ff::{Field, PrimeField},
-  Group, GroupEncoding, Curve,
-};
+use group::{ff::Field, Group, Curve};
 use dalek_ff_group::EdwardsPoint;
 use pasta_curves::{
   arithmetic::{Coordinates, CurveAffine},

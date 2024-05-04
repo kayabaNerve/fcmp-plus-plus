@@ -157,7 +157,10 @@ pub fn new_divisor<C: DivisorCurve>(points: &[C]) -> Option<Poly<C::FieldElement
 
 #[cfg(any(test, feature = "ed25519"))]
 mod ed25519 {
-  use group::{ff::{Field, PrimeField}, GroupEncoding};
+  use group::{
+    ff::{Field, PrimeField},
+    GroupEncoding,
+  };
   use dalek_ff_group::{FieldElement, EdwardsPoint};
 
   impl crate::DivisorCurve for EdwardsPoint {
@@ -191,8 +194,8 @@ mod ed25519 {
 
       // Recover the x coordinate
       let edwards_y_sq = edwards_y * edwards_y;
-      let D =
-        -Self::FieldElement::from(121665u64) * Self::FieldElement::from(121666u64).invert().unwrap();
+      let D = -Self::FieldElement::from(121665u64) *
+        Self::FieldElement::from(121666u64).invert().unwrap();
       let mut edwards_x = ((edwards_y_sq - Self::FieldElement::ONE) *
         ((D * edwards_y_sq) + Self::FieldElement::ONE).invert().unwrap())
       .sqrt()

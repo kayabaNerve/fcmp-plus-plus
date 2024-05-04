@@ -17,7 +17,7 @@ struct ProverData<F: Field> {
 /// A struct representing a circuit.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) struct Circuit<C: Ciphersuite> {
-  muls: usize,
+  pub(crate) muls: usize,
   commitments: usize,
   // A series of linear combinations which must evaluate to 0.
   constraints: Vec<LinComb<C::F>>,

@@ -41,10 +41,38 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     (0 .. 256).map(|j| Variable::C(i, j)).collect()
   }
 
-  fn append_branch(&mut self, branch_len: usize, branch: Option<Vec<F>>) -> Vec<Variable> {
+  fn append_branch<T: Transcript, C: Ciphersuite>(
+    &mut self,
+    generators: &Generators<T, C>,
+    branch_len: usize,
+    branch: Option<Vec<F>>,
+  ) -> (Vec<Variable>, Option<F>)
+  where
+    C::G: DivisorCurve<Scalar = F>,
+  {
+    let mut branch_offset = None;
     let branch = branch.map(|mut branch| {
       assert_eq!(branch_len, branch.len());
       assert!(branch.len() <= 256);
+
+      branch_offset = Some({
+        let mut hash = multiexp(
+          &branch.iter().zip(generators.g_bold_slice()).map(|(s, p)| (*s, *p)).collect::<Vec<_>>(),
+        );
+        let mut offset = F::ZERO;
+        while Option::<<<C as Ciphersuite>::G as DivisorCurve>::FieldElement>::from(
+          (<<C as Ciphersuite>::G as DivisorCurve>::FieldElement::ONE +
+            <C as Ciphersuite>::G::to_xy(hash).1)
+            .sqrt(),
+        )
+        .is_none()
+        {
+          hash += generators.h();
+          offset += F::ONE;
+        }
+        offset
+      });
+
       // Pad the branch
       while branch.len() < 256 {
         branch.push(F::ZERO);
@@ -54,7 +82,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
 
     let mut branch = self.append(branch);
     branch.truncate(branch_len);
-    branch
+    (branch, branch_offset)
   }
 
   /// Append a discrete logarithm of up to 255 bits, allowing usage of the extra slot for an
@@ -417,35 +445,51 @@ where
 
     // Append the leaves and the rest of the branches to the tape
     let mut c1_tape = VectorCommitmentTape(vec![]);
+    let mut c1_branch_offsets = vec![];
     let mut c1_branches = vec![];
-    c1_branches.push(c1_tape.append_branch(flattened_leaves.len(), Some(flattened_leaves)));
+    {
+      let (branch, offset) = c1_tape.append_branch::<T, C1>(
+        &params.curve_1_generators,
+        flattened_leaves.len(),
+        Some(flattened_leaves),
+      );
+      c1_branch_offsets.push(offset.unwrap());
+      c1_branches.push(branch);
+    }
     for branch in branches.curve_1_layers {
-      c1_branches.push(c1_tape.append_branch(branch.len(), Some(branch)));
+      let (branch, offset) =
+        c1_tape.append_branch::<T, C1>(&params.curve_1_generators, branch.len(), Some(branch));
+      c1_branch_offsets.push(offset.unwrap());
+      c1_branches.push(branch);
     }
 
     let mut c2_tape = VectorCommitmentTape(vec![]);
+    let mut c2_branch_offsets = vec![];
     let mut c2_branches = vec![];
     for branch in branches.curve_2_layers {
-      c2_branches.push(c2_tape.append_branch(branch.len(), Some(branch)));
+      let (branch, offset) =
+        c2_tape.append_branch::<T, C2>(&params.curve_2_generators, branch.len(), Some(branch));
+      c2_branch_offsets.push(offset.unwrap());
+      c2_branches.push(branch);
     }
 
     // Decide blinds for each branch
     let mut branches_1_blinds = vec![];
     let mut branches_1_blinds_prepared = vec![];
-    for _ in 0 .. c1_tape.0.len() {
+    for offset in &c1_branch_offsets {
       let blind = C1::F::random(&mut *rng);
       branches_1_blinds.push(blind);
       branches_1_blinds_prepared
-        .push(PreparedBlind::<_>::new::<C1>(params.curve_1_generators.h(), blind));
+        .push(PreparedBlind::<_>::new::<C1>(params.curve_1_generators.h(), -(blind - offset)));
     }
 
     let mut branches_2_blinds = vec![];
     let mut branches_2_blinds_prepared = vec![];
-    for _ in 0 .. c2_tape.0.len() {
+    for offset in &c2_branch_offsets {
       let blind = C2::F::random(&mut *rng);
       branches_2_blinds.push(blind);
       branches_2_blinds_prepared
-        .push(PreparedBlind::<_>::new::<C2>(params.curve_2_generators.h(), blind));
+        .push(PreparedBlind::<_>::new::<C2>(params.curve_2_generators.h(), -(blind - offset)));
     }
 
     // Accumulate the opening for the leaves
@@ -633,12 +677,13 @@ where
     // - 1, as the leaves are the first branch
     assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
     assert!(commitments_2.len() > c1_branches.len());
-    let commitment_iter = commitments_2.into_iter().zip(pvc_blinds_2);
+    let commitment_iter = commitments_2.into_iter().zip(pvc_blinds_2).zip(c2_branch_offsets);
     let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
-    for ((prior_commitment, prior_blind), (branch, prior_blind_opening)) in
+    for (((prior_commitment, prior_blind), offset), (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
     {
-      let unblinded_hash = prior_commitment - (params.curve_2_generators.h() * prior_blind);
+      let unblinded_hash =
+        prior_commitment - (params.curve_2_generators.h() * (prior_blind - offset));
       let (hash_x, hash_y, _) = c1_circuit.mul(None, None, Some(C2::G::to_xy(unblinded_hash)));
       c1_circuit.additional_layer(
         transcript,
@@ -653,12 +698,13 @@ where
     assert_eq!(commitments_1.len(), pvc_blinds_1.len());
     assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
     assert!(commitments_1.len() > c2_branches.len());
-    let commitment_iter = commitments_1.into_iter().zip(pvc_blinds_1);
+    let commitment_iter = commitments_1.into_iter().zip(pvc_blinds_1).zip(c1_branch_offsets);
     let branch_iter = c2_branches.into_iter().zip(commitment_blind_claims_2);
-    for ((prior_commitment, prior_blind), (branch, prior_blind_opening)) in
+    for (((prior_commitment, prior_blind), offset), (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
     {
-      let unblinded_hash = prior_commitment - (params.curve_1_generators.h() * prior_blind);
+      let unblinded_hash =
+        prior_commitment - (params.curve_1_generators.h() * (prior_blind - offset));
       let (hash_x, hash_y, _) = c2_circuit.mul(None, None, Some(C1::G::to_xy(unblinded_hash)));
       c2_circuit.additional_layer(
         transcript,
@@ -671,6 +717,8 @@ where
     }
 
     // Escape to the raw weights to form a GBP with
+    dbg!(c1_circuit.muls);
+    dbg!(c2_circuit.muls);
     todo!("TODO")
   }
 }
