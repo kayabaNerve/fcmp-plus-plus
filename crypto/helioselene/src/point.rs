@@ -340,6 +340,22 @@ macro_rules! curve {
     }
 
     impl PrimeGroup for $Point {}
+
+    impl ec_divisors::DivisorCurve for $Point {
+      type FieldElement = $Field;
+
+      fn a() -> Self::FieldElement {
+        -$Field::from(3u64)
+      }
+      fn b() -> Self::FieldElement {
+        B
+      }
+
+      fn to_xy(point: Self) -> (Self::FieldElement, Self::FieldElement) {
+        let z = point.z.invert().unwrap();
+        (point.x * z, point.y * z)
+      }
+    }
   };
 }
 
