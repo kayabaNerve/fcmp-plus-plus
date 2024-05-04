@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 use rand_core::{RngCore, CryptoRng};
 use zeroize::Zeroize;
 
@@ -264,7 +266,6 @@ impl<F: PrimeFieldBits> PreparedBlind<F> {
 }
 
 /// A struct representing an output tuple.
-#[allow(non_snake_case)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Output<OC: Ciphersuite> {
   O: OC::G,
@@ -273,7 +274,6 @@ pub struct Output<OC: Ciphersuite> {
 }
 
 /// A struct representing an input tuple.
-#[allow(non_snake_case)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Input<F: Field> {
   O_tilde: (F, F),
@@ -303,7 +303,6 @@ impl<F: PrimeFieldBits> OutputBlinds<F> {
     OutputBlinds { o_blind, i_blind, i_blind_blind, c_blind }
   }
 
-  #[allow(non_snake_case)]
   pub fn prepare<C: Ciphersuite<F = F>>(
     &self,
     G: C::G,
@@ -346,7 +345,6 @@ pub enum TreeRoot<C1: Ciphersuite, C2: Ciphersuite> {
 }
 
 /// The parameters for full-chain membership proofs.
-#[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct FcmpParams<T: 'static + Transcript, OC: Ciphersuite, C1: Ciphersuite, C2: Ciphersuite> {
   /// Generators for the first curve.
@@ -511,7 +509,6 @@ where
     // Since this is presumed over Ed25519, which has a 253-bit discrete logarithm, we have two
     // items avilable in padding. We use this padding for all the other points we must commit to
     // For o_blind, we use the padding for O
-    #[allow(non_snake_case)]
     let (o_blind_claim, O) = {
       let (x, y) = OC::G::to_xy(output.O);
 
@@ -524,7 +521,6 @@ where
       )
     };
     // For i_blind_u, we use the padding for I
-    #[allow(non_snake_case)]
     let (i_blind_u_claim, I) = {
       let (x, y) = OC::G::to_xy(output.I);
       append_claimed_point_1(
@@ -542,7 +538,6 @@ where
       c1_tape.append_divisor(Some(output_blinds.i_blind_v.divisor), Some(C1::F::ZERO));
 
     // For i_blind_blind, we use the padding for (i_blind V)
-    #[allow(non_snake_case)]
     let (i_blind_blind_claim, i_blind_V) = {
       let (x, y) = (output_blinds.i_blind_v.x, output_blinds.i_blind_v.y);
       append_claimed_point_1(
@@ -571,7 +566,6 @@ where
     };
 
     // For c_blind, we use the padding for C
-    #[allow(non_snake_case)]
     let (c_blind_claim, C) = {
       let (x, y) = OC::G::to_xy(output.C);
       append_claimed_point_1(
@@ -677,7 +671,8 @@ where
     // - 1, as the leaves are the first branch
     assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
     assert!(commitments_2.len() > c1_branches.len());
-    let commitment_iter = commitments_2.into_iter().zip(pvc_blinds_2).zip(c2_branch_offsets);
+    let commitment_iter =
+      commitments_2.clone().into_iter().zip(pvc_blinds_2.clone()).zip(c2_branch_offsets);
     let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
     for (((prior_commitment, prior_blind), offset), (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
@@ -698,7 +693,8 @@ where
     assert_eq!(commitments_1.len(), pvc_blinds_1.len());
     assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
     assert!(commitments_1.len() > c2_branches.len());
-    let commitment_iter = commitments_1.into_iter().zip(pvc_blinds_1).zip(c1_branch_offsets);
+    let commitment_iter =
+      commitments_1.clone().into_iter().zip(pvc_blinds_1.clone()).zip(c1_branch_offsets);
     let branch_iter = c2_branches.into_iter().zip(commitment_blind_claims_2);
     for (((prior_commitment, prior_blind), offset), (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
@@ -717,8 +713,35 @@ where
     }
 
     // Escape to the raw weights to form a GBP with
+    assert!(c1_circuit.muls <= 256);
+    assert!(c2_circuit.muls <= 256);
     dbg!(c1_circuit.muls);
     dbg!(c2_circuit.muls);
-    todo!("TODO")
+
+    // TODO: unwrap -> Result
+    let (c1_statement, c1_witness) = c1_circuit
+      .statement(
+        params.curve_1_generators.reduce(256).unwrap(),
+        commitments_1.clone(),
+        pvc_blinds_1,
+      )
+      .unwrap();
+    let c1_proof = c1_statement.prove(rng, transcript, c1_witness.unwrap()).unwrap();
+
+    let (c2_statement, c2_witness) = c2_circuit
+      .statement(
+        params.curve_2_generators.reduce(256).unwrap(),
+        commitments_2.clone(),
+        pvc_blinds_2,
+      )
+      .unwrap();
+    let c2_proof = c2_statement.prove(rng, transcript, c2_witness.unwrap()).unwrap();
+
+    Fcmp {
+      proof_1: c1_proof,
+      proof_2: c2_proof,
+      proof_1_vcs: commitments_1,
+      proof_2_vcs: commitments_2,
+    }
   }
 }

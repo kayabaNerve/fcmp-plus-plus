@@ -14,11 +14,11 @@ use ciphersuite::{
 };
 
 mod scalar_vector;
-pub(crate) use scalar_vector::ScalarVector;
+pub use scalar_vector::ScalarVector;
 mod scalar_matrix;
-pub(crate) use scalar_matrix::ScalarMatrix;
+pub use scalar_matrix::ScalarMatrix;
 mod point_vector;
-pub(crate) use point_vector::PointVector;
+pub use point_vector::PointVector;
 
 pub mod inner_product;
 

@@ -2,12 +2,16 @@ use transcript::Transcript;
 
 use ciphersuite::{group::ff::Field, Ciphersuite};
 
+use generalized_bulletproofs::{
+  ScalarVector, ScalarMatrix, PointVector, PedersenVectorCommitment, ProofGenerators,
+  arithmetic_circuit_proof::{AcError, ArithmeticCircuitStatement, ArithmeticCircuitWitness},
+};
+
 use crate::lincomb::*;
 use crate::gadgets::*;
 
 /// The witness for the satisfaction of this circuit.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[allow(non_snake_case)]
 struct ProverData<F: Field> {
   aL: Vec<F>,
   aR: Vec<F>,
@@ -54,8 +58,10 @@ impl<C: Ciphersuite> Circuit<C> {
       for (index, weight) in &constraint.WO {
         res += prover.aL[*index] * prover.aR[*index] * weight;
       }
-      for (i, j, weight) in &constraint.WC {
-        res += prover.C[*i][*j] * weight;
+      for (WC, C) in constraint.WC.iter().zip(&prover.C) {
+        for (j, weight) in WC {
+          res += C[*j] * weight;
+        }
       }
       res
     })
@@ -100,7 +106,7 @@ impl<C: Ciphersuite> Circuit<C> {
     self.constraints.push(constraint);
   }
 
-  #[allow(non_snake_case, clippy::too_many_arguments)]
+  #[allow(clippy::too_many_arguments)]
   pub(crate) fn first_layer<T: Transcript>(
     &mut self,
     transcript: &mut T,
@@ -172,5 +178,77 @@ impl<C: Ciphersuite> Circuit<C> {
     self.incomplete_add_pub(blinded_hash, blind, hash);
     self.permissible(C::F::ONE, C::F::ONE, hash.y);
     self.member_of_list(hash.x.into(), branch.into_iter().map(Into::into).collect::<Vec<_>>());
+  }
+
+  #[allow(clippy::type_complexity)]
+  pub(crate) fn statement<T: Transcript>(
+    self,
+    generators: ProofGenerators<'_, T, C>,
+    C: Vec<C::G>,
+    commitment_blinds: Vec<C::F>,
+  ) -> Result<(ArithmeticCircuitStatement<'_, T, C>, Option<ArithmeticCircuitWitness<C>>), AcError>
+  {
+    let mut WL = ScalarMatrix::new();
+    let mut WR = ScalarMatrix::new();
+    let mut WO = ScalarMatrix::new();
+    let mut WC = Vec::with_capacity(C.len());
+    for _ in 0 .. C.len() {
+      WC.push(ScalarMatrix::new());
+    }
+    let mut WV = ScalarMatrix::new();
+    let mut c = ScalarVector(Vec::with_capacity(self.constraints.len()));
+
+    for constraint in self.constraints {
+      WL.push(constraint.WL);
+      WR.push(constraint.WR);
+      WO.push(constraint.WO);
+      let cWC_len = constraint.WC.len();
+      for (WC, cWC) in WC.iter_mut().zip(constraint.WC.into_iter()) {
+        WC.push(cWC);
+      }
+      for WC in &mut WC[cWC_len ..] {
+        WC.push(vec![]);
+      }
+      WV.push(vec![]);
+      // We represent `c` as `+ c = 0`, yet BP uses `= c`
+      // If we subtract `c` from both sides, we get `= -c`
+      // Negate this to achieve the intended `c`
+      c.0.push(-constraint.c);
+    }
+
+    let statement = ArithmeticCircuitStatement::new(
+      generators,
+      WL,
+      WR,
+      WO,
+      WC,
+      WV,
+      c,
+      PointVector(C),
+      PointVector(vec![]),
+    )?;
+
+    let witness = self
+      .prover
+      .map(|prover| {
+        assert_eq!(prover.C.len(), commitment_blinds.len());
+        ArithmeticCircuitWitness::new(
+          ScalarVector(prover.aL),
+          ScalarVector(prover.aR),
+          prover
+            .C
+            .into_iter()
+            .zip(commitment_blinds)
+            .map(|(values, blind)| PedersenVectorCommitment {
+              values: ScalarVector(values),
+              mask: blind,
+            })
+            .collect(),
+          vec![],
+        )
+      })
+      .transpose()?;
+
+    Ok((statement, witness))
   }
 }

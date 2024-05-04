@@ -18,12 +18,11 @@ pub(crate) enum Variable {
 // We don't model WV as we don't use Pedersen commitments
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[must_use]
-#[allow(non_snake_case)]
 pub(crate) struct LinComb<F: Field> {
   pub(crate) WL: Vec<(usize, F)>,
   pub(crate) WR: Vec<(usize, F)>,
   pub(crate) WO: Vec<(usize, F)>,
-  pub(crate) WC: Vec<(usize, usize, F)>,
+  pub(crate) WC: Vec<Vec<(usize, F)>>,
   pub(crate) c: F,
 }
 
@@ -40,7 +39,12 @@ impl<F: Field> Add<&LinComb<F>> for LinComb<F> {
     self.WL.extend(&constraint.WL);
     self.WR.extend(&constraint.WR);
     self.WO.extend(&constraint.WO);
-    self.WC.extend(&constraint.WC);
+    while self.WC.len() < constraint.WC.len() {
+      self.WC.push(vec![]);
+    }
+    for (sWC, cWC) in self.WC.iter_mut().zip(&constraint.WC) {
+      sWC.extend(cWC);
+    }
     self.c += constraint.c;
     self
   }
@@ -53,7 +57,12 @@ impl<F: Field> Sub<&LinComb<F>> for LinComb<F> {
     self.WL.extend(constraint.WL.iter().map(|(index, weight)| (*index, -*weight)));
     self.WR.extend(constraint.WR.iter().map(|(index, weight)| (*index, -*weight)));
     self.WO.extend(constraint.WO.iter().map(|(index, weight)| (*index, -*weight)));
-    self.WC.extend(constraint.WC.iter().map(|(i, j, weight)| (*i, *j, -*weight)));
+    while self.WC.len() < constraint.WC.len() {
+      self.WC.push(vec![]);
+    }
+    for (sWC, cWC) in self.WC.iter_mut().zip(&constraint.WC) {
+      sWC.extend(cWC.iter().map(|(j, weight)| (*j, -*weight)));
+    }
     self.c -= constraint.c;
     self
   }
@@ -72,8 +81,10 @@ impl<F: Field> Mul<F> for LinComb<F> {
     for (_, weight) in self.WO.iter_mut() {
       *weight *= scalar;
     }
-    for (_, _, weight) in self.WC.iter_mut() {
-      *weight *= scalar;
+    for WC in self.WC.iter_mut() {
+      for (_, weight) in WC {
+        *weight *= scalar;
+      }
     }
     self.c *= scalar;
     self
@@ -92,7 +103,12 @@ impl<F: Field> LinComb<F> {
       Variable::aL(i) => self.WL.push((i, scalar)),
       Variable::aR(i) => self.WR.push((i, scalar)),
       Variable::aO(i) => self.WO.push((i, scalar)),
-      Variable::C(i, j) => self.WC.push((i, j, scalar)),
+      Variable::C(i, j) => {
+        while self.WC.len() <= i {
+          self.WC.push(vec![]);
+        }
+        self.WC[i].push((j, scalar))
+      }
     };
     self
   }

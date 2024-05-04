@@ -15,7 +15,6 @@ fn make_permissible<C: DivisorCurve>(generator: C, mut point: C) -> C {
   point
 }
 
-#[allow(non_snake_case)]
 fn random_permissible_point<C: Ciphersuite>() -> C::G
 where
   C::G: DivisorCurve,
@@ -23,7 +22,6 @@ where
   make_permissible(C::G::generator(), C::G::random(&mut OsRng))
 }
 
-#[allow(non_snake_case)]
 fn random_output() -> Output<Ed25519> {
   let O = random_permissible_point::<Ed25519>();
   let I = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
@@ -31,7 +29,6 @@ fn random_output() -> Output<Ed25519> {
   Output { O, I, C }
 }
 
-#[allow(non_snake_case)]
 #[test]
 fn test() {
   let G = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
