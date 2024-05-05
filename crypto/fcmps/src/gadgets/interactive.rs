@@ -1,6 +1,9 @@
 use transcript::Transcript;
 
-use ciphersuite::{group::ff::PrimeField, Ciphersuite};
+use ciphersuite::{
+  group::ff::{PrimeField, BatchInverter},
+  Ciphersuite,
+};
 
 use crate::{
   *,
@@ -75,18 +78,6 @@ impl<C: Ciphersuite> Circuit<C> {
     self.member_of_list(member, list)
   }
 
-  fn divisor_challenge_invert(&mut self, scalar: C::F) -> C::F {
-    let res = Option::from(scalar.invert());
-    // If somehow, we are trying to invert zero, push a constraint requiring 1 = 0
-    // This will cause the proof to fail to verify
-    // TODO: Properly propagate this error
-    if res.is_none() {
-      self.constrain_equal_to_zero(LinComb::empty().constant(C::F::ONE));
-      return C::F::ONE;
-    }
-    res.unwrap()
-  }
-
   fn divisor_challenge(
     &mut self,
     curve: &CurveSpec<C::F>,
@@ -94,13 +85,14 @@ impl<C: Ciphersuite> Circuit<C> {
     slope: C::F,
     c_x: C::F,
     c_y: C::F,
+    inv_two_c_y: C::F,
   ) -> Variable {
     let c_x_sq = c_x * c_x;
     let three_x_sq = c_x_sq + c_x_sq + c_x_sq;
     let three_x_sq_plus_a = three_x_sq + curve.a;
     let two_c_y = c_y + c_y;
 
-    let p_0_n_0 = three_x_sq_plus_a * self.divisor_challenge_invert(two_c_y);
+    let p_0_n_0 = three_x_sq_plus_a * inv_two_c_y;
 
     // The evaluation of the divisor differentiated by y, further multiplied by p_0_n_0
     // Differentation drops everything without a y coefficient, and drops what remains by a power
@@ -217,6 +209,7 @@ impl<C: Ciphersuite> Circuit<C> {
     claim: ClaimedPointWithDlog<C::F>,
   ) -> OnCurve {
     let ClaimedPointWithDlog { generator, divisor, dlog, point } = claim;
+    assert_eq!(generator.len(), dlog.len());
 
     // Ensure this is being safely called
     let arg_iter = core::iter::once(&divisor.y).chain(divisor.yx.iter());
@@ -259,18 +252,44 @@ impl<C: Ciphersuite> Circuit<C> {
       .expect("couldn't perform incomplete addition on two distinct, on curve points");
     let c2_y = -c2_y;
 
-    let slope = (c1_y - c0_y) * self.divisor_challenge_invert(c1_x - c0_x);
+    // This unwrap should be unreachable barring negligible probability
+    let slope = (c1_y - c0_y) * (c1_x - c0_x).invert().unwrap();
     let intercept = c1_y - (slope * c1_x);
 
+    // We need the inversions for all of the following
+    let mut inverted = {
+      let mut need_inversion = Vec::with_capacity(3 + generator.len());
+      // Needed for the right-hand side evel
+      for generator in generator {
+        need_inversion.push(intercept - (generator.1 - (slope * generator.0)));
+      }
+      // Needed for the left-hand side eval (2 y)
+      need_inversion.push(c2_y.double());
+      need_inversion.push(c1_y.double());
+      need_inversion.push(c0_y.double());
+      for need_inversion in &need_inversion {
+        // This should be unreachable barring negligible probability
+        if need_inversion.is_zero().into() {
+          panic!("trying to invert 0");
+        }
+      }
+      let mut scratch = vec![C::F::ZERO; need_inversion.len()];
+      let _ = BatchInverter::invert_with_external_scratch(&mut need_inversion, &mut scratch);
+      need_inversion
+    };
+    let inv_two_c0_y = inverted.pop().unwrap();
+    let inv_two_c1_y = inverted.pop().unwrap();
+    let inv_two_c2_y = inverted.pop().unwrap();
+
     // lhs from the paper, evaluating the divisor
-    let lhs_eval = LinComb::from(self.divisor_challenge(curve, &divisor, slope, c0_x, c0_y)) +
-      &LinComb::from(self.divisor_challenge(curve, &divisor, slope, c1_x, c1_y)) +
-      &LinComb::from(self.divisor_challenge(curve, &divisor, slope, c2_x, c2_y));
+    let lhs_eval =
+      LinComb::from(self.divisor_challenge(curve, &divisor, slope, c0_x, c0_y, inv_two_c0_y)) +
+        &LinComb::from(self.divisor_challenge(curve, &divisor, slope, c1_x, c1_y, inv_two_c1_y)) +
+        &LinComb::from(self.divisor_challenge(curve, &divisor, slope, c2_x, c2_y, inv_two_c2_y));
 
     // Interpolate the powers of the generator
     let mut rhs_eval = LinComb::empty();
-    for (bit, generator) in dlog.into_iter().zip(generator) {
-      let weight = self.divisor_challenge_invert(intercept - (generator.1 - (slope * generator.0)));
+    for (bit, weight) in dlog.into_iter().zip(inverted) {
       rhs_eval = rhs_eval.term(weight, bit);
     }
 
