@@ -7,26 +7,43 @@ use ciphersuite::{group::Group, Ciphersuite, Ed25519, Selene, Helios};
 
 use crate::*;
 
-fn make_permissible<C: DivisorCurve>(generator: C, mut point: C) -> C {
-  while Option::<C::FieldElement>::from((C::FieldElement::ONE + C::to_xy(point).1).sqrt()).is_none()
-  {
-    point += generator;
-  }
-  point
-}
-
-fn random_permissible_point<C: Ciphersuite>() -> C::G
-where
-  C::G: DivisorCurve,
-{
-  make_permissible(C::G::generator(), C::G::random(&mut OsRng))
-}
-
 fn random_output() -> Output<Ed25519> {
-  let O = random_permissible_point::<Ed25519>();
+  let O = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
   let I = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
-  let C = random_permissible_point::<Ed25519>();
+  let C = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
   Output { O, I, C }
+}
+
+#[inline(never)]
+fn verify_fn(
+  proof: Fcmp<Selene, Helios>,
+  params: &FcmpParams<RecommendedTranscript, Selene, Helios>,
+  root: TreeRoot<Selene, Helios>,
+  layer_lens: Vec<usize>,
+  input: Input<<Selene as Ciphersuite>::F>,
+) {
+  let instant = std::time::Instant::now();
+
+  let mut verifier_1 = params.curve_1_generators.batch_verifier();
+  let mut verifier_2 = params.curve_2_generators.batch_verifier();
+
+  for _ in 0 .. 100 {
+    proof.clone().verify::<_, _, Ed25519>(
+      &mut OsRng,
+      &mut RecommendedTranscript::new(b"FCMP Test"),
+      &mut verifier_1,
+      &mut verifier_2,
+      params,
+      root,
+      layer_lens.clone(),
+      input,
+    );
+  }
+
+  assert!(params.curve_1_generators.verify(verifier_1));
+  assert!(params.curve_2_generators.verify(verifier_2));
+
+  dbg!((std::time::Instant::now() - instant).as_millis());
 }
 
 #[test]
@@ -41,6 +58,8 @@ fn test() {
   let params = FcmpParams::<_, _, _>::new::<Ed25519>(
     curve_1_generators.clone(),
     curve_2_generators.clone(),
+    <Selene as Ciphersuite>::G::random(&mut OsRng),
+    <Helios as Ciphersuite>::G::random(&mut OsRng),
     G,
     T,
     U,
@@ -75,7 +94,7 @@ fn test() {
     {
       multiexp.push((scalar, *point));
     }
-    make_permissible(curve_1_generators.h(), multiexp_vartime(&multiexp))
+    params.curve_1_hash_init + multiexp_vartime(&multiexp)
   });
   let mut helios_hash;
 
@@ -84,7 +103,7 @@ fn test() {
   for _ in 0 .. 2 {
     let mut curve_2_layer = vec![];
     for _ in 0 .. usize::try_from(OsRng.next_u64() % 4).unwrap() + 1 {
-      curve_2_layer.push(random_permissible_point::<Selene>());
+      curve_2_layer.push(<Selene as Ciphersuite>::G::random(&mut OsRng));
     }
     let layer_len = curve_2_layer.len();
     curve_2_layer[usize::try_from(OsRng.next_u64()).unwrap() % layer_len] =
@@ -99,14 +118,14 @@ fn test() {
       for (scalar, point) in curve_2_layer.iter().zip(curve_2_generators.g_bold_slice()) {
         multiexp.push((*scalar, *point));
       }
-      make_permissible(curve_2_generators.h(), multiexp_vartime(&multiexp))
+      params.curve_2_hash_init + multiexp_vartime(&multiexp)
     });
 
     curve_2_layers.push(curve_2_layer);
 
     let mut curve_1_layer = vec![];
     for _ in 0 .. usize::try_from(OsRng.next_u64() % 4).unwrap() + 1 {
-      curve_1_layer.push(random_permissible_point::<Helios>());
+      curve_1_layer.push(<Helios as Ciphersuite>::G::random(&mut OsRng));
     }
     let layer_len = curve_1_layer.len();
     curve_1_layer[usize::try_from(OsRng.next_u64()).unwrap() % layer_len] =
@@ -121,7 +140,7 @@ fn test() {
       for (scalar, point) in curve_1_layer.iter().zip(curve_1_generators.g_bold_slice()) {
         multiexp.push((*scalar, *point));
       }
-      make_permissible(curve_1_generators.h(), multiexp_vartime(&multiexp))
+      params.curve_1_hash_init + multiexp_vartime(&multiexp)
     });
 
     curve_1_layers.push(curve_1_layer);
@@ -147,23 +166,5 @@ fn test() {
     branches,
   );
 
-  let mut verifier_1 = params.curve_1_generators.batch_verifier();
-  let mut verifier_2 = params.curve_2_generators.batch_verifier();
-
-  let instant = std::time::Instant::now();
-  for _ in 0 .. 10 {
-    proof.clone().verify::<_, _, Ed25519>(
-      &mut OsRng,
-      &mut RecommendedTranscript::new(b"FCMP Test"),
-      &mut verifier_1,
-      &mut verifier_2,
-      &params,
-      root,
-      layer_lens.clone(),
-      input,
-    );
-  }
-  assert!(params.curve_1_generators.verify(verifier_1));
-  assert!(params.curve_2_generators.verify(verifier_2));
-  dbg!((std::time::Instant::now() - instant).as_millis());
+  verify_fn(proof, &params, root, layer_lens, input);
 }
