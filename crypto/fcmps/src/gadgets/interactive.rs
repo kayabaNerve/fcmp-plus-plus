@@ -108,6 +108,8 @@ impl<C: Ciphersuite> Circuit<C> {
       p_0_n_1
     };
 
+    let c_yx = c_y * c_x;
+
     // The evaluation of the divisor differentiated by x
     let p_0_n_2 = {
       // The coefficient for x**1 is 1, so 1 becomes the new zero coefficient
@@ -117,21 +119,21 @@ impl<C: Ciphersuite> Circuit<C> {
       p_0_n_2 = p_0_n_2.term(c_y, divisor.yx[0]);
 
       // Handle the new yx coefficients
-      let mut c_yx = c_y * c_x;
+      let mut c_yx_eval = c_yx;
       for (j, yx) in divisor.yx.iter().enumerate().skip(1) {
         // For the power which was shifted down, we multiply this coefficient
         // 3 x**2 -> 2 * 3 x**1
         let original_power_of_x = j + 1;
         // Use incremental addition for this multiplication
         // For such a small weight, it's faster than any constant time operation
-        let mut this_weight = c_yx;
+        let mut this_weight = c_yx_eval;
         for _ in 1 .. original_power_of_x {
-          this_weight += c_yx;
+          this_weight += c_yx_eval;
         }
 
         p_0_n_2 = p_0_n_2.term(this_weight, *yx);
 
-        c_yx *= c_x;
+        c_yx_eval *= c_x;
       }
 
       // Handle the x coefficients
@@ -159,13 +161,13 @@ impl<C: Ciphersuite> Circuit<C> {
     let p_0_d = {
       let mut p_0_d = LinComb::empty().term(c_y, divisor.y);
 
-      let mut c_yx = c_y * c_x;
+      let mut c_yx_eval = c_yx;
       for var in &divisor.yx {
-        p_0_d = p_0_d.term(c_yx, *var);
-        c_yx *= c_x;
+        p_0_d = p_0_d.term(c_yx_eval, *var);
+        c_yx_eval *= c_x;
       }
 
-      let mut c_x_eval = c_x * c_x;
+      let mut c_x_eval = c_x_sq;
       for var in &divisor.x_from_power_of_2 {
         p_0_d = p_0_d.term(c_x_eval, *var);
         c_x_eval *= c_x;
