@@ -178,16 +178,15 @@ macro_rules! field {
       }
 
       fn square(&self) -> Self {
-        *self * self
+        Self(self.0.square())
       }
       fn double(&self) -> Self {
         *self + self
       }
 
       fn invert(&self) -> CtOption<Self> {
-        const NEG_2: $FieldName =
-          Self($ResidueType::sub(&$ResidueType::ZERO, &$ResidueType::new(&U256::from_u8(2))));
-        CtOption::new(self.pow(NEG_2), !self.is_zero())
+        let res = self.0.invert();
+        CtOption::new(Self(res.0), res.1.into())
       }
 
       fn sqrt(&self) -> CtOption<Self> {

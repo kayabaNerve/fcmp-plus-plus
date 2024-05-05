@@ -117,9 +117,8 @@ impl Field for FieldElement {
   }
 
   fn invert(&self) -> CtOption<Self> {
-    const NEG_2: FieldElement =
-      FieldElement(ResidueType::new(&MODULUS.saturating_sub(&U256::from_u8(2))));
-    CtOption::new(self.pow(NEG_2), !self.is_zero())
+    let res = self.0.invert();
+    CtOption::new(Self(res.0), res.1.into())
   }
 
   // RFC-8032 sqrt8k5
