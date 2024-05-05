@@ -5,7 +5,7 @@ use zeroize::Zeroize;
 
 use transcript::Transcript;
 
-use multiexp::multiexp;
+use multiexp::{BatchVerifier, multiexp};
 use ciphersuite::{
   group::{
     ff::{Field, PrimeField, PrimeFieldBits},
@@ -290,7 +290,7 @@ pub struct PreparedBlinds<F: PrimeFieldBits> {
   i_blind_v: PreparedBlind<F>,
   i_blind_blind: PreparedBlind<F>,
   c_blind: PreparedBlind<F>,
-  input: Input<F>,
+  pub(crate) input: Input<F>,
 }
 
 impl<F: PrimeFieldBits> OutputBlinds<F> {
@@ -655,7 +655,13 @@ where
       c_blind_claim,
       (C[0], C[1]),
       //
-      c1_branches[0].chunks(4).map(|chunk| chunk.to_vec()).collect(),
+      c1_branches[0]
+        .chunks(4)
+        .map(|chunk| {
+          assert_eq!(chunk.len(), 4);
+          chunk.to_vec()
+        })
+        .collect(),
     );
 
     // We do have a spare blind for the last branch
@@ -713,10 +719,10 @@ where
     }
 
     // Escape to the raw weights to form a GBP with
-    assert!(c1_circuit.muls <= 256);
-    assert!(c2_circuit.muls <= 256);
-    dbg!(c1_circuit.muls);
-    dbg!(c2_circuit.muls);
+    assert!(c1_circuit.muls() <= 256);
+    assert!(c2_circuit.muls() <= 256);
+    dbg!(c1_circuit.muls());
+    dbg!(c2_circuit.muls());
 
     // TODO: unwrap -> Result
     let (c1_statement, c1_witness) = c1_circuit
@@ -726,7 +732,7 @@ where
         pvc_blinds_1,
       )
       .unwrap();
-    let c1_proof = c1_statement.prove(rng, transcript, c1_witness.unwrap()).unwrap();
+    let c1_proof = c1_statement.clone().prove(rng, transcript, c1_witness.unwrap()).unwrap();
 
     let (c2_statement, c2_witness) = c2_circuit
       .statement(
@@ -743,5 +749,211 @@ where
       proof_1_vcs: commitments_1,
       proof_2_vcs: commitments_2,
     }
+  }
+
+  #[allow(clippy::too_many_arguments)]
+  pub fn verify<R: RngCore + CryptoRng, T: Transcript, OC: Ciphersuite>(
+    self,
+    rng: &mut R,
+    transcript: &mut T,
+    verifier_1: &mut BatchVerifier<(), C1::G>,
+    verifier_2: &mut BatchVerifier<(), C2::G>,
+    params: &FcmpParams<T, OC, C1, C2>,
+    tree: TreeRoot<C1, C2>,
+    layer_lens: Vec<usize>,
+    input: Input<C1::F>,
+  ) where
+    OC::G: DivisorCurve<FieldElement = C1::F>,
+  {
+    // TODO: Check the length of the VCs for this proof
+
+    // Append the leaves and the rest of the branches to the tape
+    let mut c1_tape = VectorCommitmentTape(vec![]);
+    let mut c1_branches = vec![];
+    let mut c2_tape = VectorCommitmentTape(vec![]);
+    let mut c2_branches = vec![];
+
+    for (i, layer_len) in layer_lens.iter().enumerate() {
+      if (i % 2) == 0 {
+        let (branch, _offset) =
+          c1_tape.append_branch::<T, C1>(&params.curve_1_generators, *layer_len, None);
+        c1_branches.push(branch);
+      } else {
+        let (branch, _offset) =
+          c2_tape.append_branch::<T, C2>(&params.curve_2_generators, *layer_len, None);
+        c2_branches.push(branch);
+      }
+    }
+
+    // Accumulate the opening for the leaves
+    let append_claimed_point_1 =
+      |c1_tape: &mut VectorCommitmentTape<C1::F>, generator, dlog_bits| {
+        c1_tape.append_claimed_point(generator, dlog_bits, None, None, None, None)
+      };
+
+    // Since this is presumed over Ed25519, which has a 253-bit discrete logarithm, we have two
+    // items avilable in padding. We use this padding for all the other points we must commit to
+    // For o_blind, we use the padding for O
+    let (o_blind_claim, O) =
+      { append_claimed_point_1(&mut c1_tape, params.T, usize::try_from(OC::F::NUM_BITS).unwrap()) };
+    // For i_blind_u, we use the padding for I
+    let (i_blind_u_claim, I) =
+      { append_claimed_point_1(&mut c1_tape, params.U, usize::try_from(OC::F::NUM_BITS).unwrap()) };
+
+    // Commit to the divisor for `i_blind V`, which doesn't commit to the point `i_blind V`
+    // (annd that still has to be done)
+    let (i_blind_v_divisor, _extra) = c1_tape.append_divisor(None, None);
+
+    // For i_blind_blind, we use the padding for (i_blind V)
+    let (i_blind_blind_claim, i_blind_V) =
+      { append_claimed_point_1(&mut c1_tape, params.T, usize::try_from(OC::F::NUM_BITS).unwrap()) };
+
+    let i_blind_v_claim = ClaimedPointWithDlog {
+      generator: {
+        let mut powers = vec![OC::G::to_xy(params.V)];
+        let mut last = params.V;
+        for _ in 1 .. OC::F::NUM_BITS {
+          last = last.double();
+          powers.push(OC::G::to_xy(last));
+        }
+        powers
+      },
+      // This has the same discrete log, i_blind, as i_blind_u
+      dlog: i_blind_u_claim.dlog.clone(),
+      divisor: i_blind_v_divisor,
+      point: (i_blind_V[0], i_blind_V[1]),
+    };
+
+    // For c_blind, we use the padding for C
+    let (c_blind_claim, C) =
+      { append_claimed_point_1(&mut c1_tape, params.G, usize::try_from(OC::F::NUM_BITS).unwrap()) };
+
+    // We now have committed to O, I, C, and all interpolated points
+
+    // The first circuit's tape opens the blinds from the second curve
+    let mut commitment_blind_claims_1 = vec![];
+    for _ in 0 .. (c1_branches.len() - 1) {
+      commitment_blind_claims_1.push(
+        c1_tape
+          .append_claimed_point(
+            params.curve_2_generators.h(),
+            usize::try_from(C2::F::NUM_BITS).unwrap(),
+            None,
+            None,
+            None,
+            None,
+          )
+          .0,
+      );
+    }
+
+    // The second circuit's tape opens the blinds from the first curve
+    let mut commitment_blind_claims_2 = vec![];
+    for _ in 0 .. c2_branches.len() {
+      commitment_blind_claims_2.push(
+        c2_tape
+          .append_claimed_point(
+            params.curve_1_generators.h(),
+            usize::try_from(C1::F::NUM_BITS).unwrap(),
+            None,
+            None,
+            None,
+            None,
+          )
+          .0,
+      );
+    }
+
+    Self::transcript(transcript, tree, input, &self.proof_1_vcs, &self.proof_2_vcs);
+
+    // Create the circuits
+    let mut c1_circuit = Circuit::<C1>::verify();
+    let mut c2_circuit = Circuit::<C2>::verify();
+
+    // Perform the layers
+    c1_circuit.first_layer(
+      transcript,
+      &CurveSpec { a: <OC::G as DivisorCurve>::a(), b: <OC::G as DivisorCurve>::b() },
+      //
+      input.O_tilde,
+      o_blind_claim,
+      (O[0], O[1]),
+      //
+      input.I_tilde,
+      i_blind_u_claim,
+      (I[0], I[1]),
+      //
+      input.R,
+      i_blind_v_claim,
+      i_blind_blind_claim,
+      //
+      input.C_tilde,
+      c_blind_claim,
+      (C[0], C[1]),
+      //
+      c1_branches[0]
+        .chunks(4)
+        .map(|chunk| {
+          assert_eq!(chunk.len(), 4);
+          chunk.to_vec()
+        })
+        .collect(),
+    );
+
+    // - 1, as the leaves are the first branch
+    assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
+    assert!(self.proof_2_vcs.len() > c1_branches.len());
+    let commitment_iter = self.proof_2_vcs.clone().into_iter();
+    let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
+    for (prior_commitment, (branch, prior_blind_opening)) in
+      commitment_iter.into_iter().zip(branch_iter)
+    {
+      let (hash_x, hash_y, _) = c1_circuit.mul(None, None, None);
+      c1_circuit.additional_layer(
+        transcript,
+        &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
+        C2::G::to_xy(prior_commitment),
+        prior_blind_opening,
+        (hash_x, hash_y),
+        branch,
+      );
+    }
+
+    assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
+    assert!(self.proof_1_vcs.len() > c2_branches.len());
+    let commitment_iter = self.proof_1_vcs.clone().into_iter();
+    let branch_iter = c2_branches.into_iter().zip(commitment_blind_claims_2);
+    for (prior_commitment, (branch, prior_blind_opening)) in
+      commitment_iter.into_iter().zip(branch_iter)
+    {
+      let (hash_x, hash_y, _) = c2_circuit.mul(None, None, None);
+      c2_circuit.additional_layer(
+        transcript,
+        &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
+        C1::G::to_xy(prior_commitment),
+        prior_blind_opening,
+        (hash_x, hash_y),
+        branch,
+      );
+    }
+
+    // Escape to the raw weights to form a GBP with
+    assert!(c1_circuit.muls() <= 256);
+    assert!(c2_circuit.muls() <= 256);
+    dbg!(c1_circuit.muls());
+    dbg!(c2_circuit.muls());
+
+    // TODO: unwrap -> Result
+    let (c1_statement, _witness) = c1_circuit
+      .statement(params.curve_1_generators.reduce(256).unwrap(), self.proof_1_vcs, vec![])
+      .unwrap();
+    c1_statement.verify(rng, verifier_1, transcript, self.proof_1).unwrap();
+
+    let (c2_statement, _witness) = c2_circuit
+      .statement(params.curve_2_generators.reduce(256).unwrap(), self.proof_2_vcs, vec![])
+      .unwrap();
+    c2_statement.verify(rng, verifier_2, transcript, self.proof_2).unwrap();
+
+    // TODO: Check the final root matches
   }
 }

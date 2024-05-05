@@ -21,22 +21,30 @@ struct ProverData<F: Field> {
 /// A struct representing a circuit.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) struct Circuit<C: Ciphersuite> {
-  pub(crate) muls: usize,
-  commitments: usize,
+  muls: usize,
   // A series of linear combinations which must evaluate to 0.
   constraints: Vec<LinComb<C::F>>,
   prover: Option<ProverData<C::F>>,
 }
 
 impl<C: Ciphersuite> Circuit<C> {
+  // Returns the amount of multiplications used by this circuit.
+  pub(crate) fn muls(&self) -> usize {
+    self.muls
+  }
+
   // Create an instance to prove with.
   pub(crate) fn prove(commitments: Vec<Vec<C::F>>) -> Self {
     Self {
       muls: 0,
-      commitments: commitments.len(),
       constraints: vec![],
       prover: Some(ProverData { aL: vec![], aR: vec![], C: commitments }),
     }
+  }
+
+  // Create an instance to verify with.
+  pub(crate) fn verify() -> Self {
+    Self { muls: 0, constraints: vec![], prover: None }
   }
 
   /// Evaluate a constraint.

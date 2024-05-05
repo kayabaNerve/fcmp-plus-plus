@@ -2,7 +2,7 @@ use rand_core::OsRng;
 
 use transcript::RecommendedTranscript;
 
-use multiexp::multiexp_vartime;
+use multiexp::{BatchVerifier, multiexp_vartime};
 use ciphersuite::{group::Group, Ciphersuite, Ed25519, Selene, Helios};
 
 use crate::*;
@@ -50,6 +50,7 @@ fn test() {
   let output = random_output();
   let blinds = OutputBlinds::new(&mut OsRng);
   let blinds = blinds.prepare(G, T, U, V, output);
+  let input = blinds.input;
 
   let mut leaves = vec![];
   for _ in 0 .. usize::try_from(OsRng.next_u64() % 4).unwrap() + 1 {
@@ -126,15 +127,41 @@ fn test() {
     curve_1_layers.push(curve_1_layer);
   }
 
+  let mut layer_lens = vec![4 * leaves.len()];
+  for (a, b) in curve_2_layers.iter().zip(&curve_1_layers) {
+    layer_lens.push(a.len());
+    layer_lens.push(b.len());
+  }
+
   let branches = Branches { leaves, curve_2_layers, curve_1_layers };
 
-  Fcmp::prove(
+  let root = TreeRoot::<Selene, Helios>::C1(<Selene as Ciphersuite>::G::random(&mut OsRng));
+
+  let proof = Fcmp::prove(
     &mut OsRng,
     &mut RecommendedTranscript::new(b"FCMP Test"),
     &params,
-    TreeRoot::<Selene, Helios>::C1(<Selene as Ciphersuite>::G::random(&mut OsRng)),
+    root,
     output,
     blinds,
     branches,
   );
+
+  let mut verifier_1 = BatchVerifier::new(1);
+  let mut verifier_2 = BatchVerifier::new(1);
+
+  let instant = std::time::Instant::now();
+  proof.verify(
+    &mut OsRng,
+    &mut RecommendedTranscript::new(b"FCMP Test"),
+    &mut verifier_1,
+    &mut verifier_2,
+    &params,
+    root,
+    layer_lens,
+    input,
+  );
+  assert!(verifier_1.verify_vartime());
+  assert!(verifier_2.verify_vartime());
+  dbg!((std::time::Instant::now() - instant).as_millis());
 }
