@@ -30,6 +30,16 @@ pub(crate) struct ClaimedPointWithDlog<'a, F: Field> {
   pub(crate) point: (Variable, Variable),
 }
 
+pub(crate) struct DiscreteLogChallenge<F: Field> {
+  // x, y, 1 / (2y)
+  c0: (F, F, F),
+  c1: (F, F, F),
+  c2: (F, F, F),
+  slope: F,
+  intercept: F,
+  challenged_generator: Vec<F>,
+}
+
 impl<C: Ciphersuite> Circuit<C> {
   pub(crate) fn tuple_member_of_list<T: Transcript>(
     &mut self,
@@ -194,14 +204,133 @@ impl<C: Ciphersuite> Circuit<C> {
   /// proven for with this exact representation.
   ///
   /// Ensures the point is on-curve.
-  pub(crate) fn discrete_log<T: Transcript>(
+  pub(crate) fn discrete_log_challenges<T: Transcript>(
     &mut self,
     transcript: &mut T,
     curve: &CurveSpec<C::F>,
+    generators: &[&[(C::F, C::F)]],
+  ) -> Vec<DiscreteLogChallenge<C::F>> {
+    let generator_len =
+      generators.first().expect("creating dlog challenges for no dlog claims").len();
+
+    let mut inversions = vec![C::F::ZERO; generators.len() * (3 + generator_len)];
+    let mut scratch = vec![C::F::ZERO; generators.len() * (3 + generator_len)];
+
+    // Get the challenge points
+    let mut res = Vec::with_capacity(generators.len());
+    let to_be_inverted_slopes = &mut inversions[.. generators.len()];
+    debug_assert_eq!(to_be_inverted_slopes.len(), generators.len());
+    #[allow(clippy::needless_range_loop)]
+    for i in 0 .. generators.len() {
+      // TODO: Implement a proper hash to curve
+      let (c0_x, c0_y) = loop {
+        let c0_x = C::hash_to_F(b"fcmp", transcript.challenge(b"discrete_log_0").as_ref());
+        let Some(c0_y) =
+          Option::<C::F>::from(((c0_x.square() * c0_x) + (curve.a * c0_x) + curve.b).sqrt())
+        else {
+          continue;
+        };
+        break (c0_x, if bool::from(c0_y.is_odd()) { -c0_y } else { c0_y });
+      };
+      let (c1_x, c1_y) = loop {
+        let c1_x = C::hash_to_F(b"fcmp", transcript.challenge(b"discrete_log_1").as_ref());
+        if c0_x == c1_x {
+          continue;
+        }
+        let Some(c1_y) =
+          Option::<C::F>::from(((c1_x.square() * c1_x) + (curve.a * c1_x) + curve.b).sqrt())
+        else {
+          continue;
+        };
+        break (c1_x, if bool::from(c1_y.is_odd()) { -c1_y } else { c1_y });
+      };
+
+      let (c2_x, c2_y) = incomplete_add::<C::F>(c0_x, c0_y, c1_x, c1_y)
+        .expect("couldn't perform incomplete addition on two distinct, on curve points");
+      let c2_y = -c2_y;
+
+      res.push(DiscreteLogChallenge {
+        c0: (c0_x, c0_y, C::F::ZERO),
+        c1: (c1_x, c1_y, C::F::ZERO),
+        c2: (c2_x, c2_y, C::F::ZERO),
+        slope: C::F::ZERO,
+        intercept: C::F::ZERO,
+        challenged_generator: Vec::with_capacity(generator_len),
+      });
+
+      to_be_inverted_slopes[i] = c1_x - c0_x;
+    }
+
+    // Perform an initial set of inversions for the slopes
+    let slope_denominators = {
+      for slope in &*to_be_inverted_slopes {
+        // This should be unreachable barring negligible probability
+        if slope.is_zero().into() {
+          panic!("trying to invert 0");
+        }
+      }
+      let _ = BatchInverter::invert_with_external_scratch(
+        to_be_inverted_slopes,
+        &mut scratch[.. generators.len()],
+      );
+      to_be_inverted_slopes.to_vec()
+    };
+
+    // Perform the inversions for the generators
+    debug_assert_eq!(res.len(), slope_denominators.len());
+    debug_assert_eq!(res.len(), generators.len());
+    for (c, ((challenge, slope_denominator), generator)) in
+      res.iter_mut().zip(slope_denominators).zip(generators).enumerate()
+    {
+      challenge.slope = (challenge.c1.1 - challenge.c0.1) * slope_denominator;
+      challenge.intercept = challenge.c0.1 - (challenge.slope * challenge.c0.0);
+
+      // Needed for the left-hand side eval (inverse of 2 y)
+      #[allow(clippy::identity_op)]
+      {
+        inversions[(c * (3 + generator_len)) + 0] = challenge.c0.1.double();
+        inversions[(c * (3 + generator_len)) + 1] = challenge.c1.1.double();
+        inversions[(c * (3 + generator_len)) + 2] = challenge.c2.1.double();
+      }
+
+      // Needed for the right-hand side evel
+      debug_assert_eq!(generator_len, generator.len());
+      for (j, generator) in (*generator).iter().enumerate() {
+        inversions[(c * (3 + generator_len)) + 3 + j] =
+          challenge.intercept - (generator.1 - (challenge.slope * generator.0));
+      }
+    }
+    for challenge_inversion in &inversions {
+      // This should be unreachable barring negligible probability
+      if challenge_inversion.is_zero().into() {
+        panic!("trying to invert 0");
+      }
+    }
+    let _ = BatchInverter::invert_with_external_scratch(&mut inversions, &mut scratch);
+
+    let mut inversions = inversions.into_iter();
+    // Fill in the inverted values
+    for challenge in &mut res {
+      challenge.c0.2 = inversions.next().unwrap();
+      challenge.c1.2 = inversions.next().unwrap();
+      challenge.c2.2 = inversions.next().unwrap();
+
+      for _ in 0 .. generator_len {
+        challenge.challenged_generator.push(inversions.next().unwrap());
+      }
+    }
+
+    res
+  }
+
+  pub(crate) fn discrete_log(
+    &mut self,
+    curve: &CurveSpec<C::F>,
     claim: ClaimedPointWithDlog<C::F>,
+    challenge: DiscreteLogChallenge<C::F>,
   ) -> OnCurve {
     let ClaimedPointWithDlog { generator, divisor, dlog, point } = claim;
-    assert_eq!(generator.len(), dlog.len());
+    debug_assert_eq!(generator.len(), dlog.len());
 
     // Ensure this is being safely called
     let arg_iter = core::iter::once(&divisor.y).chain(divisor.yx.iter());
@@ -217,71 +346,35 @@ impl<C: Ciphersuite> Circuit<C> {
 
     let point = self.on_curve(curve, point);
 
-    // TODO: Implement a proper hash to curve
-    let (c0_x, c0_y) = loop {
-      let c0_x = C::hash_to_F(b"fcmp", transcript.challenge(b"discrete_log_0").as_ref());
-      let Some(c0_y) =
-        Option::<C::F>::from(((c0_x.square() * c0_x) + (curve.a * c0_x) + curve.b).sqrt())
-      else {
-        continue;
-      };
-      break (c0_x, if bool::from(c0_y.is_odd()) { -c0_y } else { c0_y });
-    };
-    let (c1_x, c1_y) = loop {
-      let c1_x = C::hash_to_F(b"fcmp", transcript.challenge(b"discrete_log_1").as_ref());
-      if c0_x == c1_x {
-        continue;
-      }
-      let Some(c1_y) =
-        Option::<C::F>::from(((c1_x.square() * c1_x) + (curve.a * c1_x) + curve.b).sqrt())
-      else {
-        continue;
-      };
-      break (c1_x, if bool::from(c1_y.is_odd()) { -c1_y } else { c1_y });
-    };
-
-    let (c2_x, c2_y) = incomplete_add::<C::F>(c0_x, c0_y, c1_x, c1_y)
-      .expect("couldn't perform incomplete addition on two distinct, on curve points");
-    let c2_y = -c2_y;
-
-    // This unwrap should be unreachable barring negligible probability
-    let slope = (c1_y - c0_y) * (c1_x - c0_x).invert().unwrap();
-    let intercept = c0_y - (slope * c0_x);
-
-    // We need the inversions for all of the following
-    let mut inverted = {
-      let mut need_inversion = Vec::with_capacity(3 + generator.len());
-      // Needed for the right-hand side evel
-      for generator in generator {
-        need_inversion.push(intercept - (generator.1 - (slope * generator.0)));
-      }
-      // Needed for the left-hand side eval (2 y)
-      need_inversion.push(c2_y.double());
-      need_inversion.push(c1_y.double());
-      need_inversion.push(c0_y.double());
-      for need_inversion in &need_inversion {
-        // This should be unreachable barring negligible probability
-        if need_inversion.is_zero().into() {
-          panic!("trying to invert 0");
-        }
-      }
-      let mut scratch = vec![C::F::ZERO; need_inversion.len()];
-      let _ = BatchInverter::invert_with_external_scratch(&mut need_inversion, &mut scratch);
-      need_inversion
-    };
-    let inv_two_c0_y = inverted.pop().unwrap();
-    let inv_two_c1_y = inverted.pop().unwrap();
-    let inv_two_c2_y = inverted.pop().unwrap();
-
     // lhs from the paper, evaluating the divisor
-    let lhs_eval =
-      LinComb::from(self.divisor_challenge(curve, &divisor, slope, c0_x, c0_y, inv_two_c0_y)) +
-        &LinComb::from(self.divisor_challenge(curve, &divisor, slope, c1_x, c1_y, inv_two_c1_y)) +
-        &LinComb::from(self.divisor_challenge(curve, &divisor, slope, c2_x, c2_y, inv_two_c2_y));
+    let lhs_eval = LinComb::from(self.divisor_challenge(
+      curve,
+      &divisor,
+      challenge.slope,
+      challenge.c0.0,
+      challenge.c0.1,
+      challenge.c0.2,
+    )) + &LinComb::from(self.divisor_challenge(
+      curve,
+      &divisor,
+      challenge.slope,
+      challenge.c1.0,
+      challenge.c1.1,
+      challenge.c1.2,
+    )) + &LinComb::from(self.divisor_challenge(
+      curve,
+      &divisor,
+      challenge.slope,
+      challenge.c2.0,
+      challenge.c2.1,
+      challenge.c2.2,
+    ));
 
     // Interpolate the powers of the generator
+    debug_assert_eq!(dlog.len(), challenge.challenged_generator.len());
+    debug_assert_eq!(dlog.len(), claim.generator.len());
     let mut rhs_eval = LinComb::empty();
-    for (bit, weight) in dlog.into_iter().zip(inverted) {
+    for (bit, weight) in dlog.into_iter().zip(challenge.challenged_generator) {
       rhs_eval = rhs_eval.term(weight, bit);
     }
 
@@ -291,8 +384,10 @@ impl<C: Ciphersuite> Circuit<C> {
     // -y + (slope * x)) + intercept
     // EXCEPT the output point we're proving the discrete log for isn't the one interpolated
     // Its negative is, so -y becomes y
-    let output_interpolation =
-      LinComb::empty().constant(intercept).term(C::F::ONE, point.y).term(slope, point.x);
+    let output_interpolation = LinComb::empty()
+      .constant(challenge.intercept)
+      .term(C::F::ONE, point.y)
+      .term(challenge.slope, point.x);
     let output_interpolation_eval = self.eval(&output_interpolation);
     let (_output_interpolation, inverse) =
       self.inverse(Some(output_interpolation), output_interpolation_eval);
