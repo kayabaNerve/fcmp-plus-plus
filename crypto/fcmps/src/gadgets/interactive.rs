@@ -302,23 +302,4 @@ impl<C: Ciphersuite> Circuit<C> {
 
     point
   }
-
-  /// Prove knowledge of the discrete logarithm for the specified point over the specified
-  /// generator.
-  ///
-  /// The variable used as knowledge of the discrete log representation must be treated as a
-  /// non-canonical, opaque black box which is inconsistent across uses (and accordingly unsafe to
-  /// reuse).
-  ///
-  /// Ensures the point is on-curve.
-  pub(crate) fn discrete_log_pok<T: Transcript>(
-    &mut self,
-    transcript: &mut T,
-    curve: &CurveSpec<C::F>,
-    claim: ClaimedPointWithDlog<C::F>,
-  ) -> OnCurve {
-    // For now, we use the more expensive Discrete Log instead of attempting any more optimized
-    // versions of this gadget
-    self.discrete_log(transcript, curve, claim)
-  }
 }

@@ -139,7 +139,7 @@ impl<C: Ciphersuite> Circuit<C> {
     branch: Vec<Vec<Variable>>,
   ) {
     let O = self.on_curve(curve, O);
-    let o_blind = self.discrete_log_pok(transcript, curve, o_blind);
+    let o_blind = self.discrete_log(transcript, curve, o_blind);
     self.incomplete_add_pub(O_tilde, o_blind, O);
 
     // This cannot simply be removed in order to cheat this proof
@@ -160,11 +160,11 @@ impl<C: Ciphersuite> Circuit<C> {
     self.incomplete_add_pub(I_tilde, i_blind_u, I);
 
     let i_blind_v = self.discrete_log(transcript, curve, i_blind_v);
-    let i_blind_blind = self.discrete_log_pok(transcript, curve, i_blind_blind);
+    let i_blind_blind = self.discrete_log(transcript, curve, i_blind_blind);
     self.incomplete_add_pub(R, i_blind_v, i_blind_blind);
 
     let C = self.on_curve(curve, C);
-    let c_blind = self.discrete_log_pok(transcript, curve, c_blind);
+    let c_blind = self.discrete_log(transcript, curve, c_blind);
     self.incomplete_add_pub(C_tilde, c_blind, C);
 
     self.permissible(C::F::ONE, C::F::ONE, O.y);
@@ -181,7 +181,7 @@ impl<C: Ciphersuite> Circuit<C> {
     hash: (Variable, Variable),
     branch: Vec<Variable>,
   ) {
-    let blind = self.discrete_log_pok(transcript, curve, blind);
+    let blind = self.discrete_log(transcript, curve, blind);
     let hash = self.on_curve(curve, hash);
     self.incomplete_add_pub(blinded_hash, blind, hash);
     self.permissible(C::F::ONE, C::F::ONE, hash.y);
