@@ -212,8 +212,31 @@ macro_rules! curve {
       fn is_identity(&self) -> Choice {
         self.x.ct_eq(&$Field::ZERO)
       }
+      #[allow(non_snake_case)]
       fn double(&self) -> Self {
-        *self + *self
+        // dbl-2007-bl-2
+        let X1 = self.x;
+        let Y1 = self.y;
+        let Z1 = self.z;
+
+        let w = (X1 - Z1) * (X1 + Z1);
+        let w = w.double() + w;
+        let s = (Y1 * Z1).double();
+        let ss = s.square();
+        let sss = s * ss;
+        let R = Y1 * s;
+        let RR = R.square();
+        let B_ = (X1 * R).double();
+        let h = w.square() - B_.double();
+        let X3 = h * s;
+        let Y3 = w * (B_ - h) - RR.double();
+        let Z3 = sss;
+
+        // If self is identity, res will pass is_identity yet have a distinct internal
+        // representation and not be well-formed when used for addition
+        let res = Self { x: X3, y: Y3, z: Z3 };
+        // Select identity explicitly if this was identity
+        Self::conditional_select(&res, &Self::identity(), self.is_identity())
       }
     }
 
