@@ -26,6 +26,8 @@ allow = [
   "Unicode-DFS-2016",
   "OpenSSL",
 
+  # Non-invasive copyleft
+  "Apache-2.0",
 ]
 
 copyleft = "deny"
