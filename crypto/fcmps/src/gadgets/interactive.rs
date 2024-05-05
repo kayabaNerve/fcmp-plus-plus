@@ -87,12 +87,19 @@ impl<C: Ciphersuite> Circuit<C> {
     c_y: C::F,
     inv_two_c_y: C::F,
   ) -> Variable {
-    let c_x_sq = c_x * c_x;
-    let three_x_sq = c_x_sq + c_x_sq + c_x_sq;
+    let c_x_sq = c_x.square();
+    let three_x_sq = c_x_sq.double() + c_x_sq;
     let three_x_sq_plus_a = three_x_sq + curve.a;
-    let two_c_y = c_y + c_y;
+    let two_c_y = c_y.double();
 
     let p_0_n_0 = three_x_sq_plus_a * inv_two_c_y;
+
+    let mut c_yx = Vec::with_capacity(divisor.yx.len());
+    c_yx.push(c_y * c_x);
+    while c_yx.len() < divisor.yx.len() {
+      let last = *c_yx.last().unwrap();
+      c_yx.push(last * c_x);
+    }
 
     // The evaluation of the divisor differentiated by y, further multiplied by p_0_n_0
     // Differentation drops everything without a y coefficient, and drops what remains by a power
@@ -100,15 +107,13 @@ impl<C: Ciphersuite> Circuit<C> {
     // (y**1 -> y**0, yx**i -> x**i)
     let p_0_n_1 = {
       let mut p_0_n_1 = LinComb::empty().term(p_0_n_0, divisor.y);
-      let mut c_x_eval = c_x;
+      let mut c_x_eval = p_0_n_0 * c_x;
       for var in &divisor.yx {
-        p_0_n_1 = p_0_n_1.term(p_0_n_0 * c_x_eval, *var);
+        p_0_n_1 = p_0_n_1.term(c_x_eval, *var);
         c_x_eval *= c_x;
       }
       p_0_n_1
     };
-
-    let c_yx = c_y * c_x;
 
     // The evaluation of the divisor differentiated by x
     let p_0_n_2 = {
@@ -119,34 +124,21 @@ impl<C: Ciphersuite> Circuit<C> {
       p_0_n_2 = p_0_n_2.term(c_y, divisor.yx[0]);
 
       // Handle the new yx coefficients
-      let mut c_yx_eval = c_yx;
       for (j, yx) in divisor.yx.iter().enumerate().skip(1) {
         // For the power which was shifted down, we multiply this coefficient
         // 3 x**2 -> 2 * 3 x**1
-        let original_power_of_x = j + 1;
-        // Use incremental addition for this multiplication
-        // For such a small weight, it's faster than any constant time operation
-        let mut this_weight = c_yx_eval;
-        for _ in 1 .. original_power_of_x {
-          this_weight += c_yx_eval;
-        }
+        let original_power_of_x = C::F::from(u64::try_from(j + 1).unwrap());
+        let this_weight = original_power_of_x * c_yx[j - 1];
 
         p_0_n_2 = p_0_n_2.term(this_weight, *yx);
-
-        c_yx_eval *= c_x;
       }
 
       // Handle the x coefficients
       let mut c_x_eval = c_x;
       // We don't skip the first one as `x_from_power_of_2` already omits x**1
       for (i, x) in divisor.x_from_power_of_2.iter().enumerate() {
-        let original_power_of_x = i + 2;
-        // Use incremental addition for this multiplication
-        // For such a small weight, it's faster than any constant time operation
-        let mut this_weight = c_x_eval;
-        for _ in 1 .. original_power_of_x {
-          this_weight += c_x_eval;
-        }
+        let original_power_of_x = C::F::from(u64::try_from(i + 2).unwrap());
+        let this_weight = original_power_of_x * c_x_eval;
 
         p_0_n_2 = p_0_n_2.term(this_weight, *x);
 
@@ -161,10 +153,8 @@ impl<C: Ciphersuite> Circuit<C> {
     let p_0_d = {
       let mut p_0_d = LinComb::empty().term(c_y, divisor.y);
 
-      let mut c_yx_eval = c_yx;
-      for var in &divisor.yx {
-        p_0_d = p_0_d.term(c_yx_eval, *var);
-        c_yx_eval *= c_x;
+      for (var, c_yx) in divisor.yx.iter().zip(c_yx) {
+        p_0_d = p_0_d.term(c_yx, *var);
       }
 
       let mut c_x_eval = c_x_sq;
@@ -231,7 +221,7 @@ impl<C: Ciphersuite> Circuit<C> {
     let (c0_x, c0_y) = loop {
       let c0_x = C::hash_to_F(b"fcmp", transcript.challenge(b"discrete_log_0").as_ref());
       let Some(c0_y) =
-        Option::<C::F>::from(((c0_x * c0_x * c0_x) + (curve.a * c0_x) + curve.b).sqrt())
+        Option::<C::F>::from(((c0_x.square() * c0_x) + (curve.a * c0_x) + curve.b).sqrt())
       else {
         continue;
       };
@@ -243,7 +233,7 @@ impl<C: Ciphersuite> Circuit<C> {
         continue;
       }
       let Some(c1_y) =
-        Option::<C::F>::from(((c1_x * c1_x * c1_x) + (curve.a * c1_x) + curve.b).sqrt())
+        Option::<C::F>::from(((c1_x.square() * c1_x) + (curve.a * c1_x) + curve.b).sqrt())
       else {
         continue;
       };
@@ -256,7 +246,7 @@ impl<C: Ciphersuite> Circuit<C> {
 
     // This unwrap should be unreachable barring negligible probability
     let slope = (c1_y - c0_y) * (c1_x - c0_x).invert().unwrap();
-    let intercept = c1_y - (slope * c1_x);
+    let intercept = c0_y - (slope * c0_x);
 
     // We need the inversions for all of the following
     let mut inverted = {
