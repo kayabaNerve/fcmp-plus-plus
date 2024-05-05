@@ -20,8 +20,8 @@ pub(crate) struct Divisor {
 
 /// A claimed point and associated discrete logarithm claim.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub(crate) struct ClaimedPointWithDlog<F: Field> {
-  pub(crate) generator: Vec<(F, F)>,
+pub(crate) struct ClaimedPointWithDlog<'a, F: Field> {
+  pub(crate) generator: &'a [(F, F)],
   pub(crate) divisor: Divisor,
   pub(crate) dlog: Vec<Variable>,
   pub(crate) point: (Variable, Variable),

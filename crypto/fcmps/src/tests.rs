@@ -38,14 +38,14 @@ fn test() {
 
   let curve_1_generators = generalized_bulletproofs::tests::generators::<Selene>(512);
   let curve_2_generators = generalized_bulletproofs::tests::generators::<Helios>(512);
-  let params = FcmpParams::<_, Ed25519, _, _> {
-    curve_1_generators: curve_1_generators.clone(),
-    curve_2_generators: curve_2_generators.clone(),
+  let params = FcmpParams::<_, _, _>::new::<Ed25519>(
+    curve_1_generators.clone(),
+    curve_2_generators.clone(),
     G,
     T,
     U,
     V,
-  };
+  );
 
   let output = random_output();
   let blinds = OutputBlinds::new(&mut OsRng);
@@ -151,7 +151,7 @@ fn test() {
   let mut verifier_2 = BatchVerifier::new(1);
 
   let instant = std::time::Instant::now();
-  proof.verify(
+  proof.verify::<_, _, Ed25519>(
     &mut OsRng,
     &mut RecommendedTranscript::new(b"FCMP Test"),
     &mut verifier_1,

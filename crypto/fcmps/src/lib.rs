@@ -178,26 +178,21 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     (divisor, extra)
   }
 
-  fn append_claimed_point<C: DivisorCurve<FieldElement = F>>(
+  fn append_claimed_point<'a>(
     &mut self,
-    mut generator: C,
+    generator: &'a [(F, F)],
     dlog_bits: usize,
     dlog: Option<Vec<bool>>,
     divisor: Option<Poly<F>>,
     point: Option<(F, F)>,
     padding: Option<Vec<F>>,
-  ) -> (ClaimedPointWithDlog<F>, Vec<Variable>) {
+  ) -> (ClaimedPointWithDlog<'a, F>, Vec<Variable>) {
     // Append the x coordinate with the discrete logarithm
     let (dlog, padding, x) = self.append_dlog(dlog_bits, dlog, padding, point.map(|point| point.0));
     // Append the y coordinate with the divisor
     let (divisor, y) = self.append_divisor(divisor, point.map(|point| point.1));
 
-    let mut powers = vec![C::to_xy(generator)];
-    for _ in 1 .. C::Scalar::NUM_BITS {
-      generator = generator.double();
-      powers.push(C::to_xy(generator));
-    }
-    (ClaimedPointWithDlog { generator: powers, divisor, dlog, point: (x, y) }, padding)
+    (ClaimedPointWithDlog { generator, divisor, dlog, point: (x, y) }, padding)
   }
 
   fn commit<T: Transcript, C: Ciphersuite<F = F>>(
@@ -346,20 +341,63 @@ pub enum TreeRoot<C1: Ciphersuite, C2: Ciphersuite> {
 
 /// The parameters for full-chain membership proofs.
 #[derive(Clone, Debug)]
-pub struct FcmpParams<T: 'static + Transcript, OC: Ciphersuite, C1: Ciphersuite, C2: Ciphersuite> {
+pub struct FcmpParams<T: 'static + Transcript, C1: Ciphersuite, C2: Ciphersuite> {
   /// Generators for the first curve.
   curve_1_generators: Generators<T, C1>,
   /// Generators for the second curve.
   curve_2_generators: Generators<T, C2>,
 
-  /// The G generator for the original curve..
-  G: OC::G,
-  /// The T generator for the original curve..
-  T: OC::G,
-  /// The U generator for the original curve..
-  U: OC::G,
-  /// The V generator for the original curve..
-  V: OC::G,
+  G_table: Vec<(C1::F, C1::F)>,
+  T_table: Vec<(C1::F, C1::F)>,
+  U_table: Vec<(C1::F, C1::F)>,
+  V_table: Vec<(C1::F, C1::F)>,
+  H_1_table: Vec<(C2::F, C2::F)>,
+  H_2_table: Vec<(C1::F, C1::F)>,
+}
+
+impl<T: 'static + Transcript, C1: Ciphersuite, C2: Ciphersuite> FcmpParams<T, C1, C2>
+where
+  C1::G: DivisorCurve<FieldElement = C2::F>,
+  C2::G: DivisorCurve<FieldElement = C1::F>,
+{
+  pub fn new<OC: Ciphersuite>(
+    curve_1_generators: Generators<T, C1>,
+    curve_2_generators: Generators<T, C2>,
+    G: OC::G,
+    T: OC::G,
+    U: OC::G,
+    V: OC::G,
+  ) -> Self
+  where
+    OC::G: DivisorCurve<FieldElement = C1::F>,
+  {
+    fn table<C: DivisorCurve>(mut generator: C) -> Vec<(C::FieldElement, C::FieldElement)> {
+      let mut table = vec![C::to_xy(generator)];
+      for _ in 1 .. C::Scalar::NUM_BITS {
+        generator = generator.double();
+        table.push(C::to_xy(generator));
+      }
+      table
+    }
+
+    let G_table = table(G);
+    let T_table = table(T);
+    let U_table = table(U);
+    let V_table = table(V);
+    let H_1_table = table(curve_1_generators.h());
+    let H_2_table = table(curve_2_generators.h());
+
+    Self {
+      curve_1_generators,
+      curve_2_generators,
+      G_table,
+      T_table,
+      U_table,
+      V_table,
+      H_1_table,
+      H_2_table,
+    }
+  }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -421,7 +459,7 @@ where
   pub fn prove<R: RngCore + CryptoRng, T: Transcript, OC: Ciphersuite>(
     rng: &mut R,
     transcript: &mut T,
-    params: &FcmpParams<T, OC, C1, C2>,
+    params: &FcmpParams<T, C1, C2>,
     tree: TreeRoot<C1, C2>,
     output: Output<OC>,
     output_blinds: PreparedBlinds<C1::F>,
@@ -514,7 +552,7 @@ where
 
       append_claimed_point_1(
         &mut c1_tape,
-        params.T,
+        &params.T_table,
         usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.o_blind.clone(),
         vec![x, y],
@@ -525,7 +563,7 @@ where
       let (x, y) = OC::G::to_xy(output.I);
       append_claimed_point_1(
         &mut c1_tape,
-        params.U,
+        &params.U_table,
         usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.i_blind_u,
         vec![x, y],
@@ -542,7 +580,7 @@ where
       let (x, y) = (output_blinds.i_blind_v.x, output_blinds.i_blind_v.y);
       append_claimed_point_1(
         &mut c1_tape,
-        params.T,
+        &params.T_table,
         usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.i_blind_blind,
         vec![x, y],
@@ -550,15 +588,7 @@ where
     };
 
     let i_blind_v_claim = ClaimedPointWithDlog {
-      generator: {
-        let mut powers = vec![OC::G::to_xy(params.V)];
-        let mut last = params.V;
-        for _ in 1 .. OC::F::NUM_BITS {
-          last = last.double();
-          powers.push(OC::G::to_xy(last));
-        }
-        powers
-      },
+      generator: &params.V_table,
       // This has the same discrete log, i_blind, as i_blind_u
       dlog: i_blind_u_claim.dlog.clone(),
       divisor: i_blind_v_divisor,
@@ -570,7 +600,7 @@ where
       let (x, y) = OC::G::to_xy(output.C);
       append_claimed_point_1(
         &mut c1_tape,
-        params.G,
+        &params.G_table,
         usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.c_blind,
         vec![x, y],
@@ -585,7 +615,7 @@ where
       commitment_blind_claims_1.push(
         c1_tape
           .append_claimed_point(
-            params.curve_2_generators.h(),
+            &params.H_2_table,
             usize::try_from(C2::F::NUM_BITS).unwrap(),
             Some(blind.bits),
             Some(blind.divisor),
@@ -602,7 +632,7 @@ where
       commitment_blind_claims_2.push(
         c2_tape
           .append_claimed_point(
-            params.curve_1_generators.h(),
+            &params.H_1_table,
             usize::try_from(C1::F::NUM_BITS).unwrap(),
             Some(blind.bits),
             Some(blind.divisor),
@@ -758,7 +788,7 @@ where
     transcript: &mut T,
     verifier_1: &mut BatchVerifier<(), C1::G>,
     verifier_2: &mut BatchVerifier<(), C2::G>,
-    params: &FcmpParams<T, OC, C1, C2>,
+    params: &FcmpParams<T, C1, C2>,
     tree: TreeRoot<C1, C2>,
     layer_lens: Vec<usize>,
     input: Input<C1::F>,
@@ -768,10 +798,10 @@ where
     // TODO: Check the length of the VCs for this proof
 
     // Append the leaves and the rest of the branches to the tape
-    let mut c1_tape = VectorCommitmentTape(vec![]);
-    let mut c1_branches = vec![];
-    let mut c2_tape = VectorCommitmentTape(vec![]);
-    let mut c2_branches = vec![];
+    let mut c1_tape = VectorCommitmentTape(Vec::with_capacity(self.proof_1_vcs.len()));
+    let mut c1_branches = Vec::with_capacity((layer_lens.len() / 2) + (layer_lens.len() % 2));
+    let mut c2_tape = VectorCommitmentTape(Vec::with_capacity(self.proof_2_vcs.len()));
+    let mut c2_branches = Vec::with_capacity(layer_lens.len() / 2);
 
     for (i, layer_len) in layer_lens.iter().enumerate() {
       if (i % 2) == 0 {
@@ -794,30 +824,37 @@ where
     // Since this is presumed over Ed25519, which has a 253-bit discrete logarithm, we have two
     // items avilable in padding. We use this padding for all the other points we must commit to
     // For o_blind, we use the padding for O
-    let (o_blind_claim, O) =
-      { append_claimed_point_1(&mut c1_tape, params.T, usize::try_from(OC::F::NUM_BITS).unwrap()) };
+    let (o_blind_claim, O) = {
+      append_claimed_point_1(
+        &mut c1_tape,
+        &params.T_table,
+        usize::try_from(OC::F::NUM_BITS).unwrap(),
+      )
+    };
     // For i_blind_u, we use the padding for I
-    let (i_blind_u_claim, I) =
-      { append_claimed_point_1(&mut c1_tape, params.U, usize::try_from(OC::F::NUM_BITS).unwrap()) };
+    let (i_blind_u_claim, I) = {
+      append_claimed_point_1(
+        &mut c1_tape,
+        &params.U_table,
+        usize::try_from(OC::F::NUM_BITS).unwrap(),
+      )
+    };
 
     // Commit to the divisor for `i_blind V`, which doesn't commit to the point `i_blind V`
     // (annd that still has to be done)
     let (i_blind_v_divisor, _extra) = c1_tape.append_divisor(None, None);
 
     // For i_blind_blind, we use the padding for (i_blind V)
-    let (i_blind_blind_claim, i_blind_V) =
-      { append_claimed_point_1(&mut c1_tape, params.T, usize::try_from(OC::F::NUM_BITS).unwrap()) };
+    let (i_blind_blind_claim, i_blind_V) = {
+      append_claimed_point_1(
+        &mut c1_tape,
+        &params.T_table,
+        usize::try_from(OC::F::NUM_BITS).unwrap(),
+      )
+    };
 
     let i_blind_v_claim = ClaimedPointWithDlog {
-      generator: {
-        let mut powers = vec![OC::G::to_xy(params.V)];
-        let mut last = params.V;
-        for _ in 1 .. OC::F::NUM_BITS {
-          last = last.double();
-          powers.push(OC::G::to_xy(last));
-        }
-        powers
-      },
+      generator: &params.V_table,
       // This has the same discrete log, i_blind, as i_blind_u
       dlog: i_blind_u_claim.dlog.clone(),
       divisor: i_blind_v_divisor,
@@ -825,8 +862,13 @@ where
     };
 
     // For c_blind, we use the padding for C
-    let (c_blind_claim, C) =
-      { append_claimed_point_1(&mut c1_tape, params.G, usize::try_from(OC::F::NUM_BITS).unwrap()) };
+    let (c_blind_claim, C) = {
+      append_claimed_point_1(
+        &mut c1_tape,
+        &params.G_table,
+        usize::try_from(OC::F::NUM_BITS).unwrap(),
+      )
+    };
 
     // We now have committed to O, I, C, and all interpolated points
 
@@ -836,7 +878,7 @@ where
       commitment_blind_claims_1.push(
         c1_tape
           .append_claimed_point(
-            params.curve_2_generators.h(),
+            &params.H_2_table,
             usize::try_from(C2::F::NUM_BITS).unwrap(),
             None,
             None,
@@ -853,7 +895,7 @@ where
       commitment_blind_claims_2.push(
         c2_tape
           .append_claimed_point(
-            params.curve_1_generators.h(),
+            &params.H_1_table,
             usize::try_from(C1::F::NUM_BITS).unwrap(),
             None,
             None,
