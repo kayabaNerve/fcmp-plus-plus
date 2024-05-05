@@ -29,16 +29,16 @@ pub struct ArithmeticCircuitStatement<'a, T: 'static + Transcript, C: Ciphersuit
   generators: ProofGenerators<'a, T, C>,
 
   // Circuit constraints
-  WL: ScalarMatrix<C>,
-  WR: ScalarMatrix<C>,
-  WO: ScalarMatrix<C>,
-  WV: ScalarMatrix<C>,
-  WC: Vec<ScalarMatrix<C>>,
-  c: ScalarVector<C::F>,
+  pub WL: ScalarMatrix<C>,
+  pub WR: ScalarMatrix<C>,
+  pub WO: ScalarMatrix<C>,
+  pub WV: ScalarMatrix<C>,
+  pub WC: Vec<ScalarMatrix<C>>,
+  pub c: ScalarVector<C::F>,
 
   // The commitments, vector and non-vector
-  C: PointVector<C>,
-  V: PointVector<C>,
+  pub C: PointVector<C>,
+  pub V: PointVector<C>,
 }
 
 impl<'a, T: 'static + Transcript, C: Ciphersuite> Zeroize for ArithmeticCircuitStatement<'a, T, C> {
@@ -181,7 +181,7 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       Err(AcError::ConstrainedNonExistentTerm)?;
     }
 
-    if WC.len() > C.len() {
+    if WC.len() != C.len() {
       Err(AcError::ConstrainedNonExistentCommitment)?;
     }
     for WC in &WC {
@@ -240,6 +240,7 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     for _ in 1 .. q {
       z.0.push(*z.0.last().unwrap() * z_1);
     }
+    z.0.truncate(q);
 
     YzChallenges { y, y_inv, z }
   }
@@ -312,7 +313,29 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
         Err(AcError::InconsistentWitness)?;
       }
     }
-    // TODO: Check WL WR WO WV WC C for inconsistencies
+    for (commitment, opening) in self.C.0.iter().zip(witness.c.iter()) {
+      if *commitment != opening.commit(self.generators.g_bold_slice(), self.generators.h()) {
+        Err(AcError::InconsistentWitness)?;
+      }
+    }
+    for i in 0 .. self.q() {
+      if (self.WL.data[i].iter().map(|(j, weight)| *weight * witness.aL[*j]).sum::<C::F>() +
+        self.WR.data[i].iter().map(|(j, weight)| *weight * witness.aR[*j]).sum::<C::F>() +
+        self.WO.data[i].iter().map(|(j, weight)| *weight * witness.aO[*j]).sum::<C::F>() +
+        self
+          .WC
+          .iter()
+          .enumerate()
+          .map(|(c, WC)| {
+            WC.data[i].iter().map(|(j, weight)| *weight * witness.c[c].values[*j]).sum::<C::F>()
+          })
+          .sum::<C::F>()) !=
+        (self.WV.data[i].iter().map(|(j, weight)| *weight * witness.v[*j].value).sum::<C::F>() +
+          self.c[i])
+      {
+        Err(AcError::InconsistentWitness)?;
+      }
+    }
 
     let alpha = C::F::random(&mut *rng);
     let beta = C::F::random(&mut *rng);
@@ -354,13 +377,6 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
 
     let YzChallenges { y, y_inv, z } = self.initial_transcript(transcript, AI, AO, S);
     let y = ScalarVector::powers(y, n);
-    /*
-    let delta = {
-      let lhs = self.WR.mul_vec(n, &z) * &y_inv;
-      let rhs = self.WL.mul_vec(n, &z);
-      lhs.inner_product(&rhs)
-    };
-    */
 
     // t is a n'-term polynomial
     // While Bulletproofs discuss it as a 6-term polynomial, Generalized Bulletproofs re-defines it
@@ -451,10 +467,12 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     }
     // Calculate commitments to the coefficients of t, blinded by tau
     let mut T_before_ni = vec![];
+    assert_eq!(t.0[0 .. ni].len(), tau_before_ni.len());
     for (t, tau) in t.0[0 .. ni].iter().zip(tau_before_ni.iter()) {
       T_before_ni.push(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
     }
     let mut T_after_ni = vec![];
+    assert_eq!(t.0[(ni + 1) ..].len(), tau_after_ni.len());
     for (t, tau) in t.0[(ni + 1) ..].iter().zip(tau_after_ni.iter()) {
       T_after_ni.push(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
     }
@@ -499,7 +517,7 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       // Incorporate the commitment masks multiplied by the associated power of x
       for (mut i, commitment) in witness.c.iter().enumerate() {
         // If this index is ni / 2, skip it
-        if i == (ni / 2) {
+        if i >= (ni / 2) {
           i += 1;
         }
         u += x[i] * commitment.mask;
@@ -512,6 +530,7 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       // P = t_caret * g + l * g_bold + r * (y_inv * h_bold)
 
       let mut P_terms = Vec::with_capacity(1 + (2 * self.generators.len()));
+      assert_eq!(l.len(), r.len());
       for (i, (l, r)) in l.0.iter().zip(r.0.iter()).enumerate() {
         P_terms.push((*l, self.generators.g_bold(i)));
         P_terms.push((y_inv[i] * r, self.generators.h_bold(i)));
@@ -576,7 +595,10 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
 
       let mut rhs = Vec::with_capacity(self.V.len() + t_poly_len);
       rhs.push((x[ni] * (delta + z.inner_product(&self.c)), self.generators.g()));
-      for pair in (self.WV.mul_vec(m, &z) * x[ni]).0.into_iter().zip(self.V.0) {
+
+      let V_weights = self.WV.mul_vec(m, &z) * x[ni];
+      assert_eq!(V_weights.len(), self.V.len());
+      for pair in V_weights.0.into_iter().zip(self.V.0) {
         rhs.push(pair);
       }
       for (i, T) in proof.T_before_ni.into_iter().enumerate() {
@@ -618,8 +640,9 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
 
       // Push the terms for C, which increment from 0, and the terms for WC, which decrement from
       // n'
+      assert_eq!(self.C.len(), self.WC.len());
       for (mut i, (C, WC)) in self.C.0.into_iter().zip(self.WC.into_iter()).enumerate() {
-        if i == (ni / 2) {
+        if i >= (ni / 2) {
           i += 1;
         }
         let j = ni - i;

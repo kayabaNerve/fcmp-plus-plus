@@ -1,4 +1,4 @@
-use rand_core::OsRng;
+use rand_core::{RngCore, OsRng};
 
 use transcript::{Transcript, RecommendedTranscript};
 
@@ -112,121 +112,135 @@ fn test_vector_commitment_arithmetic_circuit() {
 }
 
 #[test]
-fn test_multiplication_arithmetic_circuit() {
-  #[allow(unused)]
-  let m = 4; // Input secrets
-  let n = 1; // Multiplications
-  let q = 5; // Constraints
+fn fuzz_test_arithmetic_circuit() {
+  let generators = generators(32);
 
-  // Hand-written circuit for:
-  // Commitments x, y, z, z1
-  // x * y = z
-  // z + 1 = z1
+  for i in 0 .. 100 {
+    dbg!(i);
 
-  let generators = generators(n);
+    // Create aL, aR, aO
+    let mut aL = ScalarVector(vec![]);
+    let mut aR = ScalarVector(vec![]);
+    while aL.len() < ((OsRng.next_u64() % 8) + 1).try_into().unwrap() {
+      aL.0.push(<Ristretto as Ciphersuite>::F::random(&mut OsRng));
+    }
+    while aR.len() < aL.len() {
+      aR.0.push(<Ristretto as Ciphersuite>::F::random(&mut OsRng));
+    }
+    let aO = aL.clone() * &aR;
 
-  let commit = |value, gamma| (generators.g() * value) + (generators.h() * gamma);
+    let mut C = vec![];
+    while C.len() < (OsRng.next_u64() % 16).try_into().unwrap() {
+      let mut values = ScalarVector(vec![]);
+      while values.0.len() < ((OsRng.next_u64() % 8) + 1).try_into().unwrap() {
+        values.0.push(<Ristretto as Ciphersuite>::F::random(&mut OsRng));
+      }
+      C.push(PedersenVectorCommitment {
+        values,
+        mask: <Ristretto as Ciphersuite>::F::random(&mut OsRng),
+      });
+    }
+    let mut V = vec![];
+    while V.len() < (OsRng.next_u64() % 4).try_into().unwrap() {
+      V.push(PedersenCommitment {
+        value: <Ristretto as Ciphersuite>::F::random(&mut OsRng),
+        mask: <Ristretto as Ciphersuite>::F::random(&mut OsRng),
+      });
+    }
 
-  let x = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-  let x_mask = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-  let x_commitment = commit(x, x_mask);
+    let mut WL = ScalarMatrix::new();
+    let mut WR = ScalarMatrix::new();
+    let mut WO = ScalarMatrix::new();
+    let mut WC = vec![];
+    for _ in 0 .. C.len() {
+      WC.push(ScalarMatrix::new());
+    }
+    let mut WV = ScalarMatrix::new();
+    let mut c = ScalarVector(vec![]);
 
-  let x_vector_mask = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-  let x_vector_commitment =
-    (generators.reduce(1).unwrap().g_bold(0) * x) + (generators.h() * x_vector_mask);
+    // Generate random constraints
+    for _ in 0 .. (OsRng.next_u64() % 8).try_into().unwrap() {
+      let mut eval = <Ristretto as Ciphersuite>::F::ZERO;
 
-  let y = x.double();
-  let y_mask = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-  let y_commitment = commit(y, y_mask);
+      {
+        let mut wl = vec![];
+        for _ in 0 .. (OsRng.next_u64() % 4) {
+          let index = usize::try_from(OsRng.next_u64()).unwrap() % aL.len();
+          let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+          wl.push((index, weight));
+          eval += weight * aL[index];
+        }
+        WL.push(wl);
+      }
 
-  let z = x * y;
-  let z_mask = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-  let z_commitment = commit(z, z_mask);
+      {
+        let mut wr = vec![];
+        for _ in 0 .. (OsRng.next_u64() % 4) {
+          let index = usize::try_from(OsRng.next_u64()).unwrap() % aR.len();
+          let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+          wr.push((index, weight));
+          eval += weight * aR[index];
+        }
+        WR.push(wr);
+      }
 
-  let z1 = z + <Ristretto as Ciphersuite>::F::ONE;
-  let z1_mask = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-  let z1_commitment = commit(z1, z1_mask);
+      {
+        let mut wo = vec![];
+        for _ in 0 .. (OsRng.next_u64() % 4) {
+          let index = usize::try_from(OsRng.next_u64()).unwrap() % aO.len();
+          let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+          wo.push((index, weight));
+          eval += weight * aO[index];
+        }
+        WO.push(wo);
+      }
 
-  let V = PointVector(vec![x_commitment, y_commitment, z_commitment, z1_commitment]);
-  let C = PointVector(vec![x_vector_commitment]);
+      for (WC, C) in WC.iter_mut().zip(C.iter()) {
+        let mut wc = vec![];
+        for _ in 0 .. (OsRng.next_u64() % 4) {
+          let index = usize::try_from(OsRng.next_u64()).unwrap() % C.values.len();
+          let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+          wc.push((index, weight));
+          eval += weight * C.values[index];
+        }
+        WC.push(wc);
+      }
 
-  let aL = ScalarVector::<<Ristretto as Ciphersuite>::F>(vec![x]);
-  let aR = ScalarVector::<<Ristretto as Ciphersuite>::F>(vec![y]);
+      {
+        let mut wv = vec![];
+        if !V.is_empty() {
+          for _ in 0 .. (OsRng.next_u64() % 4) {
+            let index = usize::try_from(OsRng.next_u64()).unwrap() % V.len();
+            let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+            wv.push((index, weight));
+            eval -= weight * V[index].value;
+          }
+        }
+        WV.push(wv);
+      }
 
-  let mut WL = ScalarMatrix::new();
-  WL.push(vec![(0, <Ristretto as Ciphersuite>::F::ONE)]);
-  while WL.len() < q {
-    WL.push(vec![]);
+      c.0.push(eval);
+    }
+
+    let statement = ArithmeticCircuitStatement::<_, Ristretto>::new(
+      generators.reduce(16).unwrap(),
+      WL,
+      WR,
+      WO,
+      WC,
+      WV,
+      c,
+      PointVector(C.iter().map(|C| C.commit(generators.g_bold_slice(), generators.h())).collect()),
+      PointVector(V.iter().map(|V| V.commit(generators.g(), generators.h())).collect()),
+    )
+    .unwrap();
+
+    let witness = ArithmeticCircuitWitness::<Ristretto>::new(aL, aR, C, V).unwrap();
+
+    let mut transcript = RecommendedTranscript::new(b"Fuzz Arithmetic Circuit Test");
+    let proof = statement.clone().prove(&mut OsRng, &mut transcript.clone(), witness).unwrap();
+    let mut verifier = BatchVerifier::new(1);
+    statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
+    assert!(verifier.verify_vartime());
   }
-
-  let mut WR = ScalarMatrix::new();
-  WR.push(vec![]);
-  WR.push(vec![(0, <Ristretto as Ciphersuite>::F::ONE)]);
-  WR.push(vec![]);
-  WR.push(vec![]);
-  WR.push(vec![(0, <Ristretto as Ciphersuite>::F::ONE)]);
-
-  let mut WO = ScalarMatrix::new();
-  WO.push(vec![]);
-  WO.push(vec![]);
-  WO.push(vec![(0, <Ristretto as Ciphersuite>::F::ONE)]);
-  WO.push(vec![(0, <Ristretto as Ciphersuite>::F::ONE)]);
-  WO.push(vec![]);
-
-  let mut WV = ScalarMatrix::new();
-  // Constrain inputs
-  WV.push(vec![(0, <Ristretto as Ciphersuite>::F::from(2u64))]);
-  WV.push(vec![(1, <Ristretto as Ciphersuite>::F::ONE)]);
-  // Confirm the multiplication
-  WV.push(vec![(2, <Ristretto as Ciphersuite>::F::ONE)]);
-  // Verify the next commitment is output + 1
-  WV.push(vec![(3, <Ristretto as Ciphersuite>::F::ONE)]);
-  // Verify y is 2x
-  WV.push(vec![(0, <Ristretto as Ciphersuite>::F::ONE.double())]);
-
-  let mut WC = vec![ScalarMatrix::new()];
-  WC[0].push(vec![(0, <Ristretto as Ciphersuite>::F::ONE)]);
-  WC[0].push(vec![]);
-  WC[0].push(vec![]);
-  WC[0].push(vec![]);
-  WC[0].push(vec![]);
-
-  let c = ScalarVector::<<Ristretto as Ciphersuite>::F>(vec![
-    <Ristretto as Ciphersuite>::F::ZERO,
-    <Ristretto as Ciphersuite>::F::ZERO,
-    <Ristretto as Ciphersuite>::F::ZERO,
-    -<Ristretto as Ciphersuite>::F::ONE,
-    <Ristretto as Ciphersuite>::F::ZERO,
-  ]);
-
-  let statement = ArithmeticCircuitStatement::<_, Ristretto>::new(
-    generators.reduce(1).unwrap(),
-    WL,
-    WR,
-    WO,
-    WC,
-    WV,
-    c,
-    C,
-    V,
-  )
-  .unwrap();
-  let witness = ArithmeticCircuitWitness::<Ristretto>::new(
-    aL,
-    aR,
-    vec![PedersenVectorCommitment { values: ScalarVector(vec![x]), mask: x_vector_mask }],
-    vec![
-      PedersenCommitment { value: x, mask: x_mask },
-      PedersenCommitment { value: y, mask: y_mask },
-      PedersenCommitment { value: z, mask: z_mask },
-      PedersenCommitment { value: z1, mask: z1_mask },
-    ],
-  )
-  .unwrap();
-
-  let mut transcript = RecommendedTranscript::new(b"Multiplication Circuit Test");
-  let proof = statement.clone().prove(&mut OsRng, &mut transcript.clone(), witness).unwrap();
-  let mut verifier = BatchVerifier::new(1);
-  statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
-  assert!(verifier.verify_vartime());
 }

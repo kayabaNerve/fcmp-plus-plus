@@ -11,7 +11,7 @@ use crate::ScalarVector;
 pub struct ScalarMatrix<C: Ciphersuite> {
   // The highest index present in a row in this matrix.
   pub(crate) highest_index: usize,
-  data: Vec<Vec<(usize, C::F)>>,
+  pub(crate) data: Vec<Vec<(usize, C::F)>>,
 }
 
 impl<C: Ciphersuite> ScalarMatrix<C> {
