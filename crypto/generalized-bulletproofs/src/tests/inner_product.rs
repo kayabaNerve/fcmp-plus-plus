@@ -4,7 +4,6 @@ use rand_core::OsRng;
 
 use transcript::{Transcript, RecommendedTranscript};
 
-use multiexp::BatchVerifier;
 use ciphersuite::{
   group::{ff::Field, Group},
   Ciphersuite, Ristretto,
@@ -22,11 +21,10 @@ fn test_zero_inner_product() {
 
   let generators = generators::<Ristretto>(1);
   let reduced = generators.reduce(1).unwrap();
-  let statement = IpStatement::<Ristretto>::new(
-    reduced.g_bold_slice(),
-    reduced.h_bold_slice(),
+  let statement = IpStatement::<_, Ristretto>::new(
+    reduced,
     ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; 1]),
-    generators.g(),
+    <Ristretto as Ciphersuite>::F::ONE,
     P,
   )
   .unwrap();
@@ -39,16 +37,16 @@ fn test_zero_inner_product() {
   let mut transcript = RecommendedTranscript::new(b"Zero IP Test");
   let proof = statement.clone().prove(&mut transcript.clone(), witness).unwrap();
 
-  let mut verifier = BatchVerifier::new(1);
+  let mut verifier = generators.batch_verifier();
   statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
-  assert!(verifier.verify_vartime());
+  assert!(generators.verify(verifier));
 }
 
 #[test]
 fn test_inner_product() {
   // P = sum(g_bold * a, h_bold * b)
-  let mut verifier = BatchVerifier::new(6);
   let generators = generators::<Ristretto>(32);
+  let mut verifier = generators.batch_verifier();
   for i in [1, 2, 4, 8, 16, 32] {
     let generators = generators.reduce(i).unwrap();
     let g = generators.g();
@@ -72,11 +70,10 @@ fn test_inner_product() {
 
     let P = g_bold.multiexp(&a) + h_bold.multiexp(&b) + (g * a.inner_product(&b));
 
-    let statement = IpStatement::<Ristretto>::new(
-      generators.g_bold_slice(),
-      generators.h_bold_slice(),
+    let statement = IpStatement::<_, Ristretto>::new(
+      generators,
       ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; i]),
-      generators.g(),
+      <Ristretto as Ciphersuite>::F::ONE,
       P,
     )
     .unwrap();
@@ -86,5 +83,5 @@ fn test_inner_product() {
     let proof = statement.clone().prove(&mut transcript.clone(), witness).unwrap();
     statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
   }
-  assert!(verifier.verify_vartime());
+  assert!(generators.verify(verifier));
 }

@@ -5,7 +5,7 @@ use zeroize::Zeroize;
 
 use transcript::Transcript;
 
-use multiexp::{BatchVerifier, multiexp};
+use multiexp::multiexp;
 use ciphersuite::{
   group::{
     ff::{Field, PrimeField, PrimeFieldBits},
@@ -15,7 +15,9 @@ use ciphersuite::{
 };
 
 use ec_divisors::{Poly, DivisorCurve, new_divisor};
-use generalized_bulletproofs::{Generators, arithmetic_circuit_proof::ArithmeticCircuitProof};
+use generalized_bulletproofs::{
+  Generators, BatchVerifier, arithmetic_circuit_proof::ArithmeticCircuitProof,
+};
 
 mod lincomb;
 pub(crate) use lincomb::*;
@@ -414,6 +416,7 @@ pub struct Branches<
 }
 
 /// The full-chain membership proof.
+#[derive(Clone)]
 pub struct Fcmp<C1: Ciphersuite, C2: Ciphersuite> {
   proof_1: ArithmeticCircuitProof<C1>,
   proof_1_vcs: Vec<C1::G>,
@@ -786,8 +789,8 @@ where
     self,
     rng: &mut R,
     transcript: &mut T,
-    verifier_1: &mut BatchVerifier<(), C1::G>,
-    verifier_2: &mut BatchVerifier<(), C2::G>,
+    verifier_1: &mut BatchVerifier<C1>,
+    verifier_2: &mut BatchVerifier<C2>,
     params: &FcmpParams<T, C1, C2>,
     tree: TreeRoot<C1, C2>,
     layer_lens: Vec<usize>,

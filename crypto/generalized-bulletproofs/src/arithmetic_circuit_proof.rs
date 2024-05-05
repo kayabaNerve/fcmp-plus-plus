@@ -4,7 +4,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use transcript::Transcript;
 
-use multiexp::{multiexp, BatchVerifier};
+use multiexp::{multiexp, multiexp_vartime};
 use ciphersuite::{
   group::{
     ff::{Field, PrimeField},
@@ -15,8 +15,8 @@ use ciphersuite::{
 
 use crate::{
   ScalarVector, ScalarMatrix, PointVector, ProofGenerators, PedersenCommitment,
-  PedersenVectorCommitment,
-  inner_product::{IpError, IpStatement, IpWitness, IpProof},
+  PedersenVectorCommitment, BatchVerifier,
+  inner_product::{IpError, IpStatement, IpWitness, IpProof, P},
 };
 
 /// Bulletproofs' Arithmetic Circuit Statement from 5.1, modified per Generalized Bulletproofs.
@@ -540,11 +540,11 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       let ip_x = Self::transcript_tau_x_u_t_caret(transcript, tau_x, u, t_caret);
       P_terms.push((ip_x * t_caret, self.generators.g()));
       IpStatement::new_without_P_transcript(
-        self.generators.g_bold_slice(),
-        self.generators.h_bold_slice(),
+        self.generators,
         y_inv,
-        self.generators.g() * ip_x,
-        P_terms,
+        ip_x,
+        // Safe since IpStatement isn't a ZK proof
+        P::ProverWithoutTranscript(multiexp_vartime(&P_terms)),
       )
       .unwrap()
       .prove(transcript, IpWitness::new(l, r).unwrap())
@@ -557,7 +557,7 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
   pub fn verify<R: RngCore + CryptoRng>(
     self,
     rng: &mut R,
-    verifier: &mut BatchVerifier<(), C::G>,
+    verifier: &mut BatchVerifier<C>,
     transcript: &mut T,
     proof: ArithmeticCircuitProof<C>,
   ) -> Result<(), AcError> {
@@ -591,41 +591,39 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
 
     // Lines 88-90, modified per Generalized Bulletproofs as needed w.r.t. t
     {
-      let mut lhs = vec![(proof.t_caret, self.generators.g()), (proof.tau_x, self.generators.h())];
+      let verifier_weight = C::F::random(&mut *rng);
+      // lhs of the equation, weighted to enable batch verification
+      verifier.g += proof.t_caret * verifier_weight;
+      verifier.h += proof.tau_x * verifier_weight;
 
-      let mut rhs = Vec::with_capacity(self.V.len() + t_poly_len);
-      rhs.push((x[ni] * (delta + z.inner_product(&self.c)), self.generators.g()));
-
+      // rhs of the equation, negated to cause a sum to zero
+      verifier.g -= verifier_weight * x[ni] * (delta + z.inner_product(&self.c));
       let V_weights = self.WV.mul_vec(m, &z) * x[ni];
       assert_eq!(V_weights.len(), self.V.len());
       for pair in V_weights.0.into_iter().zip(self.V.0) {
-        rhs.push(pair);
+        verifier.additional.push((-verifier_weight * pair.0, pair.1));
       }
       for (i, T) in proof.T_before_ni.into_iter().enumerate() {
-        rhs.push((x[i], T));
+        verifier.additional.push((-verifier_weight * x[i], T));
       }
       for (i, T) in proof.T_after_ni.into_iter().enumerate() {
-        rhs.push((x[ni + 1 + i], T));
+        verifier.additional.push((-verifier_weight * x[ni + 1 + i], T));
       }
-
-      lhs.reserve(rhs.len());
-      for rhs in rhs {
-        lhs.push((-rhs.0, rhs.1));
-      }
-      let check = lhs;
-
-      verifier.queue(rng, (), check);
     }
 
-    let mut P_terms = {
-      let mut P_terms = vec![
-        (x[ilr], proof.AI),
-        (x[io], proof.AO),
-        // h' ** y is equivalent to h as h' is h ** y_inv
-        (-C::F::ONE, self.generators.h_sum()),
-        (x[is], proof.S),
-      ];
-      P_terms.reserve((2 * n) + self.C.len() + 2);
+    let verifier_weight = C::F::random(&mut *rng);
+
+    // This following block effectively calculates P, within the multiexp
+    {
+      verifier.additional.push((verifier_weight * x[ilr], proof.AI));
+      verifier.additional.push((verifier_weight * x[io], proof.AO));
+      // h' ** y is equivalent to h as h' is h ** y_inv
+      let mut log2_n = 0;
+      while (1 << log2_n) != n {
+        log2_n += 1;
+      }
+      verifier.h_sum[log2_n] -= verifier_weight;
+      verifier.additional.push((verifier_weight * x[is], proof.S));
 
       let mut h_bold_scalars = ScalarVector::new(n);
       // Lines 85-87 calculate WL, WR, WO
@@ -635,7 +633,7 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       h_bold_scalars = h_bold_scalars + &self.WO.mul_vec(n, &z);
 
       for (i, wr) in (self.WR.mul_vec(n, &z) * &y_inv * x[jlr]).0.into_iter().enumerate() {
-        P_terms.push((wr, self.generators.g_bold(i)));
+        verifier.g_bold[i] += verifier_weight * wr;
       }
 
       // Push the terms for C, which increment from 0, and the terms for WC, which decrement from
@@ -646,32 +644,30 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
           i += 1;
         }
         let j = ni - i;
-        P_terms.push((x[i], C));
+        verifier.additional.push((verifier_weight * x[i], C));
         h_bold_scalars = h_bold_scalars + &(WC.mul_vec(n, &z) * x[j]);
       }
 
       // All terms for h_bold here have actually been for h_bold', h_bold * y_inv
       h_bold_scalars = h_bold_scalars * &y_inv;
       for (i, scalar) in h_bold_scalars.0.into_iter().enumerate() {
-        P_terms.push((scalar, self.generators.h_bold(i)));
+        verifier.h_bold[i] += verifier_weight * scalar;
       }
 
-      // Remove u * h
-      P_terms.push((-proof.u, self.generators.h()));
-
-      P_terms
-    };
+      // Remove u * h from P
+      verifier.h -= verifier_weight * proof.u;
+    }
 
     // Prove for lines 88, 92 with an Inner-Product statement
     // This inlines Protocol 1, as our IpStatement implements Protocol 2
     let ip_x = Self::transcript_tau_x_u_t_caret(transcript, proof.tau_x, proof.u, proof.t_caret);
-    P_terms.push((ip_x * proof.t_caret, self.generators.g()));
+    // P is amended with this additional term
+    verifier.g += verifier_weight * ip_x * proof.t_caret;
     IpStatement::new_without_P_transcript(
-      self.generators.g_bold_slice(),
-      self.generators.h_bold_slice(),
+      self.generators,
       y_inv,
-      self.generators.g() * ip_x,
-      P_terms,
+      ip_x,
+      P::VerifierWithoutTranscript { verifier_weight },
     )
     .unwrap()
     .verify(rng, verifier, transcript, proof.ip)

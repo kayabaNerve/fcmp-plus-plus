@@ -4,13 +4,13 @@ use zeroize::Zeroize;
 
 use transcript::Transcript;
 
-use multiexp::{multiexp_vartime, BatchVerifier};
+use multiexp::multiexp_vartime;
 use ciphersuite::{
   group::{ff::Field, GroupEncoding},
   Ciphersuite,
 };
 
-use crate::{ScalarVector, PointVector, padded_pow_of_2};
+use crate::{ScalarVector, PointVector, ProofGenerators, BatchVerifier, padded_pow_of_2};
 
 /// An error from proving/verifying Inner-Product statements.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -18,27 +18,26 @@ pub enum IpError {
   IncorrectAmountOfGenerators,
   InconsistentWitness,
   DifferingLrLengths,
+  InapplicableP,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-enum P<C: Ciphersuite> {
+pub(crate) enum P<C: Ciphersuite> {
   Point(C::G),
-  Terms(Vec<(C::F, C::G)>),
+  VerifierWithoutTranscript { verifier_weight: C::F },
+  ProverWithoutTranscript(C::G),
 }
 
 /// The Bulletproofs Inner-Product statement.
 ///
 /// This is for usage with Protocol 2 from the Bulletproofs paper.
 #[derive(Clone, Debug)]
-pub struct IpStatement<'a, C: Ciphersuite> {
-  // g
-  g_bold: &'a [C::G],
-  // h
-  h_bold: &'a [C::G],
+pub struct IpStatement<'a, T: 'static + Transcript, C: Ciphersuite> {
+  generators: ProofGenerators<'a, T, C>,
   // Weights for h_bold
   h_bold_weights: ScalarVector<C::F>,
-  // u
-  u: C::G,
+  // u as the discrete logarithm of G
+  u: C::F,
   // P
   P: P<C>,
 }
@@ -85,29 +84,29 @@ pub struct IpProof<C: Ciphersuite> {
   b: C::F,
 }
 
-impl<'a, C: Ciphersuite> IpStatement<'a, C> {
+impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
   /// Create a new Inner-Product statement.
   ///
   /// `h_bold_weights` is weights for `h_bold` making the effective `h_bold`
   /// `h_bold_weights * h_bold`, while remaining in terms of `h_bold`.
   ///
+  /// `u` is the discrete logarithm of the `u` defined within the Bulletproofs paper, relative to
+  /// `g`. This prevents some Inner-Product statements yet offers more efficient statements for
+  /// those which are compatible (the focus of this library).
+  ///
   /// The generators are not transcripted (nor weights for the generators). If your generators are
   /// variable, independently transcript them. If your weights aren't deterministic to the
   /// transcript, independently transcript them.
   pub fn new(
-    g_bold: &'a [C::G],
-    h_bold: &'a [C::G],
+    generators: ProofGenerators<'a, T, C>,
     h_bold_weights: ScalarVector<C::F>,
-    u: C::G,
+    u: C::F,
     P: C::G,
   ) -> Result<Self, IpError> {
-    if g_bold.len() != h_bold.len() {
+    if generators.h_bold_slice().len() != h_bold_weights.len() {
       Err(IpError::IncorrectAmountOfGenerators)?
     }
-    if g_bold.len() != h_bold_weights.len() {
-      Err(IpError::IncorrectAmountOfGenerators)?
-    }
-    Ok(Self { g_bold, h_bold, h_bold_weights, u, P: P::Point(P) })
+    Ok(Self { generators, h_bold_weights, u, P: P::Point(P) })
   }
 
   /// Create a new Inner-Product statement which won't transcript P.
@@ -118,22 +117,18 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
   /// variable, independently transcript them. If your weights aren't deterministic to the
   /// transcript, independently transcript them.
   pub(crate) fn new_without_P_transcript(
-    g_bold: &'a [C::G],
-    h_bold: &'a [C::G],
+    generators: ProofGenerators<'a, T, C>,
     h_bold_weights: ScalarVector<C::F>,
-    u: C::G,
-    P: Vec<(C::F, C::G)>,
+    u: C::F,
+    P: P<C>,
   ) -> Result<Self, IpError> {
-    if g_bold.len() != h_bold.len() {
+    if generators.h_bold_slice().len() != h_bold_weights.len() {
       Err(IpError::IncorrectAmountOfGenerators)?
     }
-    if g_bold.len() != h_bold_weights.len() {
-      Err(IpError::IncorrectAmountOfGenerators)?
-    }
-    Ok(Self { g_bold, h_bold, h_bold_weights, u, P: P::Terms(P) })
+    Ok(Self { generators, h_bold_weights, u, P })
   }
 
-  fn initial_transcript<T: Transcript>(&mut self, transcript: &mut T) {
+  fn initial_transcript(&mut self, transcript: &mut T) {
     transcript.domain_separate(b"inner_product");
     // If P is a point, transcript it
     // If P is terms, as it will be if this was constructed by `new_without_P_transcript`, P
@@ -146,7 +141,7 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
   }
 
   // Transcript a round of the protocol
-  fn transcript_L_R<T: Transcript>(transcript: &mut T, L: C::G, R: C::G) -> C::F {
+  fn transcript_L_R(transcript: &mut T, L: C::G, R: C::G) -> C::F {
     transcript.append_message(b"L", L.to_bytes());
     transcript.append_message(b"R", R.to_bytes());
 
@@ -162,30 +157,28 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
   ///
   /// Returns an error if this statement couldn't be proven for (such as if the witness isn't
   /// consistent).
-  pub fn prove<T: Transcript>(
-    mut self,
-    transcript: &mut T,
-    witness: IpWitness<C>,
-  ) -> Result<IpProof<C>, IpError> {
+  pub fn prove(mut self, transcript: &mut T, witness: IpWitness<C>) -> Result<IpProof<C>, IpError> {
     // Perform the initial transcript
     self.initial_transcript(transcript);
 
     let (mut g_bold, mut h_bold, u, mut P, mut a, mut b) = {
-      let IpStatement { g_bold, h_bold, h_bold_weights, u, P } = self;
+      let IpStatement { generators, h_bold_weights, u, P } = self;
+      let u = generators.g() * u;
 
       // Ensure we have the exact amount of generators
-      if g_bold.len() != witness.a.len() {
+      if generators.g_bold_slice().len() != witness.a.len() {
         Err(IpError::IncorrectAmountOfGenerators)?;
       }
       // Acquire a local copy of the generators
-      let g_bold = PointVector::<C>(g_bold.to_vec());
-      let h_bold = PointVector::<C>(h_bold.to_vec()).mul_vec(&h_bold_weights);
+      let g_bold = PointVector::<C>(generators.g_bold_slice().to_vec());
+      let h_bold = PointVector::<C>(generators.h_bold_slice().to_vec()).mul_vec(&h_bold_weights);
 
       let IpWitness { a, b } = witness;
 
       let P = match P {
         P::Point(point) => point,
-        P::Terms(terms) => multiexp_vartime(&terms),
+        P::ProverWithoutTranscript(point) => point,
+        P::VerifierWithoutTranscript { .. } => Err(IpError::InapplicableP)?,
       };
 
       // Ensure this witness actually opens this statement
@@ -339,22 +332,22 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
   /// This will return Err if there is an error. This will return Ok if the proof was successfully
   /// queued for batch verification. The caller is required to verify the batch in order to ensure
   /// the proof is actually correct.
-  pub fn verify<R: RngCore + CryptoRng, T: Transcript>(
+  pub fn verify<R: RngCore + CryptoRng>(
     mut self,
     rng: &mut R,
-    verifier: &mut BatchVerifier<(), C::G>,
+    verifier: &mut BatchVerifier<C>,
     transcript: &mut T,
     proof: IpProof<C>,
   ) -> Result<(), IpError> {
     self.initial_transcript(transcript);
 
-    let IpStatement { g_bold, h_bold, h_bold_weights, u, P } = self;
+    let IpStatement { generators, h_bold_weights, u, P } = self;
 
     // Verify the L/R lengths
     {
       // Calculate the discrete log w.r.t. 2 for the amount of generators present
       let mut lr_len = 0;
-      while (1 << lr_len) < g_bold.len() {
+      while (1 << lr_len) < generators.g_bold_slice().len() {
         lr_len += 1;
       }
 
@@ -367,11 +360,12 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       }
     }
 
-    let mut P_terms = match P {
-      P::Point(point) => vec![(C::F::ONE, point)],
-      P::Terms(terms) => terms,
+    let mut weight = C::F::random(rng);
+    match P {
+      P::Point(point) => verifier.additional.push((weight, point)),
+      P::ProverWithoutTranscript(_) => Err(IpError::InapplicableP)?,
+      P::VerifierWithoutTranscript { verifier_weight } => weight = verifier_weight,
     };
-    P_terms.reserve(2 * proof.L.len());
 
     // Again, we start with the `else: (n > 1)` case
 
@@ -408,8 +402,8 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       let lr_iter = proof.L.into_iter().zip(proof.R);
       for ((x, x_inv), (L, R)) in x_iter.zip(lr_iter) {
         challenges.push((x, x_inv));
-        P_terms.push((x.square(), L));
-        P_terms.push((x_inv.square(), R));
+        verifier.additional.push((weight * x.square(), L));
+        verifier.additional.push((weight * x_inv.square(), R));
       }
 
       Self::challenge_products(&challenges)
@@ -421,25 +415,19 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
     // The multiexp of these terms equate to the final permutation of P
     // We now add terms for a * g_bold' + b * h_bold' b + c * u, with the scalars negative such
     // that the terms sum to 0 for an honest prover
-    let mut multiexp = P_terms;
-    multiexp.reserve(1 + (2 * g_bold.len()));
 
     // The g_bold * a term case from line 16
-    for i in 0 .. g_bold.len() {
-      multiexp.push((-(product_cache[i] * proof.a), g_bold[i]));
+    #[allow(clippy::needless_range_loop)]
+    for i in 0 .. generators.g_bold_slice().len() {
+      verifier.g_bold[i] -= weight * product_cache[i] * proof.a;
     }
     // The h_bold * b term case from line 16
-    for i in 0 .. g_bold.len() {
-      multiexp.push((
-        -(product_cache[product_cache.len() - 1 - i] * proof.b * h_bold_weights[i]),
-        h_bold[i],
-      ));
+    for i in 0 .. generators.h_bold_slice().len() {
+      verifier.h_bold[i] -=
+        weight * product_cache[product_cache.len() - 1 - i] * proof.b * h_bold_weights[i];
     }
     // The c * u term case from line 16
-    multiexp.push((-c, u));
-
-    // Queue the multiexponentation
-    verifier.queue(rng, (), multiexp);
+    verifier.g -= weight * c * u;
 
     Ok(())
   }

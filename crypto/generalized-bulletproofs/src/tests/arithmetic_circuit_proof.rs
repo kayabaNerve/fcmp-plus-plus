@@ -2,7 +2,6 @@ use rand_core::{RngCore, OsRng};
 
 use transcript::{Transcript, RecommendedTranscript};
 
-use multiexp::BatchVerifier;
 use ciphersuite::{group::ff::Field, Ciphersuite, Ristretto};
 
 use crate::{
@@ -58,9 +57,9 @@ fn test_zero_arithmetic_circuit() {
 
   let mut transcript = RecommendedTranscript::new(b"Zero Circuit Test");
   let proof = statement.clone().prove(&mut OsRng, &mut transcript.clone(), witness).unwrap();
-  let mut verifier = BatchVerifier::new(1);
+  let mut verifier = generators.batch_verifier();
   statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
-  assert!(verifier.verify_vartime());
+  assert!(generators.verify(verifier));
 }
 
 #[test]
@@ -106,9 +105,9 @@ fn test_vector_commitment_arithmetic_circuit() {
 
   let mut transcript = RecommendedTranscript::new(b"Vector Commitment Circuit Test");
   let proof = statement.clone().prove(&mut OsRng, &mut transcript.clone(), witness).unwrap();
-  let mut verifier = BatchVerifier::new(1);
+  let mut verifier = generators.batch_verifier();
   statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
-  assert!(verifier.verify_vartime());
+  assert!(generators.verify(verifier));
 }
 
 #[test]
@@ -239,8 +238,8 @@ fn fuzz_test_arithmetic_circuit() {
 
     let mut transcript = RecommendedTranscript::new(b"Fuzz Arithmetic Circuit Test");
     let proof = statement.clone().prove(&mut OsRng, &mut transcript.clone(), witness).unwrap();
-    let mut verifier = BatchVerifier::new(1);
+    let mut verifier = generators.batch_verifier();
     statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
-    assert!(verifier.verify_vartime());
+    assert!(generators.verify(verifier));
   }
 }

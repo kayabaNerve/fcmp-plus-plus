@@ -2,7 +2,7 @@ use rand_core::OsRng;
 
 use transcript::RecommendedTranscript;
 
-use multiexp::{BatchVerifier, multiexp_vartime};
+use multiexp::multiexp_vartime;
 use ciphersuite::{group::Group, Ciphersuite, Ed25519, Selene, Helios};
 
 use crate::*;
@@ -147,21 +147,23 @@ fn test() {
     branches,
   );
 
-  let mut verifier_1 = BatchVerifier::new(1);
-  let mut verifier_2 = BatchVerifier::new(1);
+  let mut verifier_1 = params.curve_1_generators.batch_verifier();
+  let mut verifier_2 = params.curve_2_generators.batch_verifier();
 
   let instant = std::time::Instant::now();
-  proof.verify::<_, _, Ed25519>(
-    &mut OsRng,
-    &mut RecommendedTranscript::new(b"FCMP Test"),
-    &mut verifier_1,
-    &mut verifier_2,
-    &params,
-    root,
-    layer_lens,
-    input,
-  );
-  assert!(verifier_1.verify_vartime());
-  assert!(verifier_2.verify_vartime());
+  for _ in 0 .. 10 {
+    proof.clone().verify::<_, _, Ed25519>(
+      &mut OsRng,
+      &mut RecommendedTranscript::new(b"FCMP Test"),
+      &mut verifier_1,
+      &mut verifier_2,
+      &params,
+      root,
+      layer_lens.clone(),
+      input,
+    );
+  }
+  assert!(params.curve_1_generators.verify(verifier_1));
+  assert!(params.curve_2_generators.verify(verifier_2));
   dbg!((std::time::Instant::now() - instant).as_millis());
 }

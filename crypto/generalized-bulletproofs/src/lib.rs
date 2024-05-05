@@ -7,9 +7,9 @@ use zeroize::Zeroize;
 
 use transcript::Transcript;
 
-use multiexp::multiexp;
+use multiexp::{multiexp, multiexp_vartime};
 use ciphersuite::{
-  group::{Group, GroupEncoding},
+  group::{ff::Field, Group, GroupEncoding},
   Ciphersuite,
 };
 
@@ -57,6 +57,17 @@ pub struct Generators<T: 'static + Transcript, C: Ciphersuite> {
   transcript: T,
 }
 
+pub struct BatchVerifier<C: Ciphersuite> {
+  g: C::F,
+  h: C::F,
+
+  g_bold: Vec<C::F>,
+  h_bold: Vec<C::F>,
+  h_sum: Vec<C::F>,
+
+  additional: Vec<(C::F, C::G)>,
+}
+
 impl<T: 'static + Transcript, C: Ciphersuite> fmt::Debug for Generators<T, C> {
   fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
     let g = self.g.to_bytes();
@@ -78,7 +89,6 @@ pub struct ProofGenerators<'a, T: 'static + Transcript, C: Ciphersuite> {
 
   g_bold: &'a [C::G],
   h_bold: &'a [C::G],
-  h_sum: C::G,
 
   transcript: T::Challenge,
 }
@@ -153,6 +163,34 @@ impl<T: 'static + Transcript, C: Ciphersuite> Generators<T, C> {
     Ok(Generators { g, h, g_bold, h_bold, h_sum, transcript })
   }
 
+  pub fn batch_verifier(&self) -> BatchVerifier<C> {
+    BatchVerifier {
+      g: C::F::ZERO,
+      h: C::F::ZERO,
+
+      g_bold: vec![C::F::ZERO; self.g_bold.len()],
+      h_bold: vec![C::F::ZERO; self.h_bold.len()],
+      h_sum: vec![C::F::ZERO; self.h_sum.len()],
+
+      additional: Vec::with_capacity(128),
+    }
+  }
+
+  #[must_use]
+  pub fn verify(&self, verifier: BatchVerifier<C>) -> bool {
+    multiexp_vartime(
+      &[(verifier.g, self.g), (verifier.h, self.h)]
+        .into_iter()
+        .chain(verifier.g_bold.into_iter().zip(self.g_bold.iter().cloned()))
+        .chain(verifier.h_bold.into_iter().zip(self.h_bold.iter().cloned()))
+        .chain(verifier.h_sum.into_iter().zip(self.h_sum.iter().cloned()))
+        .chain(verifier.additional)
+        .collect::<Vec<_>>(),
+    )
+    .is_identity()
+    .into()
+  }
+
   pub fn g(&self) -> C::G {
     self.g
   }
@@ -183,18 +221,12 @@ impl<T: 'static + Transcript, C: Ciphersuite> Generators<T, C> {
     let mut transcript = self.transcript.clone();
     transcript.append_message(b"used_generators", u32::try_from(generators).unwrap().to_le_bytes());
 
-    let mut pow_of_2 = 0;
-    while (1 << pow_of_2) != generators {
-      pow_of_2 += 1;
-    }
-
     Some(ProofGenerators {
       g: &self.g,
       h: &self.h,
 
       g_bold: &self.g_bold[.. generators],
       h_bold: &self.h_bold[.. generators],
-      h_sum: self.h_sum[pow_of_2],
 
       transcript: transcript.challenge(b"summary"),
     })
@@ -220,10 +252,6 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ProofGenerators<'a, T, C> {
 
   pub(crate) fn h_bold(&self, i: usize) -> C::G {
     self.h_bold[i]
-  }
-
-  pub(crate) fn h_sum(&self) -> C::G {
-    self.h_sum
   }
 
   pub(crate) fn g_bold_slice(&self) -> &[C::G] {
