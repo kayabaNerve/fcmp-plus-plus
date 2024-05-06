@@ -26,6 +26,8 @@ pub(crate) use gadgets::*;
 mod circuit;
 pub(crate) use circuit::*;
 
+pub mod tree;
+
 #[cfg(test)]
 mod tests;
 
