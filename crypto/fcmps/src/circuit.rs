@@ -167,7 +167,7 @@ impl<C: Ciphersuite> Circuit<C> {
     let c_blind = self.discrete_log(transcript, curve, c_blind);
     self.incomplete_add_pub(C_tilde, c_blind, C);
 
-    self.tuple_member_of_list(transcript, vec![O.x, I.x, I.y, C.x], branch);
+    self.tuple_member_of_list(transcript, vec![O.x, I.x, C.x], branch);
   }
 
   pub(crate) fn additional_layer<T: Transcript>(

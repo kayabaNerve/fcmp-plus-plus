@@ -86,7 +86,6 @@ fn test() {
         [
           <Ed25519 as Ciphersuite>::G::to_xy(output.O).0,
           <Ed25519 as Ciphersuite>::G::to_xy(output.I).0,
-          <Ed25519 as Ciphersuite>::G::to_xy(output.I).1,
           <Ed25519 as Ciphersuite>::G::to_xy(output.C).0,
         ]
       })
@@ -146,7 +145,7 @@ fn test() {
     curve_1_layers.push(curve_1_layer);
   }
 
-  let mut layer_lens = vec![4 * leaves.len()];
+  let mut layer_lens = vec![3 * leaves.len()];
   for (a, b) in curve_2_layers.iter().zip(&curve_1_layers) {
     layer_lens.push(a.len());
     layer_lens.push(b.len());

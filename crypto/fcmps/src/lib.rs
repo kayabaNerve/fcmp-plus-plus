@@ -467,7 +467,6 @@ where
       flattened_leaves.extend(&[
         OC::G::to_xy(leaf.O).0,
         OC::G::to_xy(leaf.I).0,
-        OC::G::to_xy(leaf.I).1,
         OC::G::to_xy(leaf.C).0,
       ]);
     }
@@ -668,9 +667,9 @@ where
       (C[0], C[1]),
       //
       c1_branches[0]
-        .chunks(4)
+        .chunks(3)
         .map(|chunk| {
-          assert_eq!(chunk.len(), 4);
+          assert_eq!(chunk.len(), 3);
           chunk.to_vec()
         })
         .collect(),
@@ -912,9 +911,9 @@ where
       (C[0], C[1]),
       //
       c1_branches[0]
-        .chunks(4)
+        .chunks(3)
         .map(|chunk| {
-          assert_eq!(chunk.len(), 4);
+          assert_eq!(chunk.len(), 3);
           chunk.to_vec()
         })
         .collect(),
