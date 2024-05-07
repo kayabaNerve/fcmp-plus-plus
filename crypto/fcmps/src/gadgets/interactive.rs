@@ -73,8 +73,8 @@ impl<F: Field> ChallengePoint<F> {
 
     let p_0_n_0 = three_x_sq_plus_a * inv_two_y;
     let mut x_p_0_n_0 = Vec::with_capacity(divisor_yx_len);
-    for i in 0 .. divisor_yx_len {
-      x_p_0_n_0.push(p_0_n_0 * x_pows[i]);
+    for x in x_pows.iter().take(divisor_yx_len) {
+      x_p_0_n_0.push(p_0_n_0 * x);
     }
 
     let p_1_n = two_y;

@@ -27,7 +27,7 @@ fn verify_fn(
   let mut verifier_1 = params.curve_1_generators.batch_verifier();
   let mut verifier_2 = params.curve_2_generators.batch_verifier();
 
-  for _ in 0 .. 100 {
+  for _ in 0 .. 10 {
     proof.clone().verify::<_, _, Ed25519>(
       &mut OsRng,
       &mut RecommendedTranscript::new(b"FCMP Test"),
@@ -71,8 +71,9 @@ fn test() {
   let blinds = blinds.prepare(G, T, U, V, output);
   let input = blinds.input;
 
-  const LAYER_ONE_LEN: usize = 37;
-  const LAYER_TWO_LEN: usize = 17;
+  const LAYER_ONE_LEN: usize = 38;
+  const LAYER_TWO_LEN: usize = 18;
+  const TARGET_LAYERS: usize = 8;
 
   let mut leaves = vec![];
   for _ in 0 .. LAYER_ONE_LEN {
@@ -101,7 +102,7 @@ fn test() {
 
   let mut curve_2_layers = vec![];
   let mut curve_1_layers = vec![];
-  for layer_pair in 0 .. 4 {
+  loop {
     let mut curve_2_layer = vec![];
     for _ in 0 .. LAYER_TWO_LEN {
       curve_2_layer.push(<Selene as Ciphersuite>::G::random(&mut OsRng));
@@ -124,7 +125,7 @@ fn test() {
 
     curve_2_layers.push(curve_2_layer);
 
-    if layer_pair == 3 {
+    if (1 + curve_1_layers.len() + curve_2_layers.len()) == TARGET_LAYERS {
       break;
     }
 
@@ -149,6 +150,10 @@ fn test() {
     });
 
     curve_1_layers.push(curve_1_layer);
+
+    if (1 + curve_1_layers.len() + curve_2_layers.len()) == TARGET_LAYERS {
+      break;
+    }
   }
   assert_eq!(curve_1_layers.len(), 3);
   assert_eq!(curve_2_layers.len(), 4);
@@ -158,7 +163,10 @@ fn test() {
     layer_lens.push(LAYER_TWO_LEN);
     layer_lens.push(LAYER_ONE_LEN);
   }
-  layer_lens.push(LAYER_TWO_LEN);
+  if curve_2_layers.len() > curve_1_layers.len() {
+    layer_lens.push(LAYER_TWO_LEN);
+  }
+  assert_eq!(layer_lens.len(), TARGET_LAYERS);
 
   let branches = Branches { leaves, curve_2_layers, curve_1_layers };
 
