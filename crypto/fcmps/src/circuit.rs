@@ -120,40 +120,45 @@ impl<C: Ciphersuite> Circuit<C> {
     transcript: &mut T,
     curve: &CurveSpec<C::F>,
 
+    T_table: &[(C::F, C::F)],
+    U_table: &[(C::F, C::F)],
+    V_table: &[(C::F, C::F)],
+    G_table: &[(C::F, C::F)],
+
     O_tilde: (C::F, C::F),
-    o_blind: ClaimedPointWithDlog<C::F>,
+    o_blind: ClaimedPointWithDlog,
     O: (Variable, Variable),
 
     I_tilde: (C::F, C::F),
-    i_blind_u: ClaimedPointWithDlog<C::F>,
+    i_blind_u: ClaimedPointWithDlog,
     I: (Variable, Variable),
 
     R: (C::F, C::F),
-    i_blind_v: ClaimedPointWithDlog<C::F>,
-    i_blind_blind: ClaimedPointWithDlog<C::F>,
+    i_blind_v: ClaimedPointWithDlog,
+    i_blind_blind: ClaimedPointWithDlog,
 
     C_tilde: (C::F, C::F),
-    c_blind: ClaimedPointWithDlog<C::F>,
+    c_blind: ClaimedPointWithDlog,
     C: (Variable, Variable),
 
     branch: Vec<Vec<Variable>>,
   ) {
-    let mut challenges = self
-      .discrete_log_challenges(
-        transcript,
-        curve,
-        &[
-          o_blind.generator,
-          i_blind_u.generator,
-          i_blind_v.generator,
-          i_blind_blind.generator,
-          c_blind.generator,
-        ],
-      )
-      .into_iter();
+    let (challenge, challenged_generators) = self.discrete_log_challenges(
+      transcript,
+      curve,
+      // Assumes all blinds have the same size divisor, which is true
+      1 + o_blind.divisor.x_from_power_of_2.len(),
+      o_blind.divisor.yx.len(),
+      &[T_table, U_table, V_table, G_table],
+    );
+    let mut challenged_generators = challenged_generators.into_iter();
+    let challenged_T = challenged_generators.next().unwrap();
+    let challenged_U = challenged_generators.next().unwrap();
+    let challenged_V = challenged_generators.next().unwrap();
+    let challenged_G = challenged_generators.next().unwrap();
 
     let O = self.on_curve(curve, O);
-    let o_blind = self.discrete_log(curve, o_blind, challenges.next().unwrap());
+    let o_blind = self.discrete_log(curve, o_blind, &challenge, &challenged_T);
     self.incomplete_add_pub(O_tilde, o_blind, O);
 
     // This cannot simply be removed in order to cheat this proof
@@ -170,15 +175,15 @@ impl<C: Ciphersuite> Circuit<C> {
     );
 
     let I = self.on_curve(curve, I);
-    let i_blind_u = self.discrete_log(curve, i_blind_u, challenges.next().unwrap());
+    let i_blind_u = self.discrete_log(curve, i_blind_u, &challenge, &challenged_U);
     self.incomplete_add_pub(I_tilde, i_blind_u, I);
 
-    let i_blind_v = self.discrete_log(curve, i_blind_v, challenges.next().unwrap());
-    let i_blind_blind = self.discrete_log(curve, i_blind_blind, challenges.next().unwrap());
+    let i_blind_v = self.discrete_log(curve, i_blind_v, &challenge, &challenged_V);
+    let i_blind_blind = self.discrete_log(curve, i_blind_blind, &challenge, &challenged_T);
     self.incomplete_add_pub(R, i_blind_v, i_blind_blind);
 
     let C = self.on_curve(curve, C);
-    let c_blind = self.discrete_log(curve, c_blind, challenges.next().unwrap());
+    let c_blind = self.discrete_log(curve, c_blind, &challenge, &challenged_G);
     self.incomplete_add_pub(C_tilde, c_blind, C);
 
     self.permissible(C::F::ONE, C::F::ONE, O.y);
@@ -186,17 +191,25 @@ impl<C: Ciphersuite> Circuit<C> {
     self.tuple_member_of_list(transcript, vec![O.x, I.x, I.y, C.x], branch);
   }
 
+  #[allow(clippy::too_many_arguments)]
   pub(crate) fn additional_layer<T: Transcript>(
     &mut self,
     transcript: &mut T,
     curve: &CurveSpec<C::F>,
+    H_table: &[(C::F, C::F)],
     blinded_hash: (C::F, C::F),
-    blind: ClaimedPointWithDlog<C::F>,
+    blind: ClaimedPointWithDlog,
     hash: (Variable, Variable),
     branch: Vec<Variable>,
   ) {
-    let challenge = self.discrete_log_challenges(transcript, curve, &[blind.generator]).remove(0);
-    let blind = self.discrete_log(curve, blind, challenge);
+    let (challenge, challenged_generator) = self.discrete_log_challenges(
+      transcript,
+      curve,
+      1 + blind.divisor.x_from_power_of_2.len(),
+      blind.divisor.yx.len(),
+      &[H_table],
+    );
+    let blind = self.discrete_log(curve, blind, &challenge, &challenged_generator[0]);
     let hash = self.on_curve(curve, hash);
     self.incomplete_add_pub(blinded_hash, blind, hash);
     self.permissible(C::F::ONE, C::F::ONE, hash.y);

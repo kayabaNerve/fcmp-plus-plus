@@ -180,21 +180,20 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     (divisor, extra)
   }
 
-  fn append_claimed_point<'a>(
+  fn append_claimed_point(
     &mut self,
-    generator: &'a [(F, F)],
     dlog_bits: usize,
     dlog: Option<Vec<bool>>,
     divisor: Option<Poly<F>>,
     point: Option<(F, F)>,
     padding: Option<Vec<F>>,
-  ) -> (ClaimedPointWithDlog<'a, F>, Vec<Variable>) {
+  ) -> (ClaimedPointWithDlog, Vec<Variable>) {
     // Append the x coordinate with the discrete logarithm
     let (dlog, padding, x) = self.append_dlog(dlog_bits, dlog, padding, point.map(|point| point.0));
     // Append the y coordinate with the divisor
     let (divisor, y) = self.append_divisor(divisor, point.map(|point| point.1));
 
-    (ClaimedPointWithDlog { generator, divisor, dlog, point: (x, y) }, padding)
+    (ClaimedPointWithDlog { divisor, dlog, point: (x, y) }, padding)
   }
 
   fn commit<T: Transcript, C: Ciphersuite<F = F>>(
@@ -533,12 +532,10 @@ where
 
     // Accumulate the opening for the leaves
     let append_claimed_point_1 = |c1_tape: &mut VectorCommitmentTape<C1::F>,
-                                  generator,
                                   dlog_bits,
                                   blind: PreparedBlind<C1::F>,
                                   padding| {
       c1_tape.append_claimed_point(
-        generator,
         dlog_bits,
         Some(blind.bits),
         Some(blind.divisor),
@@ -555,7 +552,6 @@ where
 
       append_claimed_point_1(
         &mut c1_tape,
-        &params.T_table,
         usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.o_blind.clone(),
         vec![x, y],
@@ -566,7 +562,6 @@ where
       let (x, y) = OC::G::to_xy(output.I);
       append_claimed_point_1(
         &mut c1_tape,
-        &params.U_table,
         usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.i_blind_u,
         vec![x, y],
@@ -583,7 +578,6 @@ where
       let (x, y) = (output_blinds.i_blind_v.x, output_blinds.i_blind_v.y);
       append_claimed_point_1(
         &mut c1_tape,
-        &params.T_table,
         usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.i_blind_blind,
         vec![x, y],
@@ -591,7 +585,6 @@ where
     };
 
     let i_blind_v_claim = ClaimedPointWithDlog {
-      generator: &params.V_table,
       // This has the same discrete log, i_blind, as i_blind_u
       dlog: i_blind_u_claim.dlog.clone(),
       divisor: i_blind_v_divisor,
@@ -603,7 +596,6 @@ where
       let (x, y) = OC::G::to_xy(output.C);
       append_claimed_point_1(
         &mut c1_tape,
-        &params.G_table,
         usize::try_from(OC::F::NUM_BITS).unwrap(),
         output_blinds.c_blind,
         vec![x, y],
@@ -618,7 +610,6 @@ where
       commitment_blind_claims_1.push(
         c1_tape
           .append_claimed_point(
-            &params.H_2_table,
             usize::try_from(C2::F::NUM_BITS).unwrap(),
             Some(blind.bits),
             Some(blind.divisor),
@@ -635,7 +626,6 @@ where
       commitment_blind_claims_2.push(
         c2_tape
           .append_claimed_point(
-            &params.H_1_table,
             usize::try_from(C1::F::NUM_BITS).unwrap(),
             Some(blind.bits),
             Some(blind.divisor),
@@ -671,6 +661,10 @@ where
     c1_circuit.first_layer(
       transcript,
       &CurveSpec { a: <OC::G as DivisorCurve>::a(), b: <OC::G as DivisorCurve>::b() },
+      &params.T_table,
+      &params.U_table,
+      &params.V_table,
+      &params.G_table,
       //
       output_blinds.input.O_tilde,
       o_blind_claim,
@@ -722,6 +716,7 @@ where
       c1_circuit.additional_layer(
         transcript,
         &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
+        &params.H_2_table,
         C2::G::to_xy(prior_commitment),
         prior_blind_opening,
         (hash_x, hash_y),
@@ -744,6 +739,7 @@ where
       c2_circuit.additional_layer(
         transcript,
         &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
+        &params.H_1_table,
         C1::G::to_xy(prior_commitment),
         prior_blind_opening,
         (hash_x, hash_y),
@@ -819,45 +815,28 @@ where
     }
 
     // Accumulate the opening for the leaves
-    let append_claimed_point_1 =
-      |c1_tape: &mut VectorCommitmentTape<C1::F>, generator, dlog_bits| {
-        c1_tape.append_claimed_point(generator, dlog_bits, None, None, None, None)
-      };
+    let append_claimed_point_1 = |c1_tape: &mut VectorCommitmentTape<C1::F>, dlog_bits| {
+      c1_tape.append_claimed_point(dlog_bits, None, None, None, None)
+    };
 
     // Since this is presumed over Ed25519, which has a 253-bit discrete logarithm, we have two
     // items avilable in padding. We use this padding for all the other points we must commit to
     // For o_blind, we use the padding for O
-    let (o_blind_claim, O) = {
-      append_claimed_point_1(
-        &mut c1_tape,
-        &params.T_table,
-        usize::try_from(OC::F::NUM_BITS).unwrap(),
-      )
-    };
+    let (o_blind_claim, O) =
+      { append_claimed_point_1(&mut c1_tape, usize::try_from(OC::F::NUM_BITS).unwrap()) };
     // For i_blind_u, we use the padding for I
-    let (i_blind_u_claim, I) = {
-      append_claimed_point_1(
-        &mut c1_tape,
-        &params.U_table,
-        usize::try_from(OC::F::NUM_BITS).unwrap(),
-      )
-    };
+    let (i_blind_u_claim, I) =
+      { append_claimed_point_1(&mut c1_tape, usize::try_from(OC::F::NUM_BITS).unwrap()) };
 
     // Commit to the divisor for `i_blind V`, which doesn't commit to the point `i_blind V`
     // (annd that still has to be done)
     let (i_blind_v_divisor, _extra) = c1_tape.append_divisor(None, None);
 
     // For i_blind_blind, we use the padding for (i_blind V)
-    let (i_blind_blind_claim, i_blind_V) = {
-      append_claimed_point_1(
-        &mut c1_tape,
-        &params.T_table,
-        usize::try_from(OC::F::NUM_BITS).unwrap(),
-      )
-    };
+    let (i_blind_blind_claim, i_blind_V) =
+      { append_claimed_point_1(&mut c1_tape, usize::try_from(OC::F::NUM_BITS).unwrap()) };
 
     let i_blind_v_claim = ClaimedPointWithDlog {
-      generator: &params.V_table,
       // This has the same discrete log, i_blind, as i_blind_u
       dlog: i_blind_u_claim.dlog.clone(),
       divisor: i_blind_v_divisor,
@@ -865,13 +844,8 @@ where
     };
 
     // For c_blind, we use the padding for C
-    let (c_blind_claim, C) = {
-      append_claimed_point_1(
-        &mut c1_tape,
-        &params.G_table,
-        usize::try_from(OC::F::NUM_BITS).unwrap(),
-      )
-    };
+    let (c_blind_claim, C) =
+      { append_claimed_point_1(&mut c1_tape, usize::try_from(OC::F::NUM_BITS).unwrap()) };
 
     // We now have committed to O, I, C, and all interpolated points
 
@@ -880,14 +854,7 @@ where
     for _ in 0 .. (c1_branches.len() - 1) {
       commitment_blind_claims_1.push(
         c1_tape
-          .append_claimed_point(
-            &params.H_2_table,
-            usize::try_from(C2::F::NUM_BITS).unwrap(),
-            None,
-            None,
-            None,
-            None,
-          )
+          .append_claimed_point(usize::try_from(C2::F::NUM_BITS).unwrap(), None, None, None, None)
           .0,
       );
     }
@@ -897,14 +864,7 @@ where
     for _ in 0 .. c2_branches.len() {
       commitment_blind_claims_2.push(
         c2_tape
-          .append_claimed_point(
-            &params.H_1_table,
-            usize::try_from(C1::F::NUM_BITS).unwrap(),
-            None,
-            None,
-            None,
-            None,
-          )
+          .append_claimed_point(usize::try_from(C1::F::NUM_BITS).unwrap(), None, None, None, None)
           .0,
       );
     }
@@ -919,6 +879,10 @@ where
     c1_circuit.first_layer(
       transcript,
       &CurveSpec { a: <OC::G as DivisorCurve>::a(), b: <OC::G as DivisorCurve>::b() },
+      &params.T_table,
+      &params.U_table,
+      &params.V_table,
+      &params.G_table,
       //
       input.O_tilde,
       o_blind_claim,
@@ -957,6 +921,7 @@ where
       c1_circuit.additional_layer(
         transcript,
         &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
+        &params.H_2_table,
         C2::G::to_xy(prior_commitment),
         prior_blind_opening,
         (hash_x, hash_y),
@@ -975,6 +940,7 @@ where
       c2_circuit.additional_layer(
         transcript,
         &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
+        &params.H_1_table,
         C1::G::to_xy(prior_commitment),
         prior_blind_opening,
         (hash_x, hash_y),
