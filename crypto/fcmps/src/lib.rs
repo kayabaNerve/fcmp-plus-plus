@@ -747,9 +747,9 @@ where
 
     // Escape to the raw weights to form a GBP with
     assert!(c1_circuit.muls() <= 256);
-    assert!(c2_circuit.muls() <= 256);
-    dbg!(c1_circuit.muls());
-    dbg!(c2_circuit.muls());
+    assert!(c2_circuit.muls() <= 128);
+    // dbg!(c1_circuit.muls());
+    // dbg!(c2_circuit.muls());
 
     // TODO: unwrap -> Result
     let (c1_statement, c1_witness) = c1_circuit
@@ -787,7 +787,7 @@ where
     verifier_2: &mut BatchVerifier<C2>,
     params: &FcmpParams<T, C1, C2>,
     tree: TreeRoot<C1, C2>,
-    layer_lens: Vec<usize>,
+    layer_lens: &[usize],
     input: Input<C1::F>,
   ) where
     OC::G: DivisorCurve<FieldElement = C1::F>,
@@ -966,9 +966,9 @@ where
 
     // Escape to the raw weights to form a GBP with
     assert!(c1_circuit.muls() <= 256);
-    assert!(c2_circuit.muls() <= 256);
-    dbg!(c1_circuit.muls());
-    dbg!(c2_circuit.muls());
+    assert!(c2_circuit.muls() <= 128);
+    // dbg!(c1_circuit.muls());
+    // dbg!(c2_circuit.muls());
 
     // TODO: unwrap -> Result
     let (c1_statement, _witness) = c1_circuit

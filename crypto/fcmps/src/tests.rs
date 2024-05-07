@@ -16,34 +16,41 @@ fn random_output() -> Output<Ed25519> {
 
 #[inline(never)]
 fn verify_fn(
+  iters: usize,
+  batch: usize,
   proof: Fcmp<Selene, Helios>,
   params: &FcmpParams<RecommendedTranscript, Selene, Helios>,
   root: TreeRoot<Selene, Helios>,
-  layer_lens: Vec<usize>,
+  layer_lens: &[usize],
   input: Input<<Selene as Ciphersuite>::F>,
 ) {
-  let instant = std::time::Instant::now();
+  let mut times = vec![];
+  for _ in 0 .. iters {
+    let instant = std::time::Instant::now();
 
-  let mut verifier_1 = params.curve_1_generators.batch_verifier();
-  let mut verifier_2 = params.curve_2_generators.batch_verifier();
+    let mut verifier_1 = params.curve_1_generators.batch_verifier();
+    let mut verifier_2 = params.curve_2_generators.batch_verifier();
 
-  for _ in 0 .. 10 {
-    proof.clone().verify::<_, _, Ed25519>(
-      &mut OsRng,
-      &mut RecommendedTranscript::new(b"FCMP Test"),
-      &mut verifier_1,
-      &mut verifier_2,
-      params,
-      root,
-      layer_lens.clone(),
-      input,
-    );
+    for _ in 0 .. batch {
+      proof.clone().verify::<_, _, Ed25519>(
+        &mut OsRng,
+        &mut RecommendedTranscript::new(b"FCMP Test"),
+        &mut verifier_1,
+        &mut verifier_2,
+        params,
+        root,
+        layer_lens,
+        input,
+      );
+    }
+
+    assert!(params.curve_1_generators.verify(verifier_1));
+    assert!(params.curve_2_generators.verify(verifier_2));
+
+    times.push((std::time::Instant::now() - instant).as_millis());
   }
-
-  assert!(params.curve_1_generators.verify(verifier_1));
-  assert!(params.curve_2_generators.verify(verifier_2));
-
-  dbg!((std::time::Instant::now() - instant).as_millis());
+  times.sort();
+  dbg!((batch, times[times.len() / 2]));
 }
 
 #[test]
@@ -182,5 +189,7 @@ fn test() {
     branches,
   );
 
-  verify_fn(proof, &params, root, layer_lens, input);
+  verify_fn(100, 1, proof.clone(), &params, root, &layer_lens, input);
+  verify_fn(100, 10, proof.clone(), &params, root, &layer_lens, input);
+  verify_fn(100, 100, proof.clone(), &params, root, &layer_lens, input);
 }
