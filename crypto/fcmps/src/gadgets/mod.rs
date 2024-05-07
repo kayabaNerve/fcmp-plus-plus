@@ -160,20 +160,4 @@ impl<C: Ciphersuite> Circuit<C> {
 
     OnCurve { x: x2, y: y2 }
   }
-
-  /// Constrain a `y` coordinate as being permissible.
-  ///
-  /// Panics if the prover and the `y` coordinate isn't permissible.
-  pub(crate) fn permissible(&mut self, a: C::F, b: C::F, y: Variable) {
-    // a y - -b = ay + b
-    let p = LinComb::empty().term(a, y).constant(b);
-    let p_eval = self.eval(&p);
-    let p_eval_sqrt = p_eval.map(|p_eval| p_eval.sqrt().unwrap());
-
-    let (l, r, o) = self.mul(None, None, p_eval_sqrt.map(|sqrt| (sqrt, sqrt)));
-    // Ensure this is actually a sqrt
-    self.equality(l.into(), &r.into());
-    // Ensure the sq is the y coordinate derivative
-    self.equality(p, &o.into());
-  }
 }

@@ -186,9 +186,7 @@ impl<C: Ciphersuite> Circuit<C> {
     let c_blind = self.discrete_log(curve, c_blind, &challenge, &challenged_G);
     self.incomplete_add_pub(C_tilde, c_blind, C);
 
-    self.permissible(C::F::ONE, C::F::ONE, O.y);
-    self.permissible(C::F::ONE, C::F::ONE, C.y);
-    self.tuple_member_of_list(transcript, vec![O.x, I.x, I.y, C.x], branch);
+    self.tuple_member_of_list(transcript, vec![O.x, I.x, C.x], branch);
   }
 
   pub(crate) fn additional_layer_discrete_log_challenge<T: Transcript>(
@@ -217,7 +215,6 @@ impl<C: Ciphersuite> Circuit<C> {
     let blind = self.discrete_log(curve, blind, challenge, challenged_generator);
     let hash = self.on_curve(curve, hash);
     self.incomplete_add_pub(blinded_hash, blind, hash);
-    self.permissible(C::F::ONE, C::F::ONE, hash.y);
     self.member_of_list(hash.x.into(), branch.into_iter().map(Into::into).collect::<Vec<_>>());
   }
 

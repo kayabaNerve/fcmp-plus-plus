@@ -26,6 +26,8 @@ pub(crate) use gadgets::*;
 mod circuit;
 pub(crate) use circuit::*;
 
+pub mod tree;
+
 #[cfg(test)]
 mod tests;
 
@@ -45,37 +47,17 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     (0 .. 256).map(|j| Variable::C(i, j)).collect()
   }
 
-  fn append_branch<T: Transcript, C: Ciphersuite>(
+  fn append_branch<C: Ciphersuite>(
     &mut self,
-    generators: &Generators<T, C>,
     branch_len: usize,
     branch: Option<Vec<F>>,
-  ) -> (Vec<Variable>, Option<F>)
+  ) -> Vec<Variable>
   where
     C::G: DivisorCurve<Scalar = F>,
   {
-    let mut branch_offset = None;
     let branch = branch.map(|mut branch| {
       assert_eq!(branch_len, branch.len());
       assert!(branch.len() <= 256);
-
-      branch_offset = Some({
-        let mut hash = multiexp(
-          &branch.iter().zip(generators.g_bold_slice()).map(|(s, p)| (*s, *p)).collect::<Vec<_>>(),
-        );
-        let mut offset = F::ZERO;
-        while Option::<<<C as Ciphersuite>::G as DivisorCurve>::FieldElement>::from(
-          (<<C as Ciphersuite>::G as DivisorCurve>::FieldElement::ONE +
-            <C as Ciphersuite>::G::to_xy(hash).1)
-            .sqrt(),
-        )
-        .is_none()
-        {
-          hash += generators.h();
-          offset += F::ONE;
-        }
-        offset
-      });
 
       // Pad the branch
       while branch.len() < 256 {
@@ -86,7 +68,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
 
     let mut branch = self.append(branch);
     branch.truncate(branch_len);
-    (branch, branch_offset)
+    branch
   }
 
   /// Append a discrete logarithm of up to 255 bits, allowing usage of the extra slot for an
@@ -348,6 +330,11 @@ pub struct FcmpParams<T: 'static + Transcript, C1: Ciphersuite, C2: Ciphersuite>
   /// Generators for the second curve.
   curve_2_generators: Generators<T, C2>,
 
+  /// Initialization point for the hash function over the first curve.
+  curve_1_hash_init: C1::G,
+  /// Initialization point for the hash function over the first curve.
+  curve_2_hash_init: C2::G,
+
   G_table: Vec<(C1::F, C1::F)>,
   T_table: Vec<(C1::F, C1::F)>,
   U_table: Vec<(C1::F, C1::F)>,
@@ -361,9 +348,12 @@ where
   C1::G: DivisorCurve<FieldElement = C2::F>,
   C2::G: DivisorCurve<FieldElement = C1::F>,
 {
+  #[allow(clippy::too_many_arguments)]
   pub fn new<OC: Ciphersuite>(
     curve_1_generators: Generators<T, C1>,
     curve_2_generators: Generators<T, C2>,
+    curve_1_hash_init: C1::G,
+    curve_2_hash_init: C2::G,
     G: OC::G,
     T: OC::G,
     U: OC::G,
@@ -391,6 +381,8 @@ where
     Self {
       curve_1_generators,
       curve_2_generators,
+      curve_1_hash_init,
+      curve_2_hash_init,
       G_table,
       T_table,
       U_table,
@@ -476,58 +468,46 @@ where
       flattened_leaves.extend(&[
         OC::G::to_xy(leaf.O).0,
         OC::G::to_xy(leaf.I).0,
-        OC::G::to_xy(leaf.I).1,
         OC::G::to_xy(leaf.C).0,
       ]);
     }
 
     // Append the leaves and the rest of the branches to the tape
     let mut c1_tape = VectorCommitmentTape(vec![]);
-    let mut c1_branch_offsets = vec![];
     let mut c1_branches = vec![];
     {
-      let (branch, offset) = c1_tape.append_branch::<T, C1>(
-        &params.curve_1_generators,
-        flattened_leaves.len(),
-        Some(flattened_leaves),
-      );
-      c1_branch_offsets.push(offset.unwrap());
+      let branch = c1_tape.append_branch::<C1>(flattened_leaves.len(), Some(flattened_leaves));
       c1_branches.push(branch);
     }
     for branch in branches.curve_1_layers {
-      let (branch, offset) =
-        c1_tape.append_branch::<T, C1>(&params.curve_1_generators, branch.len(), Some(branch));
-      c1_branch_offsets.push(offset.unwrap());
+      let branch = c1_tape.append_branch::<C1>(branch.len(), Some(branch));
       c1_branches.push(branch);
     }
 
     let mut c2_tape = VectorCommitmentTape(vec![]);
-    let mut c2_branch_offsets = vec![];
     let mut c2_branches = vec![];
     for branch in branches.curve_2_layers {
-      let (branch, offset) =
-        c2_tape.append_branch::<T, C2>(&params.curve_2_generators, branch.len(), Some(branch));
-      c2_branch_offsets.push(offset.unwrap());
+      let branch = c2_tape.append_branch::<C2>(branch.len(), Some(branch));
       c2_branches.push(branch);
     }
 
     // Decide blinds for each branch
     let mut branches_1_blinds = vec![];
     let mut branches_1_blinds_prepared = vec![];
-    for offset in &c1_branch_offsets {
+    for _ in 0 .. c1_branches.len() {
       let blind = C1::F::random(&mut *rng);
       branches_1_blinds.push(blind);
       branches_1_blinds_prepared
-        .push(PreparedBlind::<_>::new::<C1>(params.curve_1_generators.h(), -(blind - offset)));
+        .push(PreparedBlind::<_>::new::<C1>(params.curve_1_generators.h(), -blind));
     }
 
     let mut branches_2_blinds = vec![];
     let mut branches_2_blinds_prepared = vec![];
-    for offset in &c2_branch_offsets {
+    for _ in 0 .. c2_branches.len() {
       let blind = C2::F::random(&mut *rng);
       branches_2_blinds.push(blind);
       branches_2_blinds_prepared
-        .push(PreparedBlind::<_>::new::<C2>(params.curve_2_generators.h(), -(blind - offset)));
+        .push(PreparedBlind::<_>::new::<C2>(params.curve_2_generators.h(), -blind));
     }
 
     // Accumulate the opening for the leaves
@@ -683,9 +663,9 @@ where
       (C[0], C[1]),
       //
       c1_branches[0]
-        .chunks(4)
+        .chunks(3)
         .map(|chunk| {
-          assert_eq!(chunk.len(), 4);
+          assert_eq!(chunk.len(), 3);
           chunk.to_vec()
         })
         .collect(),
@@ -715,14 +695,13 @@ where
     // - 1, as the leaves are the first branch
     assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
     assert!(commitments_2.len() > c1_branches.len());
-    let commitment_iter =
-      commitments_2.clone().into_iter().zip(pvc_blinds_2.clone()).zip(c2_branch_offsets);
+    let commitment_iter = commitments_2.clone().into_iter().zip(pvc_blinds_2.clone());
     let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
-    for (((prior_commitment, prior_blind), offset), (branch, prior_blind_opening)) in
+    for ((mut prior_commitment, prior_blind), (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
     {
-      let unblinded_hash =
-        prior_commitment - (params.curve_2_generators.h() * (prior_blind - offset));
+      prior_commitment += params.curve_2_hash_init;
+      let unblinded_hash = prior_commitment - (params.curve_2_generators.h() * prior_blind);
       let (hash_x, hash_y, _) = c1_circuit.mul(None, None, Some(C2::G::to_xy(unblinded_hash)));
       c1_circuit.additional_layer(
         &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
@@ -748,14 +727,13 @@ where
     assert_eq!(commitments_1.len(), pvc_blinds_1.len());
     assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
     assert!(commitments_1.len() > c2_branches.len());
-    let commitment_iter =
-      commitments_1.clone().into_iter().zip(pvc_blinds_1.clone()).zip(c1_branch_offsets);
+    let commitment_iter = commitments_1.clone().into_iter().zip(pvc_blinds_1.clone());
     let branch_iter = c2_branches.into_iter().zip(commitment_blind_claims_2);
-    for (((prior_commitment, prior_blind), offset), (branch, prior_blind_opening)) in
+    for ((mut prior_commitment, prior_blind), (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
     {
-      let unblinded_hash =
-        prior_commitment - (params.curve_1_generators.h() * (prior_blind - offset));
+      prior_commitment += params.curve_1_hash_init;
+      let unblinded_hash = prior_commitment - (params.curve_1_generators.h() * prior_blind);
       let (hash_x, hash_y, _) = c2_circuit.mul(None, None, Some(C1::G::to_xy(unblinded_hash)));
       c2_circuit.additional_layer(
         &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
@@ -824,12 +802,10 @@ where
 
     for (i, layer_len) in layer_lens.iter().enumerate() {
       if (i % 2) == 0 {
-        let (branch, _offset) =
-          c1_tape.append_branch::<T, C1>(&params.curve_1_generators, *layer_len, None);
+        let branch = c1_tape.append_branch::<C1>(*layer_len, None);
         c1_branches.push(branch);
       } else {
-        let (branch, _offset) =
-          c2_tape.append_branch::<T, C2>(&params.curve_2_generators, *layer_len, None);
+        let branch = c2_tape.append_branch::<C2>(*layer_len, None);
         c2_branches.push(branch);
       }
     }
@@ -921,9 +897,9 @@ where
       (C[0], C[1]),
       //
       c1_branches[0]
-        .chunks(4)
+        .chunks(3)
         .map(|chunk| {
-          assert_eq!(chunk.len(), 4);
+          assert_eq!(chunk.len(), 3);
           chunk.to_vec()
         })
         .collect(),
@@ -952,7 +928,7 @@ where
       c1_circuit.additional_layer(
         &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
         c1_dlog_challenge.as_ref().unwrap(),
-        C2::G::to_xy(prior_commitment),
+        C2::G::to_xy(params.curve_2_hash_init + prior_commitment),
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
@@ -981,7 +957,7 @@ where
       c2_circuit.additional_layer(
         &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
         c2_dlog_challenge.as_ref().unwrap(),
-        C1::G::to_xy(prior_commitment),
+        C1::G::to_xy(params.curve_1_hash_init + prior_commitment),
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
