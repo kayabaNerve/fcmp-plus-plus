@@ -245,7 +245,11 @@ impl<C: Ciphersuite> Circuit<C> {
     (DiscreteLogChallenge { c0, c1, c2, slope, intercept }, challenged_generators)
   }
 
-  fn divisor_challenge_eval(&mut self, divisor: &Divisor, challenge: &ChallengePoint<C::F>) -> Variable {
+  fn divisor_challenge_eval(
+    &mut self,
+    divisor: &Divisor,
+    challenge: &ChallengePoint<C::F>,
+  ) -> Variable {
     // The evaluation of the divisor differentiated by y, further multiplied by p_0_n_0
     // Differentation drops everything without a y coefficient, and drops what remains by a power
     // of y

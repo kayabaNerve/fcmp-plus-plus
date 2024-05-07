@@ -36,8 +36,8 @@ fn test() {
   let U = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
   let V = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
 
-  let curve_1_generators = generalized_bulletproofs::tests::generators::<Selene>(512);
-  let curve_2_generators = generalized_bulletproofs::tests::generators::<Helios>(512);
+  let curve_1_generators = generalized_bulletproofs::tests::generators::<Selene>(256);
+  let curve_2_generators = generalized_bulletproofs::tests::generators::<Helios>(256);
   let params = FcmpParams::<_, _, _>::new::<Ed25519>(
     curve_1_generators.clone(),
     curve_2_generators.clone(),
@@ -52,12 +52,14 @@ fn test() {
   let blinds = blinds.prepare(G, T, U, V, output);
   let input = blinds.input;
 
+  const LAYER_ONE_LEN: usize = 37;
+  const LAYER_TWO_LEN: usize = 17;
+
   let mut leaves = vec![];
-  for _ in 0 .. usize::try_from(OsRng.next_u64() % 4).unwrap() + 1 {
+  for _ in 0 .. LAYER_ONE_LEN {
     leaves.push(random_output());
   }
-  let leaves_len = leaves.len();
-  leaves[usize::try_from(OsRng.next_u64()).unwrap() % leaves_len] = output;
+  leaves[usize::try_from(OsRng.next_u64()).unwrap() % LAYER_ONE_LEN] = output;
 
   let mut selene_hash = Some({
     let mut multiexp = vec![];
@@ -81,9 +83,9 @@ fn test() {
 
   let mut curve_2_layers = vec![];
   let mut curve_1_layers = vec![];
-  for _ in 0 .. 2 {
+  for layer_pair in 0 .. 4 {
     let mut curve_2_layer = vec![];
-    for _ in 0 .. usize::try_from(OsRng.next_u64() % 4).unwrap() + 1 {
+    for _ in 0 .. LAYER_TWO_LEN {
       curve_2_layer.push(random_permissible_point::<Selene>());
     }
     let layer_len = curve_2_layer.len();
@@ -104,8 +106,12 @@ fn test() {
 
     curve_2_layers.push(curve_2_layer);
 
+    if layer_pair == 3 {
+      break;
+    }
+
     let mut curve_1_layer = vec![];
-    for _ in 0 .. usize::try_from(OsRng.next_u64() % 4).unwrap() + 1 {
+    for _ in 0 .. LAYER_ONE_LEN {
       curve_1_layer.push(random_permissible_point::<Helios>());
     }
     let layer_len = curve_1_layer.len();
@@ -126,12 +132,15 @@ fn test() {
 
     curve_1_layers.push(curve_1_layer);
   }
+  assert_eq!(curve_1_layers.len(), 3);
+  assert_eq!(curve_2_layers.len(), 4);
 
-  let mut layer_lens = vec![4 * leaves.len()];
+  let mut layer_lens = vec![4 * LAYER_ONE_LEN];
   for (a, b) in curve_2_layers.iter().zip(&curve_1_layers) {
-    layer_lens.push(a.len());
-    layer_lens.push(b.len());
+    layer_lens.push(LAYER_TWO_LEN);
+    layer_lens.push(LAYER_ONE_LEN);
   }
+  layer_lens.push(LAYER_TWO_LEN);
 
   let branches = Branches { leaves, curve_2_layers, curve_1_layers };
 
