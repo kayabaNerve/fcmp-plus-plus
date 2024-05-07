@@ -191,25 +191,30 @@ impl<C: Ciphersuite> Circuit<C> {
     self.tuple_member_of_list(transcript, vec![O.x, I.x, I.y, C.x], branch);
   }
 
-  #[allow(clippy::too_many_arguments)]
-  pub(crate) fn additional_layer<T: Transcript>(
-    &mut self,
+  pub(crate) fn additional_layer_discrete_log_challenge<T: Transcript>(
+    &self,
     transcript: &mut T,
     curve: &CurveSpec<C::F>,
+    divisor_x_len: usize,
+    divisor_yx_len: usize,
     H_table: &[(C::F, C::F)],
+  ) -> (DiscreteLogChallenge<C::F>, Vec<C::F>) {
+    let (challenge, mut challenged_generator) =
+      self.discrete_log_challenges(transcript, curve, divisor_x_len, divisor_yx_len, &[H_table]);
+    (challenge, challenged_generator.remove(0))
+  }
+
+  pub(crate) fn additional_layer(
+    &mut self,
+    curve: &CurveSpec<C::F>,
+    discrete_log_challenge: &(DiscreteLogChallenge<C::F>, Vec<C::F>),
     blinded_hash: (C::F, C::F),
     blind: ClaimedPointWithDlog,
     hash: (Variable, Variable),
     branch: Vec<Variable>,
   ) {
-    let (challenge, challenged_generator) = self.discrete_log_challenges(
-      transcript,
-      curve,
-      1 + blind.divisor.x_from_power_of_2.len(),
-      blind.divisor.yx.len(),
-      &[H_table],
-    );
-    let blind = self.discrete_log(curve, blind, &challenge, &challenged_generator[0]);
+    let (challenge, challenged_generator) = discrete_log_challenge;
+    let blind = self.discrete_log(curve, blind, challenge, challenged_generator);
     let hash = self.on_curve(curve, hash);
     self.incomplete_add_pub(blinded_hash, blind, hash);
     self.permissible(C::F::ONE, C::F::ONE, hash.y);

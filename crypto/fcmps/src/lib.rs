@@ -700,6 +700,17 @@ where
       commitment_blind_claims_1.pop();
     }
 
+    let mut c1_dlog_challenge = None;
+    if let Some(blind) = commitment_blind_claims_1.first() {
+      c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
+        transcript,
+        &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
+        1 + blind.divisor.x_from_power_of_2.len(),
+        blind.divisor.yx.len(),
+        &params.H_2_table,
+      ));
+    }
+
     assert_eq!(commitments_2.len(), pvc_blinds_2.len());
     // - 1, as the leaves are the first branch
     assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
@@ -714,14 +725,24 @@ where
         prior_commitment - (params.curve_2_generators.h() * (prior_blind - offset));
       let (hash_x, hash_y, _) = c1_circuit.mul(None, None, Some(C2::G::to_xy(unblinded_hash)));
       c1_circuit.additional_layer(
-        transcript,
         &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
-        &params.H_2_table,
+        c1_dlog_challenge.as_ref().unwrap(),
         C2::G::to_xy(prior_commitment),
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
       );
+    }
+
+    let mut c2_dlog_challenge = None;
+    if let Some(blind) = commitment_blind_claims_2.first() {
+      c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
+        transcript,
+        &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
+        1 + blind.divisor.x_from_power_of_2.len(),
+        blind.divisor.yx.len(),
+        &params.H_1_table,
+      ));
     }
 
     assert_eq!(commitments_1.len(), pvc_blinds_1.len());
@@ -737,9 +758,8 @@ where
         prior_commitment - (params.curve_1_generators.h() * (prior_blind - offset));
       let (hash_x, hash_y, _) = c2_circuit.mul(None, None, Some(C1::G::to_xy(unblinded_hash)));
       c2_circuit.additional_layer(
-        transcript,
         &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
-        &params.H_1_table,
+        c2_dlog_challenge.as_ref().unwrap(),
         C1::G::to_xy(prior_commitment),
         prior_blind_opening,
         (hash_x, hash_y),
@@ -909,6 +929,17 @@ where
         .collect(),
     );
 
+    let mut c1_dlog_challenge = None;
+    if let Some(blind) = commitment_blind_claims_1.first() {
+      c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
+        transcript,
+        &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
+        1 + blind.divisor.x_from_power_of_2.len(),
+        blind.divisor.yx.len(),
+        &params.H_2_table,
+      ));
+    }
+
     // - 1, as the leaves are the first branch
     assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
     assert!(self.proof_2_vcs.len() > c1_branches.len());
@@ -919,14 +950,24 @@ where
     {
       let (hash_x, hash_y, _) = c1_circuit.mul(None, None, None);
       c1_circuit.additional_layer(
-        transcript,
         &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
-        &params.H_2_table,
+        c1_dlog_challenge.as_ref().unwrap(),
         C2::G::to_xy(prior_commitment),
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
       );
+    }
+
+    let mut c2_dlog_challenge = None;
+    if let Some(blind) = commitment_blind_claims_2.first() {
+      c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
+        transcript,
+        &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
+        1 + blind.divisor.x_from_power_of_2.len(),
+        blind.divisor.yx.len(),
+        &params.H_1_table,
+      ));
     }
 
     assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
@@ -938,9 +979,8 @@ where
     {
       let (hash_x, hash_y, _) = c2_circuit.mul(None, None, None);
       c2_circuit.additional_layer(
-        transcript,
         &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
-        &params.H_1_table,
+        c2_dlog_challenge.as_ref().unwrap(),
         C1::G::to_xy(prior_commitment),
         prior_blind_opening,
         (hash_x, hash_y),

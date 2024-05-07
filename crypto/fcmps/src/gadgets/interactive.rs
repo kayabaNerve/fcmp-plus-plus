@@ -140,17 +140,8 @@ impl<C: Ciphersuite> Circuit<C> {
     self.member_of_list(member, list)
   }
 
-  /// Prove the claimed discrete logarithm is a consistent representation of the discrete log
-  /// for the specified point over the specified generator.
-  ///
-  /// The discrete log representation must be treated as a non-canonical, opaque black box. A
-  /// discrete log has effectively infinite representations within this black box. The only
-  /// guarantee is that the discrete log proven for is always equivalent to any other discrete log
-  /// proven for with this exact representation.
-  ///
-  /// Ensures the point is on-curve.
   pub(crate) fn discrete_log_challenges<T: Transcript>(
-    &mut self,
+    &self,
     transcript: &mut T,
     curve: &CurveSpec<C::F>,
     divisor_x_len: usize,
@@ -325,6 +316,15 @@ impl<C: Ciphersuite> Circuit<C> {
     o
   }
 
+  /// Prove the claimed discrete logarithm is a consistent representation of the discrete log
+  /// for the specified point over the specified generator.
+  ///
+  /// The discrete log representation must be treated as a non-canonical, opaque black box. A
+  /// discrete log has effectively infinite representations within this black box. The only
+  /// guarantee is that the discrete log proven for is always equivalent to any other discrete log
+  /// proven for with this exact representation.
+  ///
+  /// Ensures the point is on-curve.
   pub(crate) fn discrete_log(
     &mut self,
     curve: &CurveSpec<C::F>,
