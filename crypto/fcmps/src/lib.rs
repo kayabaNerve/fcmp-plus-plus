@@ -32,7 +32,11 @@ pub mod tree;
 mod tests;
 
 /// The variables used for Vector Commitments.
-struct VectorCommitmentTape<F: Zeroize + PrimeFieldBits>(Vec<(Vec<F>, Vec<F>)>);
+struct VectorCommitmentTape<F: Zeroize + PrimeFieldBits> {
+  commitment_len: usize,
+  current_j_offset: usize,
+  commitments: Vec<(Vec<F>, Vec<F>)>,
+}
 impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
   /// Append a series of variables to the vector commitment tape.
   fn append(&mut self, variables: Option<Vec<F>>) -> Vec<Variable> {
@@ -40,21 +44,37 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     if let Some(variables) = &variables {
       assert_eq!(variables.len(), 256);
     }
-    let i = self.0.len();
-    #[allow(clippy::unwrap_or_default)]
-    self.0.push(
-      variables
-        .map(|mut variables| {
-          let rhs = variables.split_off(128);
-          let lhs = variables;
-          (lhs, rhs)
-        })
-        .unwrap_or((vec![], vec![])),
-    );
 
-    (0 .. 128).map(|j| Variable::CL(i, j)).chain((0 .. 128).map(|j| Variable::CR(i, j))).collect()
+    #[allow(clippy::unwrap_or_default)]
+    let variables = variables
+      .map(|mut variables| {
+        let h_bold = variables.split_off(128);
+        let g_bold = variables;
+        (g_bold, h_bold)
+      })
+      .unwrap_or((vec![], vec![]));
+
+    if self.current_j_offset == 0 {
+      self.commitments.push(variables);
+    } else {
+      let commitment = self.commitments.last_mut().unwrap();
+      commitment.0.extend(variables.0);
+      commitment.1.extend(variables.1);
+    };
+    let i = self.commitments.len() - 1;
+    let j_range = self.current_j_offset .. (self.current_j_offset + 128);
+    let left = j_range.clone().map(|j| Variable::CL(i, j));
+    let right = j_range.map(|j| Variable::CR(i, j));
+    let res = left.chain(right).collect();
+
+    self.current_j_offset += 128;
+    if self.current_j_offset == self.commitment_len {
+      self.current_j_offset = 0;
+    }
+    res
   }
 
+  // This must be called before all other appends
   fn append_branch<C: Ciphersuite>(
     &mut self,
     branch_len: usize,
@@ -63,6 +83,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
   where
     C::G: DivisorCurve<Scalar = F>,
   {
+    let empty = branch.as_ref().map(|_| vec![F::ZERO; 256]);
     let branch = branch.map(|mut branch| {
       assert_eq!(branch_len, branch.len());
       assert!(branch.len() <= 256);
@@ -75,6 +96,10 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     });
 
     let mut branch = self.append(branch);
+    // Append an empty dummy so this hash doesn't have more variables added
+    if self.commitment_len == 256 {
+      self.append(empty);
+    }
     branch.truncate(branch_len);
     branch
   }
@@ -191,10 +216,10 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     generators: &Generators<T, C>,
     blinds: &[C::F],
   ) -> Vec<C::G> {
-    assert_eq!(self.0.len(), blinds.len());
+    assert_eq!(self.commitments.len(), blinds.len());
 
     let mut res = vec![];
-    for (values, blind) in self.0.iter().zip(blinds) {
+    for (values, blind) in self.commitments.iter().zip(blinds) {
       let g_generators = generators.g_bold_slice()[.. values.0.len()].iter().cloned();
       let h_generators = generators.h_bold_slice()[.. values.1.len()].iter().cloned();
       let mut commitment = g_generators
@@ -485,7 +510,8 @@ where
     }
 
     // Append the leaves and the rest of the branches to the tape
-    let mut c1_tape = VectorCommitmentTape(vec![]);
+    let mut c1_tape =
+      VectorCommitmentTape { commitment_len: 256, current_j_offset: 0, commitments: vec![] };
     let mut c1_branches = vec![];
     {
       let branch = c1_tape.append_branch::<C1>(flattened_leaves.len(), Some(flattened_leaves));
@@ -496,7 +522,8 @@ where
       c1_branches.push(branch);
     }
 
-    let mut c2_tape = VectorCommitmentTape(vec![]);
+    let mut c2_tape =
+      VectorCommitmentTape { commitment_len: 128, current_j_offset: 0, commitments: vec![] };
     let mut c2_branches = vec![];
     for branch in branches.curve_2_layers {
       let branch = c2_tape.append_branch::<C2>(branch.len(), Some(branch));
@@ -633,21 +660,21 @@ where
 
     // Calculate all of the PVCs and transcript them
     let mut pvc_blinds_1 = branches_1_blinds;
-    while pvc_blinds_1.len() < c1_tape.0.len() {
+    while pvc_blinds_1.len() < c1_tape.commitments.len() {
       pvc_blinds_1.push(C1::F::random(&mut *rng));
     }
     let commitments_1 = c1_tape.commit(&params.curve_1_generators, &pvc_blinds_1);
 
     let mut pvc_blinds_2 = branches_2_blinds;
-    while pvc_blinds_2.len() < c2_tape.0.len() {
+    while pvc_blinds_2.len() < c2_tape.commitments.len() {
       pvc_blinds_2.push(C2::F::random(&mut *rng));
     }
     let commitments_2 = c2_tape.commit(&params.curve_2_generators, &pvc_blinds_2);
     Self::transcript(transcript, tree, output_blinds.input, &commitments_1, &commitments_2);
 
     // Create the circuits
-    let mut c1_circuit = Circuit::<C1>::prove(c1_tape.0);
-    let mut c2_circuit = Circuit::<C2>::prove(c2_tape.0);
+    let mut c1_circuit = Circuit::<C1>::prove(c1_tape.commitments);
+    let mut c2_circuit = Circuit::<C2>::prove(c2_tape.commitments);
 
     // Perform the layers
     c1_circuit.first_layer(
@@ -807,9 +834,18 @@ where
     // TODO: Check the length of the VCs for this proof
 
     // Append the leaves and the rest of the branches to the tape
-    let mut c1_tape = VectorCommitmentTape(Vec::with_capacity(self.proof_1_vcs.len()));
+
+    let mut c1_tape = VectorCommitmentTape {
+      commitment_len: 256,
+      current_j_offset: 0,
+      commitments: Vec::with_capacity(self.proof_1_vcs.len()),
+    };
     let mut c1_branches = Vec::with_capacity((layer_lens.len() / 2) + (layer_lens.len() % 2));
-    let mut c2_tape = VectorCommitmentTape(Vec::with_capacity(self.proof_2_vcs.len()));
+    let mut c2_tape = VectorCommitmentTape {
+      commitment_len: 128,
+      current_j_offset: 0,
+      commitments: Vec::with_capacity(self.proof_2_vcs.len()),
+    };
     let mut c2_branches = Vec::with_capacity(layer_lens.len() / 2);
 
     for (i, layer_len) in layer_lens.iter().enumerate() {

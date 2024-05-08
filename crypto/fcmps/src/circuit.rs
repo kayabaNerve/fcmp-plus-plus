@@ -34,6 +34,7 @@ impl<C: Ciphersuite> Circuit<C> {
   }
 
   // Create an instance to prove with.
+  #[allow(clippy::type_complexity)]
   pub(crate) fn prove(commitments: Vec<(Vec<C::F>, Vec<C::F>)>) -> Self {
     Self {
       muls: 0,
