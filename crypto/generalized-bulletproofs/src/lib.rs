@@ -277,14 +277,18 @@ impl<C: Ciphersuite> PedersenCommitment<C> {
 
 #[derive(Clone, PartialEq, Eq, Debug, Zeroize)]
 pub struct PedersenVectorCommitment<C: Ciphersuite> {
-  pub values: ScalarVector<C::F>,
+  pub g_values: ScalarVector<C::F>,
+  pub h_values: ScalarVector<C::F>,
   pub mask: C::F,
 }
 
 impl<C: Ciphersuite> PedersenVectorCommitment<C> {
-  pub fn commit(&self, g_bold: &[C::G], h: C::G) -> C::G {
+  pub fn commit(&self, g_bold: &[C::G], h_bold: &[C::G], h: C::G) -> C::G {
     let mut terms = vec![(self.mask, h)];
-    for pair in self.values.0.iter().cloned().zip(g_bold.iter().cloned()) {
+    for pair in self.g_values.0.iter().cloned().zip(g_bold.iter().cloned()) {
+      terms.push(pair);
+    }
+    for pair in self.h_values.0.iter().cloned().zip(h_bold.iter().cloned()) {
       terms.push(pair);
     }
     let res = multiexp(&terms);

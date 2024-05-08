@@ -229,9 +229,13 @@ impl<C: Ciphersuite> Circuit<C> {
     let mut WL = ScalarMatrix::new();
     let mut WR = ScalarMatrix::new();
     let mut WO = ScalarMatrix::new();
-    let mut WC = Vec::with_capacity(C.len());
+    let mut WCL = Vec::with_capacity(C.len());
     for _ in 0 .. C.len() {
-      WC.push(ScalarMatrix::new());
+      WCL.push(ScalarMatrix::new());
+    }
+    let mut WCR = Vec::with_capacity(C.len());
+    for _ in 0 .. C.len() {
+      WCR.push(ScalarMatrix::new());
     }
     let mut WV = ScalarMatrix::new();
     let mut c = ScalarVector(Vec::with_capacity(self.constraints.len()));
@@ -241,10 +245,13 @@ impl<C: Ciphersuite> Circuit<C> {
       WR.push(constraint.WR);
       WO.push(constraint.WO);
       let cWC_len = constraint.WC.len();
-      for (WC, cWC) in WC.iter_mut().zip(constraint.WC.into_iter()) {
+      for (WC, cWC) in WCL.iter_mut().zip(constraint.WC.into_iter()) {
         WC.push(cWC);
       }
-      for WC in &mut WC[cWC_len ..] {
+      for WC in &mut WCL[cWC_len ..] {
+        WC.push(vec![]);
+      }
+      for WC in &mut WCR {
         WC.push(vec![]);
       }
       WV.push(vec![]);
@@ -259,7 +266,8 @@ impl<C: Ciphersuite> Circuit<C> {
       WL,
       WR,
       WO,
-      WC,
+      WCL,
+      WCR,
       WV,
       c,
       PointVector(C),
@@ -278,7 +286,8 @@ impl<C: Ciphersuite> Circuit<C> {
             .into_iter()
             .zip(commitment_blinds)
             .map(|(values, blind)| PedersenVectorCommitment {
-              values: ScalarVector(values),
+              g_values: ScalarVector(values),
+              h_values: ScalarVector(vec![]),
               mask: blind,
             })
             .collect(),

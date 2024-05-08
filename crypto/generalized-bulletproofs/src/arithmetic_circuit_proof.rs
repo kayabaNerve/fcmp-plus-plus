@@ -33,7 +33,8 @@ pub struct ArithmeticCircuitStatement<'a, T: 'static + Transcript, C: Ciphersuit
   pub WR: ScalarMatrix<C>,
   pub WO: ScalarMatrix<C>,
   pub WV: ScalarMatrix<C>,
-  pub WC: Vec<ScalarMatrix<C>>,
+  pub WCL: Vec<ScalarMatrix<C>>,
+  pub WCR: Vec<ScalarMatrix<C>>,
   pub c: ScalarVector<C::F>,
 
   // The commitments, vector and non-vector
@@ -46,7 +47,8 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> Zeroize for ArithmeticCircuitS
     self.WL.zeroize();
     self.WR.zeroize();
     self.WO.zeroize();
-    self.WC.zeroize();
+    self.WCL.zeroize();
+    self.WCR.zeroize();
     self.WV.zeroize();
     self.c.zeroize();
 
@@ -153,7 +155,8 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     WL: ScalarMatrix<C>,
     WR: ScalarMatrix<C>,
     WO: ScalarMatrix<C>,
-    WC: Vec<ScalarMatrix<C>>,
+    WCL: Vec<ScalarMatrix<C>>,
+    WCR: Vec<ScalarMatrix<C>>,
     WV: ScalarMatrix<C>,
     c: ScalarVector<C::F>,
     C: PointVector<C>,
@@ -170,8 +173,13 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     if (WR.len() != q) || (WO.len() != q) || (WV.len() != q) || (c.len() != q) {
       Err(AcError::InconsistentAmountOfConstraints)?;
     }
-    for WC in &WC {
-      if WC.len() != q {
+    for WCL in &WCL {
+      if WCL.len() != q {
+        Err(AcError::InconsistentAmountOfConstraints)?;
+      }
+    }
+    for WCR in &WCR {
+      if WCR.len() != q {
         Err(AcError::InconsistentAmountOfConstraints)?;
       }
     }
@@ -181,12 +189,21 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       Err(AcError::ConstrainedNonExistentTerm)?;
     }
 
-    if WC.len() != C.len() {
+    if WCL.len() != C.len() {
       Err(AcError::ConstrainedNonExistentCommitment)?;
     }
-    for WC in &WC {
+    if WCR.len() != C.len() {
+      Err(AcError::ConstrainedNonExistentCommitment)?;
+    }
+    for WCL in &WCL {
       // The Pedersen Vector Commitments have as many terms as we have multiplications
-      if WC.highest_index > n {
+      if WCL.highest_index > n {
+        Err(AcError::ConstrainedNonExistentTerm)?;
+      }
+    }
+    for WCR in &WCR {
+      // The Pedersen Vector Commitments have as many terms as we have multiplications
+      if WCR.highest_index > n {
         Err(AcError::ConstrainedNonExistentTerm)?;
       }
     }
@@ -195,7 +212,7 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       Err(AcError::ConstrainedNonExistentCommitment)?;
     }
 
-    Ok(Self { generators, WL, WR, WO, WC, WV, c, C, V })
+    Ok(Self { generators, WL, WR, WO, WCL, WCR, WV, c, C, V })
   }
 
   fn initial_transcript(&self, transcript: &mut T, AI: C::G, AO: C::G, S: C::G) -> YzChallenges<C> {
@@ -295,12 +312,18 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       witness.aO.0.push(C::F::ZERO);
     }
     for c in &mut witness.c {
-      if c.values.len() > n {
+      if c.g_values.len() > n {
+        Err(AcError::IncorrectAmountOfGenerators)?;
+      }
+      if c.h_values.len() > n {
         Err(AcError::IncorrectAmountOfGenerators)?;
       }
       // The Pedersen vector commitments internally have n terms
-      while c.values.len() < n {
-        c.values.0.push(C::F::ZERO);
+      while c.g_values.len() < n {
+        c.g_values.0.push(C::F::ZERO);
+      }
+      while c.h_values.len() < n {
+        c.h_values.0.push(C::F::ZERO);
       }
     }
 
@@ -314,7 +337,13 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       }
     }
     for (commitment, opening) in self.C.0.iter().zip(witness.c.iter()) {
-      if *commitment != opening.commit(self.generators.g_bold_slice(), self.generators.h()) {
+      if *commitment !=
+        opening.commit(
+          self.generators.g_bold_slice(),
+          self.generators.h_bold_slice(),
+          self.generators.h(),
+        )
+      {
         Err(AcError::InconsistentWitness)?;
       }
     }
@@ -323,11 +352,19 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
         self.WR.data[i].iter().map(|(j, weight)| *weight * witness.aR[*j]).sum::<C::F>() +
         self.WO.data[i].iter().map(|(j, weight)| *weight * witness.aO[*j]).sum::<C::F>() +
         self
-          .WC
+          .WCL
           .iter()
           .enumerate()
-          .map(|(c, WC)| {
-            WC.data[i].iter().map(|(j, weight)| *weight * witness.c[c].values[*j]).sum::<C::F>()
+          .map(|(c, WCL)| {
+            WCL.data[i].iter().map(|(j, weight)| *weight * witness.c[c].g_values[*j]).sum::<C::F>()
+          })
+          .sum::<C::F>() +
+        self
+          .WCR
+          .iter()
+          .enumerate()
+          .map(|(c, WCR)| {
+            WCR.data[i].iter().map(|(j, weight)| *weight * witness.c[c].h_values[*j]).sum::<C::F>()
           })
           .sum::<C::F>()) !=
         (self.WV.data[i].iter().map(|(j, weight)| *weight * witness.v[*j].value).sum::<C::F>() +
@@ -385,7 +422,7 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     // polynomial).
 
     // ni = n'
-    let ni = 2 + (2 * (c / 2));
+    let ni = 2 * (c + 1);
     // These indexes are from the Generalized Bulletproofs paper
     #[rustfmt::skip]
     let ilr = ni / 2; // 1 if c = 0
@@ -434,15 +471,14 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     // We now fill in the vector commitments
     // We use unused coefficients of l increasing from 0 (skipping ilr), and unused coefficients of
     // r decreasing from n' (skipping jlr)
-    for (mut i, (c, WC)) in witness.c.iter().zip(self.WC).enumerate() {
-      if i >= ilr {
-        i += 1;
-      }
-      // Because i has skipped ilr, j will skip jlr
+    for (i, ((c, WCL), WCR)) in witness.c.iter().zip(self.WCL).zip(self.WCR).enumerate() {
+      let i = i + 1;
       let j = ni - i;
 
-      l[i] = c.values.clone();
-      r[j] = WC.mul_vec(n, &z);
+      l[i] = c.g_values.clone();
+      l[j] = WCR.mul_vec(n, &z) * &y_inv;
+      r[j] = WCL.mul_vec(n, &z);
+      r[i] = (c.h_values.clone() * &y) + &r[i];
     }
 
     // Multiply them to obtain t
@@ -515,11 +551,8 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       let mut u = (alpha * x[ilr]) + (beta * x[io]) + (rho * x[is]);
 
       // Incorporate the commitment masks multiplied by the associated power of x
-      for (mut i, commitment) in witness.c.iter().enumerate() {
-        // If this index is ni / 2, skip it
-        if i >= (ni / 2) {
-          i += 1;
-        }
+      for (i, commitment) in witness.c.iter().enumerate() {
+        let i = i + 1;
         u += x[i] * commitment.mask;
       }
       u
@@ -565,7 +598,7 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     let c = self.c();
     let m = self.m();
 
-    let ni = 2 + (2 * (c / 2));
+    let ni = 2 * (c + 1);
 
     let ilr = ni / 2;
     let io = ni;
@@ -638,14 +671,18 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
 
       // Push the terms for C, which increment from 0, and the terms for WC, which decrement from
       // n'
-      assert_eq!(self.C.len(), self.WC.len());
-      for (mut i, (C, WC)) in self.C.0.into_iter().zip(self.WC.into_iter()).enumerate() {
-        if i >= (ni / 2) {
-          i += 1;
-        }
+      assert_eq!(self.C.len(), self.WCL.len());
+      assert_eq!(self.C.len(), self.WCR.len());
+      for (i, ((C, WCL), WCR)) in
+        self.C.0.into_iter().zip(self.WCL.into_iter()).zip(self.WCR.into_iter()).enumerate()
+      {
+        let i = i + 1;
         let j = ni - i;
         verifier.additional.push((verifier_weight * x[i], C));
-        h_bold_scalars = h_bold_scalars + &(WC.mul_vec(n, &z) * x[j]);
+        h_bold_scalars = h_bold_scalars + &(WCL.mul_vec(n, &z) * x[j]);
+        for (i, scalar) in (WCR.mul_vec(n, &z) * &y_inv * x[j]).0.into_iter().enumerate() {
+          verifier.g_bold[i] += verifier_weight * scalar;
+        }
       }
 
       // All terms for h_bold here have actually been for h_bold', h_bold * y_inv

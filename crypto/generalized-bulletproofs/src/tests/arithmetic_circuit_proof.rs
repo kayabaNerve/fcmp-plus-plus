@@ -41,6 +41,7 @@ fn test_zero_arithmetic_circuit() {
     WR,
     WO,
     vec![],
+    vec![],
     WV,
     c,
     PointVector(vec![]),
@@ -69,8 +70,14 @@ fn test_vector_commitment_arithmetic_circuit() {
 
   let v1 = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
   let v2 = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+  let v3 = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+  let v4 = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
   let gamma = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-  let commitment = (reduced.g_bold(0) * v1) + (reduced.g_bold(1) * v2) + (generators.h() * gamma);
+  let commitment = (reduced.g_bold(0) * v1) +
+    (reduced.g_bold(1) * v2) +
+    (reduced.h_bold(0) * v3) +
+    (reduced.h_bold(1) * v4) +
+    (generators.h() * gamma);
   let V = PointVector(vec![]);
   let C = PointVector(vec![commitment]);
 
@@ -88,17 +95,31 @@ fn test_vector_commitment_arithmetic_circuit() {
   WO.push(vec![(0, <Ristretto as Ciphersuite>::F::ZERO)]);
   let mut WV = ScalarMatrix::new();
   WV.push(vec![]);
-  let mut WC = vec![ScalarMatrix::new()];
-  WC[0]
-    .push(vec![(0, <Ristretto as Ciphersuite>::F::ONE), (1, <Ristretto as Ciphersuite>::F::ONE)]);
-  let c = ScalarVector::<<Ristretto as Ciphersuite>::F>(vec![v1 + v2]);
+  let mut WCL = vec![ScalarMatrix::new()];
+  WCL[0].push(vec![
+    (0, <Ristretto as Ciphersuite>::F::ONE),
+    (1, <Ristretto as Ciphersuite>::F::from(2u64)),
+  ]);
+  let mut WCR = vec![ScalarMatrix::new()];
+  WCR[0].push(vec![
+    (0, <Ristretto as Ciphersuite>::F::from(3u64)),
+    (1, <Ristretto as Ciphersuite>::F::from(4u64)),
+  ]);
+  let c = ScalarVector::<<Ristretto as Ciphersuite>::F>(vec![
+    v1 + (v2 + v2) + (v3 + v3 + v3) + (v4 + v4 + v4 + v4),
+  ]);
 
   let statement =
-    ArithmeticCircuitStatement::<_, Ristretto>::new(reduced, WL, WR, WO, WC, WV, c, C, V).unwrap();
+    ArithmeticCircuitStatement::<_, Ristretto>::new(reduced, WL, WR, WO, WCL, WCR, WV, c, C, V)
+      .unwrap();
   let witness = ArithmeticCircuitWitness::<Ristretto>::new(
     aL,
     aR,
-    vec![PedersenVectorCommitment { values: ScalarVector(vec![v1, v2]), mask: gamma }],
+    vec![PedersenVectorCommitment {
+      g_values: ScalarVector(vec![v1, v2]),
+      h_values: ScalarVector(vec![v3, v4]),
+      mask: gamma,
+    }],
     vec![],
   )
   .unwrap();
@@ -130,12 +151,17 @@ fn fuzz_test_arithmetic_circuit() {
 
     let mut C = vec![];
     while C.len() < (OsRng.next_u64() % 16).try_into().unwrap() {
-      let mut values = ScalarVector(vec![]);
-      while values.0.len() < ((OsRng.next_u64() % 8) + 1).try_into().unwrap() {
-        values.0.push(<Ristretto as Ciphersuite>::F::random(&mut OsRng));
+      let mut g_values = ScalarVector(vec![]);
+      while g_values.0.len() < ((OsRng.next_u64() % 8) + 1).try_into().unwrap() {
+        g_values.0.push(<Ristretto as Ciphersuite>::F::random(&mut OsRng));
+      }
+      let mut h_values = ScalarVector(vec![]);
+      while h_values.0.len() < ((OsRng.next_u64() % 8) + 1).try_into().unwrap() {
+        h_values.0.push(<Ristretto as Ciphersuite>::F::random(&mut OsRng));
       }
       C.push(PedersenVectorCommitment {
-        values,
+        g_values,
+        h_values,
         mask: <Ristretto as Ciphersuite>::F::random(&mut OsRng),
       });
     }
@@ -150,9 +176,11 @@ fn fuzz_test_arithmetic_circuit() {
     let mut WL = ScalarMatrix::new();
     let mut WR = ScalarMatrix::new();
     let mut WO = ScalarMatrix::new();
-    let mut WC = vec![];
+    let mut WCL = vec![];
+    let mut WCR = vec![];
     for _ in 0 .. C.len() {
-      WC.push(ScalarMatrix::new());
+      WCL.push(ScalarMatrix::new());
+      WCR.push(ScalarMatrix::new());
     }
     let mut WV = ScalarMatrix::new();
     let mut c = ScalarVector(vec![]);
@@ -194,15 +222,24 @@ fn fuzz_test_arithmetic_circuit() {
         WO.push(wo);
       }
 
-      for (WC, C) in WC.iter_mut().zip(C.iter()) {
-        let mut wc = vec![];
+      for ((WCL, WCR), C) in WCL.iter_mut().zip(WCR.iter_mut()).zip(C.iter()) {
+        let mut wcl = vec![];
         for _ in 0 .. (OsRng.next_u64() % 4) {
-          let index = usize::try_from(OsRng.next_u64()).unwrap() % C.values.len();
+          let index = usize::try_from(OsRng.next_u64()).unwrap() % C.g_values.len();
           let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-          wc.push((index, weight));
-          eval += weight * C.values[index];
+          wcl.push((index, weight));
+          eval += weight * C.g_values[index];
         }
-        WC.push(wc);
+        WCL.push(wcl);
+
+        let mut wcr = vec![];
+        for _ in 0 .. (OsRng.next_u64() % 4) {
+          let index = usize::try_from(OsRng.next_u64()).unwrap() % C.h_values.len();
+          let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+          wcr.push((index, weight));
+          eval += weight * C.h_values[index];
+        }
+        WCR.push(wcr);
       }
 
       {
@@ -226,10 +263,15 @@ fn fuzz_test_arithmetic_circuit() {
       WL,
       WR,
       WO,
-      WC,
+      WCL,
+      WCR,
       WV,
       c,
-      PointVector(C.iter().map(|C| C.commit(generators.g_bold_slice(), generators.h())).collect()),
+      PointVector(
+        C.iter()
+          .map(|C| C.commit(generators.g_bold_slice(), generators.h_bold_slice(), generators.h()))
+          .collect(),
+      ),
       PointVector(V.iter().map(|V| V.commit(generators.g(), generators.h())).collect()),
     )
     .unwrap();
