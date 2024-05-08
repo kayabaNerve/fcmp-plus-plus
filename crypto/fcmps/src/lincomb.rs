@@ -9,7 +9,8 @@ pub(crate) enum Variable {
   aL(usize),
   aR(usize),
   aO(usize),
-  C(usize, usize),
+  CL(usize, usize),
+  CR(usize, usize),
 }
 
 /// A linear combination.
@@ -22,7 +23,8 @@ pub(crate) struct LinComb<F: Field> {
   pub(crate) WL: Vec<(usize, F)>,
   pub(crate) WR: Vec<(usize, F)>,
   pub(crate) WO: Vec<(usize, F)>,
-  pub(crate) WC: Vec<Vec<(usize, F)>>,
+  pub(crate) WCL: Vec<Vec<(usize, F)>>,
+  pub(crate) WCR: Vec<Vec<(usize, F)>>,
   pub(crate) c: F,
 }
 
@@ -39,10 +41,16 @@ impl<F: Field> Add<&LinComb<F>> for LinComb<F> {
     self.WL.extend(&constraint.WL);
     self.WR.extend(&constraint.WR);
     self.WO.extend(&constraint.WO);
-    while self.WC.len() < constraint.WC.len() {
-      self.WC.push(vec![]);
+    while self.WCL.len() < constraint.WCL.len() {
+      self.WCL.push(vec![]);
     }
-    for (sWC, cWC) in self.WC.iter_mut().zip(&constraint.WC) {
+    while self.WCR.len() < constraint.WCR.len() {
+      self.WCR.push(vec![]);
+    }
+    for (sWC, cWC) in self.WCL.iter_mut().zip(&constraint.WCL) {
+      sWC.extend(cWC);
+    }
+    for (sWC, cWC) in self.WCR.iter_mut().zip(&constraint.WCR) {
       sWC.extend(cWC);
     }
     self.c += constraint.c;
@@ -57,10 +65,16 @@ impl<F: Field> Sub<&LinComb<F>> for LinComb<F> {
     self.WL.extend(constraint.WL.iter().map(|(index, weight)| (*index, -*weight)));
     self.WR.extend(constraint.WR.iter().map(|(index, weight)| (*index, -*weight)));
     self.WO.extend(constraint.WO.iter().map(|(index, weight)| (*index, -*weight)));
-    while self.WC.len() < constraint.WC.len() {
-      self.WC.push(vec![]);
+    while self.WCL.len() < constraint.WCL.len() {
+      self.WCL.push(vec![]);
     }
-    for (sWC, cWC) in self.WC.iter_mut().zip(&constraint.WC) {
+    for (sWC, cWC) in self.WCL.iter_mut().zip(&constraint.WCL) {
+      sWC.extend(cWC.iter().map(|(j, weight)| (*j, -*weight)));
+    }
+    while self.WCR.len() < constraint.WCR.len() {
+      self.WCR.push(vec![]);
+    }
+    for (sWC, cWC) in self.WCR.iter_mut().zip(&constraint.WCR) {
       sWC.extend(cWC.iter().map(|(j, weight)| (*j, -*weight)));
     }
     self.c -= constraint.c;
@@ -81,7 +95,12 @@ impl<F: Field> Mul<F> for LinComb<F> {
     for (_, weight) in self.WO.iter_mut() {
       *weight *= scalar;
     }
-    for WC in self.WC.iter_mut() {
+    for WC in self.WCL.iter_mut() {
+      for (_, weight) in WC {
+        *weight *= scalar;
+      }
+    }
+    for WC in self.WCR.iter_mut() {
       for (_, weight) in WC {
         *weight *= scalar;
       }
@@ -94,7 +113,7 @@ impl<F: Field> Mul<F> for LinComb<F> {
 impl<F: Field> LinComb<F> {
   /// Create an empty linear combination.
   pub(crate) fn empty() -> Self {
-    Self { WL: vec![], WR: vec![], WO: vec![], WC: vec![], c: F::ZERO }
+    Self { WL: vec![], WR: vec![], WO: vec![], WCL: vec![], WCR: vec![], c: F::ZERO }
   }
 
   /// Add a new term to this linear combination.
@@ -103,11 +122,17 @@ impl<F: Field> LinComb<F> {
       Variable::aL(i) => self.WL.push((i, scalar)),
       Variable::aR(i) => self.WR.push((i, scalar)),
       Variable::aO(i) => self.WO.push((i, scalar)),
-      Variable::C(i, j) => {
-        while self.WC.len() <= i {
-          self.WC.push(vec![]);
+      Variable::CL(i, j) => {
+        while self.WCL.len() <= i {
+          self.WCL.push(vec![]);
         }
-        self.WC[i].push((j, scalar))
+        self.WCL[i].push((j, scalar))
+      }
+      Variable::CR(i, j) => {
+        while self.WCR.len() <= i {
+          self.WCR.push(vec![]);
+        }
+        self.WCR[i].push((j, scalar))
       }
     };
     self

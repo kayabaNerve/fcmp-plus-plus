@@ -32,7 +32,7 @@ pub mod tree;
 mod tests;
 
 /// The variables used for Vector Commitments.
-struct VectorCommitmentTape<F: Zeroize + PrimeFieldBits>(Vec<Vec<F>>);
+struct VectorCommitmentTape<F: Zeroize + PrimeFieldBits>(Vec<(Vec<F>, Vec<F>)>);
 impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
   /// Append a series of variables to the vector commitment tape.
   fn append(&mut self, variables: Option<Vec<F>>) -> Vec<Variable> {
@@ -42,9 +42,17 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     }
     let i = self.0.len();
     #[allow(clippy::unwrap_or_default)]
-    self.0.push(variables.unwrap_or(vec![]));
+    self.0.push(
+      variables
+        .map(|mut variables| {
+          let rhs = variables.split_off(128);
+          let lhs = variables;
+          (lhs, rhs)
+        })
+        .unwrap_or((vec![], vec![])),
+    );
 
-    (0 .. 256).map(|j| Variable::C(i, j)).collect()
+    (0 .. 128).map(|j| Variable::CL(i, j)).chain((0 .. 128).map(|j| Variable::CR(i, j))).collect()
   }
 
   fn append_branch<C: Ciphersuite>(
@@ -187,9 +195,13 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
 
     let mut res = vec![];
     for (values, blind) in self.0.iter().zip(blinds) {
-      let g_generators = generators.g_bold_slice()[.. values.len()].iter().cloned();
-      let mut commitment =
-        g_generators.enumerate().map(|(i, g)| (values[i], g)).collect::<Vec<_>>();
+      let g_generators = generators.g_bold_slice()[.. values.0.len()].iter().cloned();
+      let h_generators = generators.h_bold_slice()[.. values.1.len()].iter().cloned();
+      let mut commitment = g_generators
+        .enumerate()
+        .map(|(i, g)| (values.0[i], g))
+        .chain(h_generators.enumerate().map(|(i, h)| (values.1[i], h)))
+        .collect::<Vec<_>>();
       commitment.push((*blind, generators.h()));
       res.push(multiexp(&commitment));
     }
@@ -763,7 +775,7 @@ where
 
     let (c2_statement, c2_witness) = c2_circuit
       .statement(
-        params.curve_2_generators.reduce(256).unwrap(),
+        params.curve_2_generators.reduce(128).unwrap(),
         commitments_2.clone(),
         pvc_blinds_2,
       )
@@ -977,7 +989,7 @@ where
     c1_statement.verify(rng, verifier_1, transcript, self.proof_1).unwrap();
 
     let (c2_statement, _witness) = c2_circuit
-      .statement(params.curve_2_generators.reduce(256).unwrap(), self.proof_2_vcs, vec![])
+      .statement(params.curve_2_generators.reduce(128).unwrap(), self.proof_2_vcs, vec![])
       .unwrap();
     c2_statement.verify(rng, verifier_2, transcript, self.proof_2).unwrap();
 

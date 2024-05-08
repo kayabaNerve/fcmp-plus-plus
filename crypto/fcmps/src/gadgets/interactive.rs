@@ -102,7 +102,7 @@ impl<C: Ciphersuite> Circuit<C> {
     // Ensure this is being safely called
     for variable in member.iter().chain(list.iter().flatten()) {
       assert!(
-        matches!(variable, Variable::C(_, _)),
+        matches!(variable, Variable::CL(_, _)) || matches!(variable, Variable::CR(_, _)),
         "tuple member of set requires all arguments belong to vector commitments"
       );
     }
@@ -341,7 +341,7 @@ impl<C: Ciphersuite> Circuit<C> {
     let arg_iter = arg_iter.chain(dlog.iter());
     for variable in arg_iter {
       debug_assert!(
-        matches!(variable, Variable::C(_, _)),
+        matches!(variable, Variable::CL(_, _)) || matches!(variable, Variable::CR(_, _)),
         "discrete log requires all arguments belong to vector commitments",
       );
     }

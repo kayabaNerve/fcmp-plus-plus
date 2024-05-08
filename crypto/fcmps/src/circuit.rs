@@ -15,7 +15,7 @@ use crate::gadgets::*;
 struct ProverData<F: Field> {
   aL: Vec<F>,
   aR: Vec<F>,
-  C: Vec<Vec<F>>,
+  C: Vec<(Vec<F>, Vec<F>)>,
 }
 
 /// A struct representing a circuit.
@@ -34,7 +34,7 @@ impl<C: Ciphersuite> Circuit<C> {
   }
 
   // Create an instance to prove with.
-  pub(crate) fn prove(commitments: Vec<Vec<C::F>>) -> Self {
+  pub(crate) fn prove(commitments: Vec<(Vec<C::F>, Vec<C::F>)>) -> Self {
     Self {
       muls: 0,
       constraints: vec![],
@@ -49,7 +49,7 @@ impl<C: Ciphersuite> Circuit<C> {
 
   /// Evaluate a constraint.
   ///
-  /// Yields WL aL + WR aR + WO aO + WC C.
+  /// Yields WL aL + WR aR + WO aO + WCL CL + WCR CR + c.
   ///
   /// Panics if the constraint references non-existent terms.
   ///
@@ -66,9 +66,14 @@ impl<C: Ciphersuite> Circuit<C> {
       for (index, weight) in &constraint.WO {
         res += prover.aL[*index] * prover.aR[*index] * weight;
       }
-      for (WC, C) in constraint.WC.iter().zip(&prover.C) {
-        for (j, weight) in WC {
-          res += C[*j] * weight;
+      for (WCL, C) in constraint.WCL.iter().zip(&prover.C) {
+        for (j, weight) in WCL {
+          res += C.0[*j] * weight;
+        }
+      }
+      for (WCR, C) in constraint.WCR.iter().zip(&prover.C) {
+        for (j, weight) in WCR {
+          res += C.1[*j] * weight;
         }
       }
       res
@@ -244,15 +249,19 @@ impl<C: Ciphersuite> Circuit<C> {
       WL.push(constraint.WL);
       WR.push(constraint.WR);
       WO.push(constraint.WO);
-      let cWC_len = constraint.WC.len();
-      for (WC, cWC) in WCL.iter_mut().zip(constraint.WC.into_iter()) {
-        WC.push(cWC);
+      let cWCL_len = constraint.WCL.len();
+      for (WCL, cWCL) in WCL.iter_mut().zip(constraint.WCL.into_iter()) {
+        WCL.push(cWCL);
       }
-      for WC in &mut WCL[cWC_len ..] {
-        WC.push(vec![]);
+      for WCL in &mut WCL[cWCL_len ..] {
+        WCL.push(vec![]);
       }
-      for WC in &mut WCR {
-        WC.push(vec![]);
+      let cWCR_len = constraint.WCR.len();
+      for (WCR, cWCR) in WCR.iter_mut().zip(constraint.WCR.into_iter()) {
+        WCR.push(cWCR);
+      }
+      for WCR in &mut WCR[cWCR_len ..] {
+        WCR.push(vec![]);
       }
       WV.push(vec![]);
       // We represent `c` as `+ c = 0`, yet BP uses `= c`
@@ -286,8 +295,8 @@ impl<C: Ciphersuite> Circuit<C> {
             .into_iter()
             .zip(commitment_blinds)
             .map(|(values, blind)| PedersenVectorCommitment {
-              g_values: ScalarVector(values),
-              h_values: ScalarVector(vec![]),
+              g_values: ScalarVector(values.0),
+              h_values: ScalarVector(values.1),
               mask: blind,
             })
             .collect(),
