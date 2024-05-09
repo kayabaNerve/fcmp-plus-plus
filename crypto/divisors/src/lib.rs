@@ -109,50 +109,25 @@ pub fn new_divisor<C: DivisorCurve>(points: &[C]) -> Option<Poly<C::FieldElement
     None?;
   }
 
-  // Create the initial set of divisors
-  let mut divs = vec![];
-  let mut iter = points.iter().copied();
-  while let Some(a) = iter.next() {
-    if a == C::identity() {
-      None?;
-    }
-
-    let b = iter.next();
-    if b == Some(C::identity()) {
-      None?;
-    }
-
-    // Draw the line between those points
-    divs.push((a + b.unwrap_or(C::identity()), line::<C>(a, b.unwrap_or(-a))));
-  }
-
+  // Create the divisor
   let modulus = C::divisor_modulus();
+  let mut iter = points.iter().copied();
+  let mut div = {
+    let a = iter.next().unwrap();
+    (a, line::<C>(a, -a))
+  };
+  for b in iter {
+    let (a, a_div) = div;
+    let numerator = a_div.mul_mod(line::<C>(a, b), &modulus);
+    let denominator = line::<C>(a, -a);
+    let (q, r) = numerator.div_rem(&denominator);
+    assert_eq!(r, Poly::zero());
 
-  // Pair them off until only one remains
-  while divs.len() > 1 {
-    let mut next_divs = vec![];
-    // If there's an odd amount of divisors, carry the odd one out to the next iteration
-    if (divs.len() % 2) == 1 {
-      next_divs.push(divs.pop().unwrap());
-    }
-
-    while let Some((a, a_div)) = divs.pop() {
-      let (b, b_div) = divs.pop().unwrap();
-
-      // Merge the two divisors
-      let numerator = a_div.mul_mod(b_div, &modulus).mul_mod(line::<C>(a, b), &modulus);
-      let denominator = line::<C>(a, -a).mul_mod(line::<C>(b, -b), &modulus);
-      let (q, r) = numerator.div_rem(&denominator);
-      assert_eq!(r, Poly::zero());
-
-      next_divs.push((a + b, q));
-    }
-
-    divs = next_divs;
+    div = (a + b, q);
   }
 
   // Return the unified divisor
-  Some(divs.remove(0).1)
+  Some(div.1)
 }
 
 #[cfg(any(test, feature = "ed25519"))]
