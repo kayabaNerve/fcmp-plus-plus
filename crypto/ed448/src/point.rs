@@ -242,7 +242,13 @@ impl Mul<Scalar> for Point {
             res = res.double();
           }
         }
-        res += table[usize::from(bits)];
+
+        let mut term = table[0];
+        for (j, candidate) in table[1 ..].iter().enumerate() {
+          let j = j + 1;
+          term = Self::conditional_select(&term, candidate, usize::from(bits).ct_eq(&j));
+        }
+        res += term;
         bits = 0;
       }
     }

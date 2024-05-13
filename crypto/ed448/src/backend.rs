@@ -161,7 +161,13 @@ macro_rules! field {
                 res *= res;
               }
             }
-            res *= table[usize::from(bits)];
+
+            let mut factor = table[0];
+            for (j, candidate) in table[1 ..].iter().enumerate() {
+              let j = j + 1;
+              factor = Self::conditional_select(&factor, &candidate, usize::from(bits).ct_eq(&j));
+            }
+            res *= factor;
             bits = 0;
           }
         }
