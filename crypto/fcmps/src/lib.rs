@@ -659,18 +659,33 @@ where
     // and the sets, and the set members used within the tuple set membership (as needed)
 
     // Calculate all of the PVCs and transcript them
+    let root_pos = if branches_1_blinds.len() > branches_2_blinds.len() {
+      *branches_1_blinds.last_mut().unwrap() = C1::F::ZERO;
+      branches_1_blinds.len() - 1
+    } else {
+      *branches_2_blinds.last_mut().unwrap() = C2::F::ZERO;
+      branches_2_blinds.len() - 1
+    };
+
     let mut pvc_blinds_1 = branches_1_blinds;
     while pvc_blinds_1.len() < c1_tape.commitments.len() {
       pvc_blinds_1.push(C1::F::random(&mut *rng));
     }
-    let commitments_1 = c1_tape.commit(&params.curve_1_generators, &pvc_blinds_1);
 
     let mut pvc_blinds_2 = branches_2_blinds;
     while pvc_blinds_2.len() < c2_tape.commitments.len() {
       pvc_blinds_2.push(C2::F::random(&mut *rng));
     }
+
+    let commitments_1 = c1_tape.commit(&params.curve_1_generators, &pvc_blinds_1);
     let commitments_2 = c2_tape.commit(&params.curve_2_generators, &pvc_blinds_2);
     Self::transcript(transcript, tree, output_blinds.input, &commitments_1, &commitments_2);
+
+    if c1_branches.len() > c2_branches.len() {
+      assert_eq!(tree, TreeRoot::<C1, C2>::C1(params.curve_1_hash_init + commitments_1[root_pos]));
+    } else {
+      assert_eq!(tree, TreeRoot::<C1, C2>::C2(params.curve_2_hash_init + commitments_2[root_pos]));
+    }
 
     // Create the circuits
     let mut c1_circuit = Circuit::<C1>::prove(c1_tape.commitments);
@@ -858,6 +873,21 @@ where
       }
     }
 
+    let claimed_root = if (layer_lens.len() % 2) == 1 {
+      TreeRoot::<C1, C2>::C1(match c1_branches.last().unwrap()[0] {
+        Variable::CL(i, _) => params.curve_1_hash_init + self.proof_1_vcs[i],
+        _ => panic!("branch wasn't present in a vector commitment"),
+      })
+    } else {
+      TreeRoot::<C1, C2>::C2(match c2_branches.last().unwrap()[0] {
+        Variable::CL(i, _) => params.curve_2_hash_init + self.proof_2_vcs[i],
+        _ => panic!("branch wasn't present in a vector commitment"),
+      })
+    };
+    // TODO: Use a Schnorr PoK for the difference over the randomness generator instead of
+    // randomness = 0
+    assert_eq!(tree, claimed_root);
+
     // Accumulate the opening for the leaves
     let append_claimed_point_1 = |c1_tape: &mut VectorCommitmentTape<C1::F>, dlog_bits| {
       c1_tape.append_claimed_point(dlog_bits, None, None, None, None)
@@ -1028,7 +1058,5 @@ where
       .statement(params.curve_2_generators.reduce(128).unwrap(), self.proof_2_vcs, vec![])
       .unwrap();
     c2_statement.verify(rng, verifier_2, transcript, self.proof_2).unwrap();
-
-    // TODO: Check the final root matches
   }
 }

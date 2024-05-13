@@ -177,7 +177,11 @@ fn test() {
 
   let branches = Branches { leaves, curve_2_layers, curve_1_layers };
 
-  let root = TreeRoot::<Selene, Helios>::C1(<Selene as Ciphersuite>::G::random(&mut OsRng));
+  let root = if let Some(selene_hash) = selene_hash {
+    TreeRoot::<Selene, Helios>::C1(selene_hash)
+  } else {
+    TreeRoot::<Selene, Helios>::C2(helios_hash.unwrap())
+  };
 
   let proof = Fcmp::prove(
     &mut OsRng,
