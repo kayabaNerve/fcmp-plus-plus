@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use rand_core::{RngCore, CryptoRng};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use transcript::Transcript;
 
@@ -450,6 +450,7 @@ pub struct Fcmp<C1: Ciphersuite, C2: Ciphersuite> {
   proof_1_vcs: Vec<C1::G>,
   proof_2: ArithmeticCircuitProof<C2>,
   proof_2_vcs: Vec<C2::G>,
+  root_blind_pok: [u8; 64],
 }
 impl<C1: Ciphersuite, C2: Ciphersuite> Fcmp<C1, C2>
 where
@@ -462,7 +463,8 @@ where
     input: Input<C1::F>,
     commitments_1: &[C1::G],
     commitments_2: &[C2::G],
-  ) {
+    root_blind_R: &[u8],
+  ) -> T::Challenge {
     // Transcript the tree root
     match tree {
       TreeRoot::C1(p) => transcript.append_message(b"root_1", p.to_bytes()),
@@ -485,6 +487,9 @@ where
     for commitment in commitments_2 {
       transcript.append_message(b"c2_commitment", commitment.to_bytes());
     }
+
+    transcript.append_message(b"root_blind_R", root_blind_R);
+    transcript.challenge(b"root_blind_challenge")
   }
 
   pub fn prove<R: RngCore + CryptoRng, T: Transcript, OC: Ciphersuite>(
@@ -498,6 +503,10 @@ where
   ) -> Self
   where
     OC::G: DivisorCurve<FieldElement = C1::F>,
+    C1::G: GroupEncoding<Repr = [u8; 32]>,
+    C2::G: GroupEncoding<Repr = [u8; 32]>,
+    C1::F: PrimeField<Repr = [u8; 32]>,
+    C2::F: PrimeField<Repr = [u8; 32]>,
   {
     // Flatten the leaves for the branch
     let mut flattened_leaves = vec![];
@@ -659,13 +668,22 @@ where
     // and the sets, and the set members used within the tuple set membership (as needed)
 
     // Calculate all of the PVCs and transcript them
-    let root_pos = if branches_1_blinds.len() > branches_2_blinds.len() {
-      *branches_1_blinds.last_mut().unwrap() = C1::F::ZERO;
-      branches_1_blinds.len() - 1
+    let mut root_blind_r_C1 = None;
+    let mut root_blind_r_C2 = None;
+    let mut root_blind_C1 = None;
+    let mut root_blind_C2 = None;
+    let root_blind_R: [u8; 32];
+    if branches_1_blinds.len() > branches_2_blinds.len() {
+      root_blind_C1 = Some(*branches_1_blinds.last().unwrap());
+      let root_blind_r = Zeroizing::new(C1::F::random(&mut *rng));
+      root_blind_R = (params.curve_1_generators.h() * *root_blind_r).to_bytes();
+      root_blind_r_C1 = Some(root_blind_r);
     } else {
-      *branches_2_blinds.last_mut().unwrap() = C2::F::ZERO;
-      branches_2_blinds.len() - 1
-    };
+      root_blind_C2 = Some(*branches_2_blinds.last().unwrap());
+      let root_blind_r = Zeroizing::new(C2::F::random(&mut *rng));
+      root_blind_R = (params.curve_2_generators.h() * *root_blind_r).to_bytes();
+      root_blind_r_C2 = Some(root_blind_r);
+    }
 
     let mut pvc_blinds_1 = branches_1_blinds;
     while pvc_blinds_1.len() < c1_tape.commitments.len() {
@@ -679,12 +697,26 @@ where
 
     let commitments_1 = c1_tape.commit(&params.curve_1_generators, &pvc_blinds_1);
     let commitments_2 = c2_tape.commit(&params.curve_2_generators, &pvc_blinds_2);
-    Self::transcript(transcript, tree, output_blinds.input, &commitments_1, &commitments_2);
+    let root_blind_c = Self::transcript(
+      transcript,
+      tree,
+      output_blinds.input,
+      &commitments_1,
+      &commitments_2,
+      &root_blind_R,
+    );
 
+    let mut root_blind_pok = [0; 64];
     if c1_branches.len() > c2_branches.len() {
-      assert_eq!(tree, TreeRoot::<C1, C2>::C1(params.curve_1_hash_init + commitments_1[root_pos]));
+      let s = *root_blind_r_C1.unwrap() +
+        (C1::hash_to_F(b"fcmp", root_blind_c.as_ref()) * root_blind_C1.unwrap());
+      root_blind_pok[.. 32].copy_from_slice(&root_blind_R);
+      root_blind_pok[32 ..].copy_from_slice(s.to_repr().as_ref());
     } else {
-      assert_eq!(tree, TreeRoot::<C1, C2>::C2(params.curve_2_hash_init + commitments_2[root_pos]));
+      let s = *root_blind_r_C2.unwrap() +
+        (C2::hash_to_F(b"fcmp", root_blind_c.as_ref()) * root_blind_C2.unwrap());
+      root_blind_pok[.. 32].copy_from_slice(&root_blind_R);
+      root_blind_pok[32 ..].copy_from_slice(s.to_repr().as_ref());
     }
 
     // Create the circuits
@@ -829,6 +861,7 @@ where
       proof_2: c2_proof,
       proof_1_vcs: commitments_1,
       proof_2_vcs: commitments_2,
+      root_blind_pok,
     }
   }
 
@@ -872,21 +905,6 @@ where
         c2_branches.push(branch);
       }
     }
-
-    let claimed_root = if (layer_lens.len() % 2) == 1 {
-      TreeRoot::<C1, C2>::C1(match c1_branches.last().unwrap()[0] {
-        Variable::CL(i, _) => params.curve_1_hash_init + self.proof_1_vcs[i],
-        _ => panic!("branch wasn't present in a vector commitment"),
-      })
-    } else {
-      TreeRoot::<C1, C2>::C2(match c2_branches.last().unwrap()[0] {
-        Variable::CL(i, _) => params.curve_2_hash_init + self.proof_2_vcs[i],
-        _ => panic!("branch wasn't present in a vector commitment"),
-      })
-    };
-    // TODO: Use a Schnorr PoK for the difference over the randomness generator instead of
-    // randomness = 0
-    assert_eq!(tree, claimed_root);
 
     // Accumulate the opening for the leaves
     let append_claimed_point_1 = |c1_tape: &mut VectorCommitmentTape<C1::F>, dlog_bits| {
@@ -943,7 +961,64 @@ where
       );
     }
 
-    Self::transcript(transcript, tree, input, &self.proof_1_vcs, &self.proof_2_vcs);
+    let root_blind_c = Self::transcript(
+      transcript,
+      tree,
+      input,
+      &self.proof_1_vcs,
+      &self.proof_2_vcs,
+      &self.root_blind_pok[.. 32],
+    );
+
+    // Verify the root blind PoK
+    {
+      let claimed_root = if (layer_lens.len() % 2) == 1 {
+        TreeRoot::<C1, C2>::C1(match c1_branches.last().unwrap()[0] {
+          Variable::CL(i, _) => params.curve_1_hash_init + self.proof_1_vcs[i],
+          _ => panic!("branch wasn't present in a vector commitment"),
+        })
+      } else {
+        TreeRoot::<C1, C2>::C2(match c2_branches.last().unwrap()[0] {
+          Variable::CL(i, _) => params.curve_2_hash_init + self.proof_2_vcs[i],
+          _ => panic!("branch wasn't present in a vector commitment"),
+        })
+      };
+      // TODO: Batch verify this
+      // TODO: unwrap -> Result
+      match (claimed_root, tree) {
+        (TreeRoot::C1(claimed), TreeRoot::C1(actual)) => {
+          let mut R = <C1::G as GroupEncoding>::Repr::default();
+          R.as_mut().copy_from_slice(&self.root_blind_pok[.. 32]);
+          let R = C1::G::from_bytes(&R).unwrap();
+
+          let mut s = <C1::F as PrimeField>::Repr::default();
+          s.as_mut().copy_from_slice(&self.root_blind_pok[32 ..]);
+          let s = C1::F::from_repr(s).unwrap();
+
+          let c = C1::hash_to_F(b"fcmp", root_blind_c.as_ref());
+
+          // R + cX == sH, where X is the difference in the roots
+          // (which should only be the randomness, and H is the generator for the randomness)
+          assert_eq!(R + (claimed - actual) * c, params.curve_1_generators.h() * s);
+        }
+        (TreeRoot::C2(claimed), TreeRoot::C2(actual)) => {
+          let mut R = <C2::G as GroupEncoding>::Repr::default();
+          R.as_mut().copy_from_slice(&self.root_blind_pok[.. 32]);
+          let R = C2::G::from_bytes(&R).unwrap();
+
+          let mut s = <C2::F as PrimeField>::Repr::default();
+          s.as_mut().copy_from_slice(&self.root_blind_pok[32 ..]);
+          let s = C2::F::from_repr(s).unwrap();
+
+          let c = C2::hash_to_F(b"fcmp", root_blind_c.as_ref());
+
+          // R + cX == sH, where X is the difference in the roots
+          // (which should only be the randomness, and H is the generator for the randomness)
+          assert_eq!(R + (claimed - actual) * c, params.curve_2_generators.h() * s);
+        }
+        _ => panic!("claimed root is on a distinct layer than tree root"),
+      }
+    };
 
     // Create the circuits
     let mut c1_circuit = Circuit::<C1>::verify();
