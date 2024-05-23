@@ -49,6 +49,8 @@ panic = "unwind"
 # https://github.com/rust-lang-nursery/lazy-static.rs/issues/201
 lazy_static = { git = "https://github.com/rust-lang-nursery/lazy-static.rs", rev = "5735630d46572f1e5377c8f2ba0f79d18f53b10c" }
 
+crypto-bigint = { git = "https://github.com/kayabaNerve/crypto-bigint", branch = "c-repr" }
+
 [workspace.lints.clippy]
 unwrap_or_default = "allow"
 borrow_as_ptr = "deny"

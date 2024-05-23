@@ -40,6 +40,7 @@ macro_rules! curve {
 
     /// Point.
     #[derive(Clone, Copy, Debug, Zeroize)]
+    #[repr(C)]
     pub struct $Point {
       x: $Field, // / Z
       y: $Field, // / Z

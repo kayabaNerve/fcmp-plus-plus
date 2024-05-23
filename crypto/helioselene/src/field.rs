@@ -12,6 +12,7 @@ type ResidueType = Residue<HelioseleneQ, { HelioseleneQ::LIMBS }>;
 
 /// The field novel to Helios/Selene.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[repr(C)]
 pub struct HelioseleneField(pub(crate) ResidueType);
 
 impl DefaultIsZeroes for HelioseleneField {}

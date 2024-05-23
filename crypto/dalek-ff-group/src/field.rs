@@ -36,6 +36,7 @@ type ResidueType = Residue<FieldModulus, { FieldModulus::LIMBS }>;
 
 /// A constant-time implementation of the Ed25519 field.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Zeroize)]
+#[repr(C)]
 pub struct FieldElement(pub ResidueType);
 
 // Square root of -1.
