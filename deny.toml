@@ -56,5 +56,6 @@ unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
   "https://github.com/rust-lang-nursery/lazy-static.rs",
+  "https://github.com/kayabaNerve/crypto-bigint",
   "https://github.com/kayabaNerve/pasta_curves",
 ]

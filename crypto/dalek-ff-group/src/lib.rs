@@ -165,7 +165,7 @@ macro_rules! math_neg {
 
 /// Wrapper around the dalek Scalar type.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Zeroize)]
-pub struct Scalar(DScalar);
+pub struct Scalar(pub DScalar);
 deref_borrow!(Scalar, DScalar);
 constant_time!(Scalar, DScalar);
 math_neg!(Scalar, Scalar, DScalar::add, DScalar::sub, DScalar::mul);
@@ -451,6 +451,12 @@ dalek_group!(
   ED25519_BASEPOINT_POINT,
   ED25519_BASEPOINT_TABLE
 );
+
+impl EdwardsPoint {
+  pub fn mul_by_cofactor(&self) -> Self {
+    Self(self.0.mul_by_cofactor())
+  }
+}
 
 dalek_group!(
   RistrettoPoint,

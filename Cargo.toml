@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "common/std-shims",
   "common/zalloc",
+  "common/request",
 
   "crypto/transcript",
 
@@ -23,6 +24,8 @@ members = [
   "crypto/divisors",
   "crypto/generalized-bulletproofs",
   "crypto/fcmps",
+
+  "coins/monero",
 
   "tests/no-std",
 ]
