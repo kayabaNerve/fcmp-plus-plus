@@ -12,15 +12,19 @@ pub fn hash_grow<T: Transcript, C: Ciphersuite>(
   generators: &Generators<T, C>,
   existing_hash: C::G,
   offset: usize,
-  prior_children: &[C::F],
+  first_child_after_offset: C::F,
   new_children: &[C::F],
 ) -> Option<C::G> {
-  if prior_children.len() != new_children.len() {
-    None?
+  if new_children.is_empty() {
+    return None;
   }
-  let mut pairs = Vec::with_capacity(prior_children.len());
-  for (i, (prior, new)) in (prior_children.iter().zip(new_children)).enumerate() {
-    pairs.push((*new - *prior, *generators.g_bold_slice().get(offset + i)?));
+
+  let mut pairs = Vec::with_capacity(new_children.len());
+  let mut new_children = new_children.iter().enumerate();
+  let (_, first_new) = new_children.next().unwrap();
+  pairs.push((*first_new - first_child_after_offset, *generators.g_bold_slice().get(offset)?));
+  for (i, new) in new_children {
+    pairs.push((*new, *generators.g_bold_slice().get(offset + i)?));
   }
   Some(existing_hash + multiexp_vartime(&pairs))
 }
