@@ -299,12 +299,12 @@ pub struct Input<F: Field> {
 
 impl<F: Field> Input<F> {
   pub fn new<G: DivisorCurve<FieldElement = F>>(O_tilde: G, I_tilde: G, R: G, C_tilde: G) -> Self {
-  Input {
-    O_tilde: G::to_xy(O_tilde),
-    I_tilde: G::to_xy(I_tilde),
-    R: G::to_xy(R),
-    C_tilde: G::to_xy(C_tilde),
-  }
+    Input {
+      O_tilde: G::to_xy(O_tilde),
+      I_tilde: G::to_xy(I_tilde),
+      R: G::to_xy(R),
+      C_tilde: G::to_xy(C_tilde),
+    }
   }
 }
 
