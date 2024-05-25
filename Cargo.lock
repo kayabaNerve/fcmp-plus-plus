@@ -549,6 +549,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "fcmp-plus-plus"
+version = "0.1.0"
+dependencies = [
+ "ciphersuite",
+ "dalek-ff-group",
+ "ec-divisors",
+ "flexible-transcript",
+ "full-chain-membership-proofs",
+ "generalized-bulletproofs",
+ "generalized-schnorr",
+ "monero-generators",
+ "multiexp",
+ "rand_core",
+ "zeroize",
+]
+
+[[package]]
 name = "ff"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -28,11 +28,38 @@ fn hash(data: &[u8]) -> [u8; 32] {
 }
 
 static H_CELL: OnceLock<DalekPoint> = OnceLock::new();
-/// Monero's alternate generator `H`, used for amounts in Pedersen commitments.
+/// Monero's amount generator `H`.
 #[allow(non_snake_case)]
 pub fn H() -> DalekPoint {
   *H_CELL.get_or_init(|| {
     decompress_point(hash(&EdwardsPoint::generator().to_bytes())).unwrap().mul_by_cofactor()
+  })
+}
+
+static T_CELL: OnceLock<EdwardsPoint> = OnceLock::new();
+/// Monero's output key randomness generator `T`.
+#[allow(non_snake_case)]
+pub fn T() -> EdwardsPoint {
+  *T_CELL.get_or_init(|| {
+    EdwardsPoint(hash_to_point(hash(b"Monero Generator T")))
+  })
+}
+
+static U_CELL: OnceLock<EdwardsPoint> = OnceLock::new();
+/// FCMP++s's key image blinding generator `U`.
+#[allow(non_snake_case)]
+pub fn FCMP_U() -> EdwardsPoint {
+  *U_CELL.get_or_init(|| {
+    EdwardsPoint(hash_to_point(hash(b"Monero FCMP++ Generator U")))
+  })
+}
+
+static V_CELL: OnceLock<EdwardsPoint> = OnceLock::new();
+/// Monero's randomness commitment generator `V`.
+#[allow(non_snake_case)]
+pub fn FCMP_V() -> EdwardsPoint {
+  *V_CELL.get_or_init(|| {
+    EdwardsPoint(hash_to_point(hash(b"Monero FCMP++ Generator V")))
   })
 }
 

@@ -297,6 +297,17 @@ pub struct Input<F: Field> {
   C_tilde: (F, F),
 }
 
+impl<F: Field> Input<F> {
+  pub fn new<G: DivisorCurve<FieldElement = F>>(O_tilde: G, I_tilde: G, R: G, C_tilde: G) -> Self {
+  Input {
+    O_tilde: G::to_xy(O_tilde),
+    I_tilde: G::to_xy(I_tilde),
+    R: G::to_xy(R),
+    C_tilde: G::to_xy(C_tilde),
+  }
+  }
+}
+
 /// The blinds used for an output, prepared for usage within the circuit.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PreparedBlinds<F: PrimeFieldBits> {
@@ -342,12 +353,7 @@ impl<F: PrimeFieldBits> OutputBlinds<F> {
       i_blind_v: PreparedBlind::new::<C>(V, -self.i_blind),
       i_blind_blind: PreparedBlind::new::<C>(T, self.i_blind_blind),
       c_blind: PreparedBlind::new::<C>(G, -self.c_blind),
-      input: Input {
-        O_tilde: C::G::to_xy(O_tilde),
-        I_tilde: C::G::to_xy(I_tilde),
-        R: C::G::to_xy(R),
-        C_tilde: C::G::to_xy(C_tilde),
-      },
+      input: Input::new::<C::G>(O_tilde, I_tilde, R, C_tilde),
     }
   }
 }
@@ -444,7 +450,7 @@ pub struct Branches<
 }
 
 /// The full-chain membership proof.
-#[derive(Clone)]
+#[derive(Clone, Debug, Zeroize)]
 pub struct Fcmp<C1: Ciphersuite, C2: Ciphersuite> {
   proof_1: ArithmeticCircuitProof<C1>,
   proof_1_vcs: Vec<C1::G>,
