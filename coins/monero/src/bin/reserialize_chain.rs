@@ -232,6 +232,18 @@ mod binaries {
                 .unwrap();
             }
           }
+          RctPrunable::FullChainMembershipProofsPlusPlus { fcmps, bulletproofs, pseudo_outs } => {
+            assert!(bulletproofs.batch_verify(
+              &mut rand_core::OsRng,
+              &mut batch,
+              (),
+              &tx.rct_signatures.base.commitments
+            ));
+
+            let _ = fcmps;
+            let _ = pseudo_outs;
+            todo!("TODO: Demo FCMP verification");
+          }
         }
       }
       assert!(batch.verify_vartime());

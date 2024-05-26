@@ -30,6 +30,7 @@ mod oncelock_shim {
 
   pub struct OnceLock<T>(Once<T>);
   impl<T> OnceLock<T> {
+    #[allow(clippy::new_without_default)]
     pub const fn new() -> OnceLock<T> {
       OnceLock(Once::new())
     }

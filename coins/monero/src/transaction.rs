@@ -407,7 +407,10 @@ impl Transaction {
 
   fn is_rct_bulletproof(&self) -> bool {
     match &self.rct_signatures.rct_type() {
-      RctType::Bulletproofs | RctType::BulletproofsCompactAmount | RctType::Clsag => true,
+      RctType::Bulletproofs |
+      RctType::BulletproofsCompactAmount |
+      RctType::Clsag |
+      RctType::FullChainMembershipProofsPlusPlus => true,
       RctType::Null |
       RctType::MlsagAggregate |
       RctType::MlsagIndividual |
@@ -417,7 +420,7 @@ impl Transaction {
 
   fn is_rct_bulletproof_plus(&self) -> bool {
     match &self.rct_signatures.rct_type() {
-      RctType::BulletproofsPlus => true,
+      RctType::BulletproofsPlus | RctType::FullChainMembershipProofsPlusPlus => true,
       RctType::Null |
       RctType::MlsagAggregate |
       RctType::MlsagIndividual |

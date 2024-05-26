@@ -17,6 +17,9 @@ use fcmps::{TreeRoot, FcmpParams, Fcmp};
 
 use monero_generators::{H, T, FCMP_U, FCMP_V, hash_to_point};
 
+// TODO
+pub const FCMP_LEN: usize = 0;
+
 #[derive(Clone, PartialEq, Eq, Zeroize)]
 pub struct Output {
   O: <Ed25519 as Ciphersuite>::G,

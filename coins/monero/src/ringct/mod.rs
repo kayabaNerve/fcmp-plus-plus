@@ -8,6 +8,8 @@ use zeroize::{Zeroize, Zeroizing};
 
 use curve25519_dalek::{constants::ED25519_BASEPOINT_TABLE, scalar::Scalar, edwards::EdwardsPoint};
 
+use monero_fcmp_plus_plus::FCMP_LEN;
+
 pub(crate) mod hash_to_point;
 pub use hash_to_point::{raw_hash_to_point, hash_to_point};
 
@@ -74,6 +76,8 @@ pub enum RctType {
   Clsag,
   /// One CLSAG for each input and a Bulletproof+ (RCTTypeBulletproofPlus).
   BulletproofsPlus,
+  /// FCMP++.
+  FullChainMembershipProofsPlusPlus,
 }
 
 impl RctType {
@@ -86,6 +90,7 @@ impl RctType {
       RctType::BulletproofsCompactAmount => 4,
       RctType::Clsag => 5,
       RctType::BulletproofsPlus => 6,
+      RctType::FullChainMembershipProofsPlusPlus => 7,
     }
   }
 
@@ -98,6 +103,7 @@ impl RctType {
       4 => RctType::BulletproofsCompactAmount,
       5 => RctType::Clsag,
       6 => RctType::BulletproofsPlus,
+      7 => RctType::FullChainMembershipProofsPlusPlus,
       _ => None?,
     })
   }
@@ -108,7 +114,10 @@ impl RctType {
       RctType::MlsagAggregate |
       RctType::MlsagIndividual |
       RctType::Bulletproofs => false,
-      RctType::BulletproofsCompactAmount | RctType::Clsag | RctType::BulletproofsPlus => true,
+      RctType::BulletproofsCompactAmount |
+      RctType::Clsag |
+      RctType::BulletproofsPlus |
+      RctType::FullChainMembershipProofsPlusPlus => true,
     }
   }
 }
@@ -145,22 +154,23 @@ impl RctBase {
   }
 
   pub fn read<R: Read>(inputs: usize, outputs: usize, r: &mut R) -> io::Result<(RctBase, RctType)> {
-    let rct_type =
-      RctType::from_byte(read_byte(r)?).ok_or_else(|| io::Error::other("invalid RCT type"))?;
+    let rct_type = RctType::from_byte(read_byte(r)?)
+      .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid RCT type"))?;
 
     match rct_type {
       RctType::Null | RctType::MlsagAggregate | RctType::MlsagIndividual => {}
       RctType::Bulletproofs |
       RctType::BulletproofsCompactAmount |
       RctType::Clsag |
-      RctType::BulletproofsPlus => {
+      RctType::BulletproofsPlus |
+      RctType::FullChainMembershipProofsPlusPlus => {
         if outputs == 0 {
           // Because the Bulletproofs(+) layout must be canonical, there must be 1 Bulletproof if
           // Bulletproofs are in use
           // If there are Bulletproofs, there must be a matching amount of outputs, implicitly
           // banning 0 outputs
           // Since HF 12 (CLSAG being 13), a 2-output minimum has also been enforced
-          Err(io::Error::other("RCT with Bulletproofs(+) had 0 outputs"))?;
+          Err(io::Error::new(io::ErrorKind::Other, "RCT with Bulletproofs(+) had 0 outputs"))?;
         }
       }
     }
@@ -208,11 +218,17 @@ pub enum RctPrunable {
     clsags: Vec<Clsag>,
     pseudo_outs: Vec<EdwardsPoint>,
   },
+  FullChainMembershipProofsPlusPlus {
+    bulletproofs: Bulletproofs,
+    fcmps: Vec<u8>,
+    pseudo_outs: Vec<EdwardsPoint>,
+  },
 }
 
 impl RctPrunable {
   pub(crate) fn fee_weight(protocol: Protocol, inputs: usize, outputs: usize) -> usize {
     // 1 byte for number of BPs (technically a VarInt, yet there's always just zero or one)
+    // TODO: Add a claw-back for FCMP++s
     1 + Bulletproofs::fee_weight(protocol.bp_plus(), outputs) +
       (inputs * (Clsag::fee_weight(protocol.ring_len()) + 32))
   }
@@ -246,6 +262,13 @@ impl RctPrunable {
         write_raw_vec(Clsag::write, clsags, w)?;
         write_raw_vec(write_point, pseudo_outs, w)
       }
+      RctPrunable::FullChainMembershipProofsPlusPlus { bulletproofs, fcmps, pseudo_outs } => {
+        w.write_all(&[1])?;
+        bulletproofs.write(w)?;
+
+        write_raw_vec(write_byte, fcmps, w)?;
+        write_raw_vec(write_point, pseudo_outs, w)
+      }
     }
   }
 
@@ -270,7 +293,7 @@ impl RctPrunable {
     // And then for RctNull, that's only allowed for miner TXs which require one input of
     // Input::Gen
     if inputs == 0 {
-      Err(io::Error::other("transaction had no inputs"))?;
+      Err(io::Error::new(io::ErrorKind::Other, "transaction had no inputs"))?;
     }
 
     Ok(match rct_type {
@@ -292,7 +315,7 @@ impl RctPrunable {
               read_varint(r)?
             }) != 1
             {
-              Err(io::Error::other("n bulletproofs instead of one"))?;
+              Err(io::Error::new(io::ErrorKind::Other, "n bulletproofs instead of one"))?;
             }
             Bulletproofs::read(r)?
           },
@@ -305,7 +328,7 @@ impl RctPrunable {
       RctType::Clsag | RctType::BulletproofsPlus => RctPrunable::Clsag {
         bulletproofs: {
           if read_varint::<_, u64>(r)? != 1 {
-            Err(io::Error::other("n bulletproofs instead of one"))?;
+            Err(io::Error::new(io::ErrorKind::Other, "n bulletproofs instead of one"))?;
           }
           (if rct_type == RctType::Clsag { Bulletproofs::read } else { Bulletproofs::read_plus })(
             r,
@@ -314,6 +337,18 @@ impl RctPrunable {
         clsags: (0 .. inputs).map(|_| Clsag::read(ring_length, r)).collect::<Result<_, _>>()?,
         pseudo_outs: read_raw_vec(read_point, inputs, r)?,
       },
+      RctType::FullChainMembershipProofsPlusPlus => {
+        RctPrunable::FullChainMembershipProofsPlusPlus {
+          bulletproofs: {
+            if read_varint::<_, u64>(r)? != 1 {
+              Err(io::Error::new(io::ErrorKind::Other, "n bulletproofs instead of one"))?;
+            }
+            Bulletproofs::read_plus(r)?
+          },
+          fcmps: read_raw_vec(read_byte, inputs * FCMP_LEN, r)?,
+          pseudo_outs: read_raw_vec(read_point, inputs, r)?,
+        }
+      }
     })
   }
 
@@ -326,6 +361,21 @@ impl RctPrunable {
       }
       RctPrunable::MlsagBulletproofs { bulletproofs, .. } |
       RctPrunable::Clsag { bulletproofs, .. } => bulletproofs.signature_write(w),
+      // We don't hash the membership proofs in order to enable transaction chaining
+      //
+      // We don't hash the range proofs to simply multisig
+      //
+      // Prior, one party needed to do the range proofs, or everyone had to with a seeded RNG
+      //
+      // Now, anyone can (post-fixing them)
+      //
+      // This does allow a toxic participant to create range proofs not practically ZK, as a toxic
+      // participant could create a toxic membership proof not practically ZK
+      // *without identification of the toxic party*
+      //
+      // The simpler protocol is preferred over the handling of this edge case already allowed
+      // elsewhere
+      RctPrunable::FullChainMembershipProofsPlusPlus { .. } => Ok(()),
     }
   }
 }
@@ -365,6 +415,9 @@ impl RctSignatures {
         } else {
           RctType::BulletproofsPlus
         }
+      }
+      RctPrunable::FullChainMembershipProofsPlusPlus { .. } => {
+        RctType::FullChainMembershipProofsPlusPlus
       }
     }
   }

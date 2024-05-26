@@ -413,6 +413,7 @@ impl SignatureMachine<Transaction> for TransactionSignatureMachine {
           pseudo_outs.push(pseudo_out);
         }
       }
+      RctPrunable::FullChainMembershipProofsPlusPlus { .. } => todo!("TODO"),
       RctPrunable::AggregateMlsagBorromean { .. } |
       RctPrunable::MlsagBorromean { .. } |
       RctPrunable::MlsagBulletproofs { .. } => {
