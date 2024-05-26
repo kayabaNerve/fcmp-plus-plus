@@ -45,7 +45,7 @@ pub use ed448::*;
 #[cfg(feature = "helioselene")]
 mod helioselene;
 #[cfg(feature = "helioselene")]
-pub use helioselene::*;
+pub use crate::helioselene::*;
 
 /// Unified trait defining a ciphersuite around an elliptic curve.
 pub trait Ciphersuite:

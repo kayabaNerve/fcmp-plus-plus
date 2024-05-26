@@ -25,9 +25,6 @@ mod mutex_shim {
 }
 pub use mutex_shim::{ShimMutex as Mutex, MutexGuard};
 
-#[cfg(feature = "std")]
-pub use std::sync::OnceLock;
-#[cfg(not(feature = "std"))]
 mod oncelock_shim {
   use spin::Once;
 
@@ -48,5 +45,4 @@ mod oncelock_shim {
     }
   }
 }
-#[cfg(not(feature = "std"))]
 pub use oncelock_shim::*;
