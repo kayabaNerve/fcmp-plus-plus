@@ -118,7 +118,7 @@ impl Block {
 
     let miner_tx = Transaction::read(r)?;
     if !matches!(miner_tx.prefix.inputs.as_slice(), &[Input::Gen(_)]) {
-      Err(io::Error::other("Miner transaction has incorrect input type."))?;
+      Err(io::Error::new(io::ErrorKind::Other, "Miner transaction has incorrect input type."))?;
     }
 
     Ok(Block {

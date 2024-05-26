@@ -63,7 +63,7 @@ impl PaymentId {
     Ok(match read_byte(r)? {
       0 => PaymentId::Unencrypted(read_bytes(r)?),
       1 => PaymentId::Encrypted(read_bytes(r)?),
-      _ => Err(io::Error::other("unknown payment ID type"))?,
+      _ => Err(io::Error::new(io::ErrorKind::Other, "unknown payment ID type"))?,
     })
   }
 }
@@ -123,12 +123,12 @@ impl ExtraField {
           let mut n_consume = 0;
           for v in buf {
             if *v != 0u8 {
-              Err(io::Error::other("non-zero value after padding"))?
+              Err(io::Error::new(io::ErrorKind::Other, "non-zero value after padding"))?
             }
             n_consume += 1;
             size += 1;
             if size > MAX_TX_EXTRA_PADDING_COUNT {
-              Err(io::Error::other("padding exceeded max count"))?
+              Err(io::Error::new(io::ErrorKind::Other, "padding exceeded max count"))?
             }
           }
           if n_consume == 0 {
@@ -142,14 +142,14 @@ impl ExtraField {
       2 => ExtraField::Nonce({
         let nonce = read_vec(read_byte, r)?;
         if nonce.len() > MAX_TX_EXTRA_NONCE_SIZE {
-          Err(io::Error::other("too long nonce"))?;
+          Err(io::Error::new(io::ErrorKind::Other, "too long nonce"))?;
         }
         nonce
       }),
       3 => ExtraField::MergeMining(read_varint(r)?, read_bytes(r)?),
       4 => ExtraField::PublicKeys(read_vec(read_point, r)?),
       0xDE => ExtraField::MysteriousMinergate(read_vec(read_byte, r)?),
-      _ => Err(io::Error::other("unknown extra field"))?,
+      _ => Err(io::Error::new(io::ErrorKind::Other, "unknown extra field"))?,
     })
   }
 }

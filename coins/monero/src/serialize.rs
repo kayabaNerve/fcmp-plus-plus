@@ -109,17 +109,19 @@ pub(crate) fn read_varint<R: Read, U: sealed::VarInt>(r: &mut R) -> io::Result<U
   while {
     let b = read_byte(r)?;
     if (bits != 0) && (b == 0) {
-      Err(io::Error::other("non-canonical varint"))?;
+      Err(io::Error::new(io::ErrorKind::Other, "non-canonical varint"))?;
     }
     if ((bits + 7) >= U::BITS) && (b >= (1 << (U::BITS - bits))) {
-      Err(io::Error::other("varint overflow"))?;
+      Err(io::Error::new(io::ErrorKind::Other, "varint overflow"))?;
     }
 
     res += u64::from(b & (!VARINT_CONTINUATION_MASK)) << bits;
     bits += 7;
     b & VARINT_CONTINUATION_MASK == VARINT_CONTINUATION_MASK
   } {}
-  res.try_into().map_err(|_| io::Error::other("VarInt does not fit into integer type"))
+  res
+    .try_into()
+    .map_err(|_| io::Error::new(io::ErrorKind::Other, "VarInt does not fit into integer type"))
 }
 
 // All scalar fields supported by monero-serai are checked to be canonical for valid transactions
@@ -130,19 +132,19 @@ pub(crate) fn read_varint<R: Read, U: sealed::VarInt>(r: &mut R) -> io::Result<U
 // reduction applied
 pub(crate) fn read_scalar<R: Read>(r: &mut R) -> io::Result<Scalar> {
   Option::from(Scalar::from_canonical_bytes(read_bytes(r)?))
-    .ok_or_else(|| io::Error::other("unreduced scalar"))
+    .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "unreduced scalar"))
 }
 
 pub(crate) fn read_point<R: Read>(r: &mut R) -> io::Result<EdwardsPoint> {
   let bytes = read_bytes(r)?;
-  decompress_point(bytes).ok_or_else(|| io::Error::other("invalid point"))
+  decompress_point(bytes).ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid point"))
 }
 
 pub(crate) fn read_torsion_free_point<R: Read>(r: &mut R) -> io::Result<EdwardsPoint> {
   read_point(r)
     .ok()
     .filter(EdwardsPoint::is_torsion_free)
-    .ok_or_else(|| io::Error::other("invalid point"))
+    .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid point"))
 }
 
 pub(crate) fn read_raw_vec<R: Read, T, F: Fn(&mut R) -> io::Result<T>>(

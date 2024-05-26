@@ -91,7 +91,7 @@ fn read_scalar<R: Read, F: PrimeField>(r: &mut R) -> io::Result<F> {
   r.read_exact(repr.as_mut())?;
   let scalar = F::from_repr(repr);
   if scalar.is_none().into() {
-    Err(Error::other("invalid scalar"))?;
+    Err(Error::new(io::ErrorKind::Other, "invalid scalar"))?;
   }
   Ok(scalar.unwrap())
 }
