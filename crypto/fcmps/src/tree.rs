@@ -12,7 +12,7 @@ pub fn hash_grow<T: Transcript, C: Ciphersuite>(
   generators: &Generators<T, C>,
   existing_hash: C::G,
   offset: usize,
-  first_child_after_offset: C::F,
+  existing_child_at_offset: C::F,
   new_children: &[C::F],
 ) -> Option<C::G> {
   if new_children.is_empty() {
@@ -29,7 +29,7 @@ pub fn hash_grow<T: Transcript, C: Ciphersuite>(
   Some(existing_hash + multiexp_vartime(&pairs))
 }
 
-/// Remove children from an existing hash.
+/// Remove children from an existing hash, and grow back one child.
 ///
 /// This should only be called when the amount of children removed is less than the amount of
 /// children remaining. If less children remain, calling `hash_grow` on a new hash with the
@@ -39,10 +39,15 @@ pub fn hash_trim<T: Transcript, C: Ciphersuite>(
   existing_hash: C::G,
   offset: usize,
   children: &[C::F],
+  child_to_grow_back: C::F,
 ) -> Option<C::G> {
   let mut pairs = Vec::with_capacity(children.len());
   for (i, child) in children.iter().enumerate() {
-    pairs.push((*child, *generators.g_bold_slice().get(offset + i)?));
+    if i == 0 {
+      pairs.push(((*child - grow_back), *generators.g_bold_slice().get(offset + i)?));
+    } else {
+      pairs.push((*child, *generators.g_bold_slice().get(offset + i)?));
+    }
   }
   Some(existing_hash - multiexp_vartime(&pairs))
 }
