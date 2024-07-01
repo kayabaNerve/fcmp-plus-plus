@@ -22,7 +22,7 @@ pub fn hash_grow<T: Transcript, C: Ciphersuite>(
   let mut pairs = Vec::with_capacity(new_children.len());
   let mut new_children = new_children.iter().enumerate();
   let (_, first_new) = new_children.next().unwrap();
-  pairs.push((*first_new - first_child_after_offset, *generators.g_bold_slice().get(offset)?));
+  pairs.push((*first_new - existing_child_at_offset, *generators.g_bold_slice().get(offset)?));
   for (i, new) in new_children {
     pairs.push((*new, *generators.g_bold_slice().get(offset + i)?));
   }
@@ -44,7 +44,7 @@ pub fn hash_trim<T: Transcript, C: Ciphersuite>(
   let mut pairs = Vec::with_capacity(children.len());
   for (i, child) in children.iter().enumerate() {
     if i == 0 {
-      pairs.push(((*child - grow_back), *generators.g_bold_slice().get(offset + i)?));
+      pairs.push(((*child - child_to_grow_back), *generators.g_bold_slice().get(offset + i)?));
     } else {
       pairs.push((*child, *generators.g_bold_slice().get(offset + i)?));
     }
