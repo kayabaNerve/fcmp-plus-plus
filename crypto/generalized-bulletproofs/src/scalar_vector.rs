@@ -2,15 +2,13 @@ use core::ops::{Index, IndexMut, Add, Sub, Mul};
 
 use zeroize::Zeroize;
 
-use transcript::Transcript;
-
 use ciphersuite::group::ff::PrimeField;
 
 /// A scalar vector struct with the functionality necessary for Bulletproofs.
 ///
 /// The math operations for this panic upon any invalid operation, such as if vectors of different
-/// lengths are added. The full extent of invalidity is not fully defined. Only `new`,
-/// `transcript`, and field access is guaranteed to have a safe, public API.
+/// lengths are added. The full extent of invalidity is not fully defined. Only `new`, `len`,
+/// and field access is guaranteed to have a safe, public API.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ScalarVector<F: PrimeField>(pub Vec<F>);
 
@@ -133,14 +131,5 @@ impl<F: PrimeField> ScalarVector<F> {
     let r = self.0.split_off(self.0.len() / 2);
     assert_eq!(self.len(), r.len());
     (self, ScalarVector(r))
-  }
-
-  /// Transcript a scalar vector.
-  ///
-  /// This does not transcript its length. This must be called with a unique label accordingly.
-  pub fn transcript<T: 'static + Transcript>(&self, transcript: &mut T, label: &'static [u8]) {
-    for scalar in &self.0 {
-      transcript.append_message(label, scalar.to_repr());
-    }
   }
 }

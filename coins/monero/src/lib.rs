@@ -77,6 +77,7 @@ pub(crate) fn BASEPOINT_PRECOMP() -> &'static VartimeEdwardsPrecomputation {
 pub enum Protocol {
   v14,
   v16,
+  v18,
   Custom {
     ring_len: usize,
     bp_plus: bool,
@@ -112,6 +113,7 @@ impl Protocol {
     match self {
       Protocol::v14 => RctType::Clsag,
       Protocol::v16 => RctType::BulletproofsPlus,
+      Protocol::v18 => RctType::FullChainMembershipProofsPlusPlus,
       Protocol::Custom { optimal_rct_type, .. } => *optimal_rct_type,
     }
   }

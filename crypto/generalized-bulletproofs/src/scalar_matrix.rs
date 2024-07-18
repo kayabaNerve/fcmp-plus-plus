@@ -1,8 +1,6 @@
 use zeroize::Zeroize;
 
-use transcript::Transcript;
-
-use ciphersuite::{group::ff::PrimeField, Ciphersuite};
+use ciphersuite::Ciphersuite;
 
 use crate::ScalarVector;
 
@@ -27,8 +25,7 @@ impl<C: Ciphersuite> ScalarMatrix<C> {
 
   /// Push a sparse row of scalars onto the matrix.
   ///
-  /// If this row has multiple scalars for the same index, they'll be treated as a single sum
-  /// scalar.
+  /// If this row has multiple scalars for the same index, they'll be summed.
   pub fn push(&mut self, row: Vec<(usize, C::F)>) {
     let mut high_index = 0;
     for (i, _) in &row {
@@ -52,20 +49,5 @@ impl<C: Ciphersuite> ScalarMatrix<C> {
       }
     }
     res
-  }
-
-  /// Transcript a scalar matrix.
-  ///
-  /// This does transcript its dimensions.
-  pub fn transcript<T: 'static + Transcript>(&self, transcript: &mut T, label: &'static [u8]) {
-    transcript.append_message(label, "start");
-    transcript.append_message(b"length", u32::try_from(self.len()).unwrap().to_le_bytes());
-    for vector in &self.data {
-      transcript.append_message(b"row_count", u32::try_from(vector.len()).unwrap().to_le_bytes());
-      for (i, scalar) in vector {
-        transcript.append_message(b"i", u32::try_from(*i).unwrap().to_le_bytes());
-        transcript.append_message(b"scalar", scalar.to_repr());
-      }
-    }
   }
 }

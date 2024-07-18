@@ -128,6 +128,8 @@ impl SendOutput {
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum TransactionError {
+  #[cfg_attr(feature = "std", error("unsupported protocol"))]
+  UnsupportedProtocol,
   #[cfg_attr(feature = "std", error("multiple addresses with payment IDs"))]
   MultiplePaymentIds,
   #[cfg_attr(feature = "std", error("no inputs"))]
@@ -433,6 +435,13 @@ impl SignableTransaction {
     data: Vec<Vec<u8>>,
     fee_rate: Fee,
   ) -> Result<SignableTransaction, TransactionError> {
+    if !matches!(
+      protocol.optimal_rct_type(),
+      RctType::Clsag | RctType::FullChainMembershipProofsPlusPlus
+    ) {
+      Err(TransactionError::UnsupportedProtocol)?;
+    }
+
     // Make sure there's only one payment ID
     let mut has_payment_id = {
       let mut payment_ids = 0;
@@ -827,7 +836,19 @@ impl SignableTransaction {
             pseudo_outs: vec![],
             commitments: commitments.iter().map(Commitment::calculate).collect(),
           },
-          prunable: RctPrunable::Clsag { bulletproofs: bp, clsags: vec![], pseudo_outs: vec![] },
+          prunable: match protocol.optimal_rct_type() {
+            RctType::Clsag => {
+              RctPrunable::Clsag { bulletproofs: bp, clsags: vec![], pseudo_outs: vec![] }
+            }
+            RctType::FullChainMembershipProofsPlusPlus => {
+              RctPrunable::FullChainMembershipProofsPlusPlus {
+                fcmps: vec![],
+                pseudo_outs: vec![],
+                bulletproofs: vec![],
+              }
+            }
+            _ => unreachable!("attempted to sign a TX which wasn't CLSAG"),
+          },
         },
       },
       sum,

@@ -194,12 +194,12 @@ macro_rules! field {
 
       fn invert(&self) -> CtOption<Self> {
         const NEG_2: $FieldName =
-          Self($ResidueType::sub(&$ResidueType::ZERO, &$ResidueType::new(&U448::from_u8(2))));
+          $FieldName($ResidueType::sub(&$ResidueType::ZERO, &$ResidueType::new(&U448::from_u8(2))));
         CtOption::new(self.pow(NEG_2), !self.is_zero())
       }
 
       fn sqrt(&self) -> CtOption<Self> {
-        const MOD_1_4: $FieldName = Self($ResidueType::new(
+        const MOD_1_4: $FieldName = $FieldName($ResidueType::new(
           &$MODULUS.saturating_add(&U448::ONE).wrapping_div(&U448::from_u8(4)),
         ));
 

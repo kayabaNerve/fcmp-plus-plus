@@ -74,9 +74,6 @@ fn test() {
   );
 
   let output = random_output();
-  let blinds = OutputBlinds::new(&mut OsRng);
-  let blinds = blinds.prepare(G, T, U, V, output);
-  let input = blinds.input;
 
   const LAYER_ONE_LEN: usize = 38;
   const LAYER_TWO_LEN: usize = 18;
@@ -175,13 +172,36 @@ fn test() {
   }
   assert_eq!(layer_lens.len(), TARGET_LAYERS);
 
-  let branches = Branches { leaves, curve_2_layers, curve_1_layers };
-
   let root = if let Some(selene_hash) = selene_hash {
     TreeRoot::<Selene, Helios>::C1(selene_hash)
   } else {
     TreeRoot::<Selene, Helios>::C2(helios_hash.unwrap())
   };
+
+  let branches = Branches { leaves, curve_2_layers, curve_1_layers };
+
+  let prove_start = std::time::Instant::now();
+  for _ in 0 .. 100 {
+    let blinds = OutputBlinds::new(&mut OsRng);
+    let blinds = blinds.prepare(G, T, U, V, output);
+
+    let proof = Fcmp::prove(
+      &mut OsRng,
+      &mut RecommendedTranscript::new(b"FCMP Test"),
+      &params,
+      root,
+      output,
+      blinds,
+      branches.clone(),
+    );
+
+    core::hint::black_box(proof);
+  }
+  dbg!((std::time::Instant::now() - prove_start).as_millis());
+
+  let blinds = OutputBlinds::new(&mut OsRng);
+  let blinds = blinds.prepare(G, T, U, V, output);
+  let input = blinds.input;
 
   let proof = Fcmp::prove(
     &mut OsRng,

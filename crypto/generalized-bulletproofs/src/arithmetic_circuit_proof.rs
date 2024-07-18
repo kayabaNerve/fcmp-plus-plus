@@ -21,9 +21,9 @@ use crate::{
 
 /// Bulletproofs' Arithmetic Circuit Statement from 5.1, modified per Generalized Bulletproofs.
 ///
-/// aL * aR = aO, WL * aL + WR * aR + WO * aO = WV * V + c
+/// Bulletproofs' aL * aR = aO, WL * aL + WR * aR + WO * aO = WV * V + c
 /// is modified to
-/// aL * aR = aO, WL * aL + WR * aR + WO * aO + WC * C = WV * V + c
+/// Generalized Bulletproofs' aL * aR = aO, WL * aL + WR * aR + WO * aO + WC * C = WV * V + c
 #[derive(Clone, Debug)]
 pub struct ArithmeticCircuitStatement<'a, T: 'static + Transcript, C: Ciphersuite> {
   generators: ProofGenerators<'a, T, C>,
@@ -93,6 +93,9 @@ impl<C: Ciphersuite> ArithmeticCircuitWitness<C> {
     if aL.len() != aR.len() {
       Err(AcError::DifferingLrLengths)?;
     }
+
+    // The Pedersen Vector Commitments don't have their variables' lengths checked as they aren't
+    // paired off with each other as aL, aR are
 
     let aO = aL.clone() * &aR;
     Ok(ArithmeticCircuitWitness { aL, aR, aO, c, v })

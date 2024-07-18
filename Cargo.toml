@@ -25,9 +25,9 @@ members = [
   "crypto/generalized-bulletproofs",
   "crypto/fcmps",
 
-  "coins/monero/generators",
-  "coins/monero/fcmp++",
-  "coins/monero",
+  # "coins/monero/generators",
+  # "coins/monero/fcmp++",
+  # "coins/monero",
 
   "tests/no-std",
 ]
