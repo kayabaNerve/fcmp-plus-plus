@@ -49,7 +49,7 @@ fn test_zero_inner_product() {
     P::Verifier { verifier_weight: <Ristretto as Ciphersuite>::F::ONE },
   )
   .unwrap()
-  .verify(&mut OsRng, &mut verifier, &mut VerifierTranscript::new([0; 32], &proof))
+  .verify(&mut verifier, &mut VerifierTranscript::new([0; 32], &proof))
   .unwrap();
   assert!(generators.verify(verifier));
 }
@@ -106,7 +106,7 @@ fn test_inner_product() {
       P::Verifier { verifier_weight: <Ristretto as Ciphersuite>::F::ONE },
     )
     .unwrap()
-    .verify(&mut OsRng, &mut verifier, &mut VerifierTranscript::new([0; 32], &proof))
+    .verify(&mut verifier, &mut VerifierTranscript::new([0; 32], &proof))
     .unwrap();
   }
   assert!(generators.verify(verifier));

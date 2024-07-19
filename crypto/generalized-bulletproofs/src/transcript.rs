@@ -39,7 +39,7 @@ fn challenge<F: PrimeField>(digest: &mut Blake2b512) -> F {
   res
 }
 
-/// Commitments written to a transcript.
+/// Commitments written to/read from a transcript.
 // We use a dedicated type for this to coerce the caller into transcripting the commitments as
 // expected.
 #[cfg_attr(test, derive(Clone, PartialEq, Debug))]
@@ -92,7 +92,7 @@ impl Transcript {
     self.transcript.extend(bytes.as_ref());
   }
 
-  /// Write the Pedersen (Vector) Commitments to this transcript.
+  /// Write the Pedersen (vector) commitments to this transcript.
   pub fn write_commitments<C: Ciphersuite>(
     &mut self,
     C: Vec<C::G>,

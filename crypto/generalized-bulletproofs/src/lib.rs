@@ -18,12 +18,14 @@ pub use scalar_matrix::ScalarMatrix;
 mod point_vector;
 pub use point_vector::PointVector;
 
+/// The transcript formats.
 pub mod transcript;
 
 pub(crate) mod inner_product;
 
 pub mod arithmetic_circuit_proof;
 
+/// Functionlity useful when testing.
 #[cfg(any(test, feature = "tests"))]
 pub mod tests;
 
@@ -36,6 +38,7 @@ pub(crate) fn padded_pow_of_2(i: usize) -> usize {
   next_pow_of_2
 }
 
+/// An error from working with generators.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GeneratorsError {
   GBoldEmpty,
@@ -55,6 +58,8 @@ pub struct Generators<C: Ciphersuite> {
   h_sum: Vec<C::G>,
 }
 
+/// A batch verifier of proofs.
+#[must_use]
 pub struct BatchVerifier<C: Ciphersuite> {
   g: C::F,
   h: C::F,
@@ -78,8 +83,10 @@ impl<C: Ciphersuite> fmt::Debug for Generators<C> {
   }
 }
 
-/// The generators for a specific proof, potentially reduced from the original full set of
-/// generators.
+/// The generators for a specific proof.
+///
+/// This potentially have been reduced in size from the original set of generators, as beneficial
+/// to performance.
 #[derive(Copy, Clone)]
 pub struct ProofGenerators<'a, C: Ciphersuite> {
   g: &'a C::G,
@@ -155,6 +162,7 @@ impl<C: Ciphersuite> Generators<C> {
     Ok(Generators { g, h, g_bold, h_bold, h_sum })
   }
 
+  /// Create a BatchVerifier for proofs which use these generators.
   pub fn batch_verifier(&self) -> BatchVerifier<C> {
     BatchVerifier {
       g: C::F::ZERO,
@@ -168,6 +176,7 @@ impl<C: Ciphersuite> Generators<C> {
     }
   }
 
+  /// Verify all proofs queued for batch verification in this BatchVerifier.
   #[must_use]
   pub fn verify(&self, verifier: BatchVerifier<C>) -> bool {
     multiexp_vartime(
@@ -183,18 +192,22 @@ impl<C: Ciphersuite> Generators<C> {
     .into()
   }
 
+  /// The `g` generator.
   pub fn g(&self) -> C::G {
     self.g
   }
 
+  /// The `h` generator.
   pub fn h(&self) -> C::G {
     self.h
   }
 
+  /// A slice to view the `g` (bold) generators.
   pub fn g_bold_slice(&self) -> &[C::G] {
     &self.g_bold
   }
 
+  /// A slice to view the `h` (bold) generators.
   pub fn h_bold_slice(&self) -> &[C::G] {
     &self.h_bold
   }
@@ -250,22 +263,30 @@ impl<'a, C: Ciphersuite> ProofGenerators<'a, C> {
   }
 }
 
+/// The opening of a Pedersen commitment.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
 pub struct PedersenCommitment<C: Ciphersuite> {
+  /// The value committed to.
   pub value: C::F,
+  /// The mask blinding the value committed to.
   pub mask: C::F,
 }
 
 impl<C: Ciphersuite> PedersenCommitment<C> {
+  /// Commit to this value, yielding the Pedersen commitment.
   pub fn commit(&self, g: C::G, h: C::G) -> C::G {
     multiexp(&[(self.value, g), (self.mask, h)])
   }
 }
 
+/// The opening of a Pedersen vector commitment.
 #[derive(Clone, PartialEq, Eq, Debug, Zeroize)]
 pub struct PedersenVectorCommitment<C: Ciphersuite> {
+  /// The values committed to across the `g` (bold) generators.
   pub g_values: ScalarVector<C::F>,
+  /// The values committed to across the `h` (bold) generators.
   pub h_values: ScalarVector<C::F>,
+  /// The mask blinding the values committed to.
   pub mask: C::F,
 }
 

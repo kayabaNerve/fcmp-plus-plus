@@ -1,5 +1,3 @@
-use rand_core::{RngCore, CryptoRng};
-
 use multiexp::multiexp_vartime;
 use ciphersuite::{group::ff::Field, Ciphersuite};
 
@@ -9,10 +7,15 @@ use crate::{ScalarVector, PointVector, ProofGenerators, BatchVerifier, transcrip
 /// An error from proving/verifying Inner-Product statements.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum IpError {
+  /// An incorrect amount of generators was provided.
   IncorrectAmountOfGenerators,
+  /// The witness was inconsistent to the statement.
+  ///
+  /// Sanity checks on the witness are always performed. If the library is compiled with debug
+  /// assertions on, whether or not this witness actually opens `P` is checked.
   InconsistentWitness,
+  /// The proof wasn't complete and the necessary values could not be read from the transcript.
   IncompleteProof,
-  InapplicableP,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -110,10 +113,13 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
 
       let P = match P {
         P::Prover(point) => point,
-        P::Verifier { .. } => Err(IpError::InapplicableP)?,
+        P::Verifier { .. } => {
+          panic!("prove called with a P specification which was for the verifier")
+        }
       };
 
       // Ensure this witness actually opens this statement
+      #[cfg(debug_assertions)]
       {
         let ag = a.0.iter().cloned().zip(g_bold.0.iter().cloned());
         let bh = b.0.iter().cloned().zip(h_bold.0.iter().cloned());
@@ -263,9 +269,8 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
   /// This will return Err if there is an error. This will return Ok if the proof was successfully
   /// queued for batch verification. The caller is required to verify the batch in order to ensure
   /// the proof is actually correct.
-  pub(crate) fn verify<R: RngCore + CryptoRng>(
+  pub(crate) fn verify(
     self,
-    rng: &mut R,
     verifier: &mut BatchVerifier<C>,
     transcript: &mut VerifierTranscript,
   ) -> Result<(), IpError> {
@@ -277,10 +282,9 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       lr_len += 1;
     }
 
-    let mut weight = C::F::random(rng);
-    match P {
-      P::Prover(_) => Err(IpError::InapplicableP)?,
-      P::Verifier { verifier_weight } => weight = verifier_weight,
+    let weight = match P {
+      P::Prover(_) => panic!("prove called with a P specification which was for the prover"),
+      P::Verifier { verifier_weight } => verifier_weight,
     };
 
     // Again, we start with the `else: (n > 1)` case

@@ -13,6 +13,7 @@ pub struct ScalarMatrix<C: Ciphersuite> {
 }
 
 impl<C: Ciphersuite> ScalarMatrix<C> {
+  /// Create a new ScalarMatrix.
   #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     ScalarMatrix { highest_index: 0, data: vec![] }

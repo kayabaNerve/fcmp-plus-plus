@@ -259,7 +259,7 @@ impl<C: Ciphersuite> Circuit<C> {
       WCR.push(ScalarMatrix::new());
     }
     let mut WV = ScalarMatrix::new();
-    let mut c = ScalarVector(Vec::with_capacity(self.constraints.len()));
+    let mut c = Vec::with_capacity(self.constraints.len());
 
     for constraint in self.constraints {
       WL.push(constraint.WL);
@@ -283,26 +283,26 @@ impl<C: Ciphersuite> Circuit<C> {
       // We represent `c` as `+ c = 0`, yet BP uses `= c`
       // If we subtract `c` from both sides, we get `= -c`
       // Negate this to achieve the intended `c`
-      c.0.push(-constraint.c);
+      c.push(-constraint.c);
     }
 
     let statement =
-      ArithmeticCircuitStatement::new(generators, WL, WR, WO, WCL, WCR, WV, c, commitments)?;
+      ArithmeticCircuitStatement::new(generators, WL, WR, WO, WCL, WCR, WV, c.into(), commitments)?;
 
     let witness = self
       .prover
       .map(|prover| {
         assert_eq!(prover.C.len(), commitment_blinds.len());
         ArithmeticCircuitWitness::new(
-          ScalarVector(prover.aL),
-          ScalarVector(prover.aR),
+          ScalarVector::from(prover.aL),
+          ScalarVector::from(prover.aR),
           prover
             .C
             .into_iter()
             .zip(commitment_blinds)
             .map(|(values, blind)| PedersenVectorCommitment {
-              g_values: ScalarVector(values.0),
-              h_values: ScalarVector(values.1),
+              g_values: ScalarVector::from(values.0),
+              h_values: ScalarVector::from(values.1),
               mask: blind,
             })
             .collect(),

@@ -15,7 +15,7 @@ use crate::ScalarVector;
 /// lengths are added. The full extent of invalidity is not fully defined. Only field access is
 /// guaranteed to have a safe, public API.
 #[derive(Clone, PartialEq, Eq, Debug, Zeroize)]
-pub struct PointVector<C: Ciphersuite>(pub Vec<C::G>);
+pub struct PointVector<C: Ciphersuite>(pub(crate) Vec<C::G>);
 
 impl<C: Ciphersuite> Index<usize> for PointVector<C> {
   type Output = C::G;

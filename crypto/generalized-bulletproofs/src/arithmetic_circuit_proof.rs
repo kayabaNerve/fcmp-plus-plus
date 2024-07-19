@@ -16,23 +16,31 @@ use crate::{
 ///
 /// Bulletproofs' `aL * aR = aO, WL * aL + WR * aR + WO * aO = WV * V + c`
 /// is modified to
-/// Generalized Bulletproofs' `aL * aR = aO, WL * aL + WR * aR + WO * aO + WC * C = WV * V + c`.
+/// Generalized Bulletproofs'
+/// `aL * aR = aO, WL * aL + WR * aR + WO * aO + WCL * C_L + WCR * C_R = WV * V + c`.
 #[derive(Clone, Debug)]
 pub struct ArithmeticCircuitStatement<'a, C: Ciphersuite> {
   generators: ProofGenerators<'a, C>,
 
-  // Circuit constraints
-  pub WL: ScalarMatrix<C>,
-  pub WR: ScalarMatrix<C>,
-  pub WO: ScalarMatrix<C>,
-  pub WV: ScalarMatrix<C>,
-  pub WCL: Vec<ScalarMatrix<C>>,
-  pub WCR: Vec<ScalarMatrix<C>>,
-  pub c: ScalarVector<C::F>,
+  /// The WL matrix from the above statement.
+  WL: ScalarMatrix<C>,
+  /// The WR matrix from the above statement.
+  WR: ScalarMatrix<C>,
+  /// The WO matrix from the above statement.
+  WO: ScalarMatrix<C>,
+  /// The WV matrix from the above statement.
+  WV: ScalarMatrix<C>,
+  /// The WCL matrix from the above statement.
+  WCL: Vec<ScalarMatrix<C>>,
+  /// The WCR matrix from the above statement.
+  WCR: Vec<ScalarMatrix<C>>,
+  /// The c vector from the above statement.
+  c: ScalarVector<C::F>,
 
-  // The commitments, vector and non-vector
-  pub C: PointVector<C>,
-  pub V: PointVector<C>,
+  /// The vector commitments.
+  C: PointVector<C>,
+  /// The non-vector commitments.
+  V: PointVector<C>,
 }
 
 impl<'a, C: Ciphersuite> Zeroize for ArithmeticCircuitStatement<'a, C> {
@@ -64,14 +72,26 @@ pub struct ArithmeticCircuitWitness<C: Ciphersuite> {
 /// An error incurred during arithmetic circuit proof operations.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AcError {
+  /// The vectors of scalars which are multiplied against each other were of different lengths.
   DifferingLrLengths,
+  /// The matrices of constraints are of different lengths.
   InconsistentAmountOfConstraints,
+  /// A constraint referred to a non-existent term.
   ConstrainedNonExistentTerm,
+  /// A constraint referred to a non-existent commitment.
   ConstrainedNonExistentCommitment,
-  IncorrectAmountOfGenerators,
+  /// There weren't enough generators to prove for this statement.
+  NotEnoughGenerators,
+  /// The witness was inconsistent to the statement.
+  ///
+  /// Sanity checks on the witness are always performed. If the library is compiled with debug
+  /// assertions on, the satisfaction of all constraints and validity of the commitmentsd is
+  /// additionally checked.
   InconsistentWitness,
-  IncorrectLength,
+  /// There was an error from the inner-product proof.
   Ip(IpError),
+  /// The proof wasn't complete and the necessary values could not be read from the transcript.
+  IncompleteProof,
 }
 
 impl<C: Ciphersuite> ArithmeticCircuitWitness<C> {
@@ -126,10 +146,13 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
 
   /// Create a new ArithmeticCircuitStatement for the specified relationship.
   ///
-  /// The weights, c vector, and commitments are not transcripted. The first two are expected to be
-  /// deterministic from the context and higher-level statement, the last is expected to already
-  /// be transcripted. If your constraints are variable, you MUST transcript them before
-  /// calling prove/verify.
+  /// The weights and c vector are not transcripted. They're expected to be deterministic from the
+  /// context and higher-level statement. If your constraints are variable, you MUST transcript
+  /// them before calling prove/verify.
+  ///
+  /// The commitments are expected to have been transcripted extenally to this statement's
+  /// invocation. That's practically ensured by taking a `Commitments` struct here, which is only
+  /// obtainable via a transcript.
   #[allow(clippy::too_many_arguments)]
   pub fn new(
     generators: ProofGenerators<'a, C>,
@@ -228,7 +251,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
 
     // Check the witness length and pad it to the necessary power of two
     if witness.aL.len() > n {
-      Err(AcError::IncorrectAmountOfGenerators)?;
+      Err(AcError::NotEnoughGenerators)?;
     }
     while witness.aL.len() < n {
       witness.aL.0.push(C::F::ZERO);
@@ -237,10 +260,10 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     }
     for c in &mut witness.c {
       if c.g_values.len() > n {
-        Err(AcError::IncorrectAmountOfGenerators)?;
+        Err(AcError::NotEnoughGenerators)?;
       }
       if c.h_values.len() > n {
-        Err(AcError::IncorrectAmountOfGenerators)?;
+        Err(AcError::NotEnoughGenerators)?;
       }
       // The Pedersen vector commitments internally have n terms
       while c.g_values.len() < n {
@@ -255,46 +278,56 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     if (c != witness.c.len()) || (m != witness.v.len()) {
       Err(AcError::InconsistentWitness)?;
     }
-    for (commitment, opening) in self.V.0.iter().zip(witness.v.iter()) {
-      if *commitment != opening.commit(self.generators.g(), self.generators.h()) {
-        Err(AcError::InconsistentWitness)?;
+
+    #[cfg(debug_assertions)]
+    {
+      for (commitment, opening) in self.V.0.iter().zip(witness.v.iter()) {
+        if *commitment != opening.commit(self.generators.g(), self.generators.h()) {
+          Err(AcError::InconsistentWitness)?;
+        }
       }
-    }
-    for (commitment, opening) in self.C.0.iter().zip(witness.c.iter()) {
-      if Some(*commitment) !=
-        opening.commit(
-          self.generators.g_bold_slice(),
-          self.generators.h_bold_slice(),
-          self.generators.h(),
-        )
-      {
-        Err(AcError::InconsistentWitness)?;
+      for (commitment, opening) in self.C.0.iter().zip(witness.c.iter()) {
+        if Some(*commitment) !=
+          opening.commit(
+            self.generators.g_bold_slice(),
+            self.generators.h_bold_slice(),
+            self.generators.h(),
+          )
+        {
+          Err(AcError::InconsistentWitness)?;
+        }
       }
-    }
-    for i in 0 .. self.q() {
-      if (self.WL.data[i].iter().map(|(j, weight)| *weight * witness.aL[*j]).sum::<C::F>() +
-        self.WR.data[i].iter().map(|(j, weight)| *weight * witness.aR[*j]).sum::<C::F>() +
-        self.WO.data[i].iter().map(|(j, weight)| *weight * witness.aO[*j]).sum::<C::F>() +
-        self
-          .WCL
-          .iter()
-          .enumerate()
-          .map(|(c, WCL)| {
-            WCL.data[i].iter().map(|(j, weight)| *weight * witness.c[c].g_values[*j]).sum::<C::F>()
-          })
-          .sum::<C::F>() +
-        self
-          .WCR
-          .iter()
-          .enumerate()
-          .map(|(c, WCR)| {
-            WCR.data[i].iter().map(|(j, weight)| *weight * witness.c[c].h_values[*j]).sum::<C::F>()
-          })
-          .sum::<C::F>()) !=
-        (self.WV.data[i].iter().map(|(j, weight)| *weight * witness.v[*j].value).sum::<C::F>() +
-          self.c[i])
-      {
-        Err(AcError::InconsistentWitness)?;
+      for i in 0 .. self.q() {
+        if (self.WL.data[i].iter().map(|(j, weight)| *weight * witness.aL[*j]).sum::<C::F>() +
+          self.WR.data[i].iter().map(|(j, weight)| *weight * witness.aR[*j]).sum::<C::F>() +
+          self.WO.data[i].iter().map(|(j, weight)| *weight * witness.aO[*j]).sum::<C::F>() +
+          self
+            .WCL
+            .iter()
+            .enumerate()
+            .map(|(c, WCL)| {
+              WCL.data[i]
+                .iter()
+                .map(|(j, weight)| *weight * witness.c[c].g_values[*j])
+                .sum::<C::F>()
+            })
+            .sum::<C::F>() +
+          self
+            .WCR
+            .iter()
+            .enumerate()
+            .map(|(c, WCR)| {
+              WCR.data[i]
+                .iter()
+                .map(|(j, weight)| *weight * witness.c[c].h_values[*j])
+                .sum::<C::F>()
+            })
+            .sum::<C::F>()) !=
+          (self.WV.data[i].iter().map(|(j, weight)| *weight * witness.v[*j].value).sum::<C::F>() +
+            self.c[i])
+        {
+          Err(AcError::InconsistentWitness)?;
+        }
       }
     }
 
@@ -510,8 +543,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     )
     .unwrap()
     .prove(transcript, IpWitness::new(l, r).unwrap())
-    .unwrap();
-    Ok(())
+    .map_err(AcError::Ip)
   }
 
   /// Verify a proof for this statement.
@@ -535,9 +567,9 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     let l_r_poly_len = 1 + ni + 1;
     let t_poly_len = (2 * l_r_poly_len) - 1;
 
-    let AI = transcript.read_point::<C>().map_err(|_| AcError::IncorrectLength)?;
-    let AO = transcript.read_point::<C>().map_err(|_| AcError::IncorrectLength)?;
-    let S = transcript.read_point::<C>().map_err(|_| AcError::IncorrectLength)?;
+    let AI = transcript.read_point::<C>().map_err(|_| AcError::IncompleteProof)?;
+    let AO = transcript.read_point::<C>().map_err(|_| AcError::IncompleteProof)?;
+    let S = transcript.read_point::<C>().map_err(|_| AcError::IncompleteProof)?;
     let y = transcript.challenge();
     let z = transcript.challenge();
     let YzChallenges { y_inv, z } = self.yz_challenges(y, z);
@@ -547,16 +579,16 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     let mut T_before_ni = Vec::with_capacity(ni);
     let mut T_after_ni = Vec::with_capacity(t_poly_len - ni - 1);
     for _ in 0 .. ni {
-      T_before_ni.push(transcript.read_point::<C>().map_err(|_| AcError::IncorrectLength)?);
+      T_before_ni.push(transcript.read_point::<C>().map_err(|_| AcError::IncompleteProof)?);
     }
     for _ in 0 .. (t_poly_len - ni - 1) {
-      T_after_ni.push(transcript.read_point::<C>().map_err(|_| AcError::IncorrectLength)?);
+      T_after_ni.push(transcript.read_point::<C>().map_err(|_| AcError::IncompleteProof)?);
     }
     let x: ScalarVector<C::F> = ScalarVector::powers(transcript.challenge(), t_poly_len);
 
-    let tau_x = transcript.read_scalar::<C>().map_err(|_| AcError::IncorrectLength)?;
-    let u = transcript.read_scalar::<C>().map_err(|_| AcError::IncorrectLength)?;
-    let t_caret = transcript.read_scalar::<C>().map_err(|_| AcError::IncorrectLength)?;
+    let tau_x = transcript.read_scalar::<C>().map_err(|_| AcError::IncompleteProof)?;
+    let u = transcript.read_scalar::<C>().map_err(|_| AcError::IncompleteProof)?;
+    let t_caret = transcript.read_scalar::<C>().map_err(|_| AcError::IncompleteProof)?;
 
     // Lines 88-90, modified per Generalized Bulletproofs as needed w.r.t. t
     {
@@ -638,7 +670,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     verifier.g += verifier_weight * ip_x * t_caret;
     IpStatement::new(self.generators, y_inv, ip_x, P::Verifier { verifier_weight })
       .unwrap()
-      .verify(rng, verifier, transcript)
+      .verify(verifier, transcript)
       .map_err(AcError::Ip)?;
 
     Ok(())

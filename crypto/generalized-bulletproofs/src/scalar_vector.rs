@@ -10,7 +10,7 @@ use ciphersuite::group::ff::PrimeField;
 /// lengths are added. The full extent of invalidity is not fully defined. Only `new`, `len`,
 /// and field access is guaranteed to have a safe, public API.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ScalarVector<F: PrimeField>(pub Vec<F>);
+pub struct ScalarVector<F: PrimeField>(pub(crate) Vec<F>);
 
 impl<F: PrimeField + Zeroize> Zeroize for ScalarVector<F> {
   fn zeroize(&mut self) {
@@ -90,6 +90,7 @@ impl<F: PrimeField> Mul<&ScalarVector<F>> for ScalarVector<F> {
 }
 
 impl<F: PrimeField> ScalarVector<F> {
+  /// Create a new scalar vector, initialized with `len` zero scalars.
   pub fn new(len: usize) -> Self {
     ScalarVector(vec![F::ZERO; len])
   }
@@ -107,6 +108,7 @@ impl<F: PrimeField> ScalarVector<F> {
     ScalarVector(res)
   }
 
+  /// The length of this scalar vector.
   #[allow(clippy::len_without_is_empty)]
   pub fn len(&self) -> usize {
     self.0.len()
@@ -131,5 +133,11 @@ impl<F: PrimeField> ScalarVector<F> {
     let r = self.0.split_off(self.0.len() / 2);
     assert_eq!(self.len(), r.len());
     (self, ScalarVector(r))
+  }
+}
+
+impl<F: PrimeField> From<Vec<F>> for ScalarVector<F> {
+  fn from(vec: Vec<F>) -> Self {
+    Self(vec)
   }
 }
