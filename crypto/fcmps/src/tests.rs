@@ -1,7 +1,5 @@
 use rand_core::OsRng;
 
-use transcript::RecommendedTranscript;
-
 use multiexp::multiexp_vartime;
 use ciphersuite::{group::Group, Ciphersuite, Ed25519, Selene, Helios};
 
@@ -19,7 +17,7 @@ fn verify_fn(
   iters: usize,
   batch: usize,
   proof: Fcmp<Selene, Helios>,
-  params: &FcmpParams<RecommendedTranscript, Selene, Helios>,
+  params: &FcmpParams<Selene, Helios>,
   root: TreeRoot<Selene, Helios>,
   layer_lens: &[usize],
   input: Input<<Selene as Ciphersuite>::F>,
@@ -32,9 +30,8 @@ fn verify_fn(
     let mut verifier_2 = params.curve_2_generators.batch_verifier();
 
     for _ in 0 .. batch {
-      proof.clone().verify::<_, _, Ed25519>(
+      proof.verify::<_, Ed25519>(
         &mut OsRng,
-        &mut RecommendedTranscript::new(b"FCMP Test"),
         &mut verifier_1,
         &mut verifier_2,
         params,
@@ -62,7 +59,7 @@ fn test() {
 
   let curve_1_generators = generalized_bulletproofs::tests::generators::<Selene>(256);
   let curve_2_generators = generalized_bulletproofs::tests::generators::<Helios>(256);
-  let params = FcmpParams::<_, _, _>::new::<Ed25519>(
+  let params = FcmpParams::<_, _>::new::<Ed25519>(
     curve_1_generators.clone(),
     curve_2_generators.clone(),
     <Selene as Ciphersuite>::G::random(&mut OsRng),
@@ -185,15 +182,7 @@ fn test() {
     let blinds = OutputBlinds::new(&mut OsRng);
     let blinds = blinds.prepare(G, T, U, V, output);
 
-    let proof = Fcmp::prove(
-      &mut OsRng,
-      &mut RecommendedTranscript::new(b"FCMP Test"),
-      &params,
-      root,
-      output,
-      blinds,
-      branches.clone(),
-    );
+    let proof = Fcmp::prove(&mut OsRng, &params, root, output, blinds, branches.clone());
 
     core::hint::black_box(proof);
   }
@@ -203,15 +192,7 @@ fn test() {
   let blinds = blinds.prepare(G, T, U, V, output);
   let input = blinds.input;
 
-  let proof = Fcmp::prove(
-    &mut OsRng,
-    &mut RecommendedTranscript::new(b"FCMP Test"),
-    &params,
-    root,
-    output,
-    blinds,
-    branches,
-  );
+  let proof = Fcmp::prove(&mut OsRng, &params, root, output, blinds, branches);
 
   verify_fn(100, 1, proof.clone(), &params, root, &layer_lens, input);
   verify_fn(100, 10, proof.clone(), &params, root, &layer_lens, input);

@@ -1,5 +1,3 @@
-use transcript::Transcript;
-
 use ciphersuite::{
   group::ff::{PrimeField, BatchInverter},
   Ciphersuite,
@@ -108,10 +106,9 @@ impl<C: Ciphersuite> Circuit<C> {
     }
 
     // Create challenges which we use to aggregate tuples into LinCombs
-    let mut challenges = vec![];
+    let mut challenges: Vec<C::F> = vec![];
     for _ in 0 .. member.len() {
-      challenges
-        .push(C::hash_to_F(b"fcmp", transcript.challenge(b"tuple_member_of_list").as_ref()));
+      challenges.push(transcript.challenge());
     }
 
     // Aggregate the claimed member
@@ -154,7 +151,7 @@ impl<C: Ciphersuite> Circuit<C> {
     // Get the challenge points
     // TODO: Implement a proper hash to curve
     let (c0_x, c0_y) = loop {
-      let c0_x = C::hash_to_F(b"fcmp", transcript.challenge(b"discrete_log_0").as_ref());
+      let c0_x: C::F = transcript.challenge();
       let Some(c0_y) =
         Option::<C::F>::from(((c0_x.square() * c0_x) + (curve.a * c0_x) + curve.b).sqrt())
       else {
@@ -163,7 +160,7 @@ impl<C: Ciphersuite> Circuit<C> {
       break (c0_x, if bool::from(c0_y.is_odd()) { -c0_y } else { c0_y });
     };
     let (c1_x, c1_y) = loop {
-      let c1_x = C::hash_to_F(b"fcmp", transcript.challenge(b"discrete_log_1").as_ref());
+      let c1_x: C::F = transcript.challenge();
       if c0_x == c1_x {
         continue;
       }

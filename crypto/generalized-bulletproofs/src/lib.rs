@@ -5,8 +5,6 @@ use std::collections::HashSet;
 
 use zeroize::Zeroize;
 
-use transcript::Transcript;
-
 use multiexp::{multiexp, multiexp_vartime};
 use ciphersuite::{
   group::{ff::Field, Group, GroupEncoding},
@@ -20,7 +18,9 @@ pub use scalar_matrix::ScalarMatrix;
 mod point_vector;
 pub use point_vector::PointVector;
 
-pub mod inner_product;
+pub mod transcript;
+
+pub(crate) mod inner_product;
 
 pub mod arithmetic_circuit_proof;
 
@@ -46,15 +46,13 @@ pub enum GeneratorsError {
 
 /// A full set of generators.
 #[derive(Clone)]
-pub struct Generators<T: 'static + Transcript, C: Ciphersuite> {
+pub struct Generators<C: Ciphersuite> {
   g: C::G,
   h: C::G,
 
   g_bold: Vec<C::G>,
   h_bold: Vec<C::G>,
   h_sum: Vec<C::G>,
-
-  transcript: T,
 }
 
 pub struct BatchVerifier<C: Ciphersuite> {
@@ -68,7 +66,7 @@ pub struct BatchVerifier<C: Ciphersuite> {
   additional: Vec<(C::F, C::G)>,
 }
 
-impl<T: 'static + Transcript, C: Ciphersuite> fmt::Debug for Generators<T, C> {
+impl<C: Ciphersuite> fmt::Debug for Generators<C> {
   fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
     let g = self.g.to_bytes();
     let g: &[u8] = g.as_ref();
@@ -82,18 +80,16 @@ impl<T: 'static + Transcript, C: Ciphersuite> fmt::Debug for Generators<T, C> {
 
 /// The generators for a specific proof, potentially reduced from the original full set of
 /// generators.
-#[derive(Clone)]
-pub struct ProofGenerators<'a, T: 'static + Transcript, C: Ciphersuite> {
+#[derive(Copy, Clone)]
+pub struct ProofGenerators<'a, C: Ciphersuite> {
   g: &'a C::G,
   h: &'a C::G,
 
   g_bold: &'a [C::G],
   h_bold: &'a [C::G],
-
-  transcript: T::Challenge,
 }
 
-impl<T: 'static + Transcript, C: Ciphersuite> fmt::Debug for ProofGenerators<'_, T, C> {
+impl<C: Ciphersuite> fmt::Debug for ProofGenerators<'_, C> {
   fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
     let g = self.g.to_bytes();
     let g: &[u8] = g.as_ref();
@@ -105,7 +101,7 @@ impl<T: 'static + Transcript, C: Ciphersuite> fmt::Debug for ProofGenerators<'_,
   }
 }
 
-impl<T: 'static + Transcript, C: Ciphersuite> Generators<T, C> {
+impl<C: Ciphersuite> Generators<C> {
   /// Construct an instance of Generators for usage with Bulletproofs.
   pub fn new(
     g: C::G,
@@ -123,28 +119,24 @@ impl<T: 'static + Transcript, C: Ciphersuite> Generators<T, C> {
       Err(GeneratorsError::NotPowerOfTwo)?;
     }
 
-    let mut transcript = T::new(b"Generalized Bulletproofs Generators");
-
-    transcript.domain_separate(b"generators");
     let mut set = HashSet::new();
-    let mut add_generator = |label, generator: &C::G| {
+    let mut add_generator = |generator: &C::G| {
       assert!(!bool::from(generator.is_identity()));
       let bytes = generator.to_bytes();
-      transcript.append_message(label, bytes);
       !set.insert(bytes.as_ref().to_vec())
     };
 
-    assert!(!add_generator(b"g", &g), "g was prior present in empty set");
-    if add_generator(b"h", &h) {
+    assert!(!add_generator(&g), "g was prior present in empty set");
+    if add_generator(&h) {
       Err(GeneratorsError::DuplicatedGenerator)?;
     }
     for g in &g_bold {
-      if add_generator(b"g_bold", g) {
+      if add_generator(g) {
         Err(GeneratorsError::DuplicatedGenerator)?;
       }
     }
     for h in &h_bold {
-      if add_generator(b"h_bold", h) {
+      if add_generator(h) {
         Err(GeneratorsError::DuplicatedGenerator)?;
       }
     }
@@ -160,7 +152,7 @@ impl<T: 'static + Transcript, C: Ciphersuite> Generators<T, C> {
       }
     }
 
-    Ok(Generators { g, h, g_bold, h_bold, h_sum, transcript })
+    Ok(Generators { g, h, g_bold, h_bold, h_sum })
   }
 
   pub fn batch_verifier(&self) -> BatchVerifier<C> {
@@ -211,15 +203,12 @@ impl<T: 'static + Transcript, C: Ciphersuite> Generators<T, C> {
   /// in-circuit multiplications/terms in a Pedersen vector commitment.
   ///
   /// Returns None if the generators reduced are insufficient to provide this many generators.
-  pub fn reduce(&self, generators: usize) -> Option<ProofGenerators<'_, T, C>> {
+  pub fn reduce(&self, generators: usize) -> Option<ProofGenerators<'_, C>> {
     // Round to the nearest power of 2
     let generators = padded_pow_of_2(generators);
     if generators > self.g_bold.len() {
       None?;
     }
-
-    let mut transcript = self.transcript.clone();
-    transcript.append_message(b"used_generators", u32::try_from(generators).unwrap().to_le_bytes());
 
     Some(ProofGenerators {
       g: &self.g,
@@ -227,13 +216,11 @@ impl<T: 'static + Transcript, C: Ciphersuite> Generators<T, C> {
 
       g_bold: &self.g_bold[.. generators],
       h_bold: &self.h_bold[.. generators],
-
-      transcript: transcript.challenge(b"summary"),
     })
   }
 }
 
-impl<'a, T: 'static + Transcript, C: Ciphersuite> ProofGenerators<'a, T, C> {
+impl<'a, C: Ciphersuite> ProofGenerators<'a, C> {
   pub(crate) fn len(&self) -> usize {
     self.g_bold.len()
   }
@@ -283,7 +270,15 @@ pub struct PedersenVectorCommitment<C: Ciphersuite> {
 }
 
 impl<C: Ciphersuite> PedersenVectorCommitment<C> {
-  pub fn commit(&self, g_bold: &[C::G], h_bold: &[C::G], h: C::G) -> C::G {
+  /// Commit to the vectors of values.
+  ///
+  /// This function returns None if the amount of generators is less than the amount of values
+  /// within the relevant vector.
+  pub fn commit(&self, g_bold: &[C::G], h_bold: &[C::G], h: C::G) -> Option<C::G> {
+    if (g_bold.len() < self.g_values.len()) || (h_bold.len() < self.h_values.len()) {
+      None?;
+    };
+
     let mut terms = vec![(self.mask, h)];
     for pair in self.g_values.0.iter().cloned().zip(g_bold.iter().cloned()) {
       terms.push(pair);
@@ -293,6 +288,6 @@ impl<C: Ciphersuite> PedersenVectorCommitment<C> {
     }
     let res = multiexp(&terms);
     terms.zeroize();
-    res
+    Some(res)
   }
 }

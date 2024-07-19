@@ -17,7 +17,7 @@ rand_core = { version = "0.6", default-features = false, features = ["std"] }
 
 zeroize = { version = "^1.5", default-features = false, features = ["zeroize_derive"] }
 
-transcript = { package = "flexible-transcript", path = "../transcript", version = "0.3" }
+blake2 = { version = "0.10", default-features = false, features = ["std"] }
 
 multiexp = { path = "../multiexp", version = "0.4", default-features = false, features = ["std", "batch"] }
 ciphersuite = { path = "../ciphersuite", version = "0.4", default-features = false, features = ["std"] }
@@ -27,8 +27,6 @@ generalized-bulletproofs = { path = "../generalized-bulletproofs" }
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
-
-transcript = { package = "flexible-transcript", path = "../transcript", features = ["recommended"] }
 
 ciphersuite = { path = "../ciphersuite", features = ["ed25519", "helioselene"] }
 

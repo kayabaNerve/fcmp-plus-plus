@@ -2,9 +2,7 @@ use core::ops::{Index, IndexMut};
 
 use zeroize::Zeroize;
 
-use transcript::Transcript;
-
-use ciphersuite::{group::GroupEncoding, Ciphersuite};
+use ciphersuite::Ciphersuite;
 
 #[cfg(test)]
 use multiexp::multiexp;
@@ -14,8 +12,8 @@ use crate::ScalarVector;
 /// A point vector struct with the functionality necessary for Bulletproofs.
 ///
 /// The math operations for this panic upon any invalid operation, such as if vectors of different
-/// lengths are added. The full extent of invalidity is not fully defined. Only field access and
-/// `transcript` is guaranteed to have a safe, public API.
+/// lengths are added. The full extent of invalidity is not fully defined. Only field access is
+/// guaranteed to have a safe, public API.
 #[derive(Clone, PartialEq, Eq, Debug, Zeroize)]
 pub struct PointVector<C: Ciphersuite>(pub Vec<C::G>);
 
@@ -119,14 +117,5 @@ impl<C: Ciphersuite> PointVector<C> {
     let r = self.0.split_off(self.0.len() / 2);
     assert_eq!(self.len(), r.len());
     (self, PointVector(r))
-  }
-
-  /// Transcript a point vector.
-  ///
-  /// This does not transcript its length. This must be called with a unique label accordingly.
-  pub fn transcript<T: 'static + Transcript>(&self, transcript: &mut T, label: &'static [u8]) {
-    for point in &self.0 {
-      transcript.append_message(label, point.to_bytes());
-    }
   }
 }

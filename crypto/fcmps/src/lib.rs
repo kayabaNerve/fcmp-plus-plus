@@ -1,9 +1,14 @@
 #![allow(non_snake_case)]
 
+use core::marker::PhantomData;
+
 use rand_core::{RngCore, CryptoRng};
 use zeroize::{Zeroize, Zeroizing};
 
-use transcript::Transcript;
+use blake2::{
+  digest::{consts::U32, Digest},
+  Blake2b,
+};
 
 use multiexp::multiexp;
 use ciphersuite::{
@@ -16,7 +21,8 @@ use ciphersuite::{
 
 use ec_divisors::{Poly, DivisorCurve, new_divisor};
 use generalized_bulletproofs::{
-  Generators, BatchVerifier, arithmetic_circuit_proof::ArithmeticCircuitProof,
+  Generators, BatchVerifier,
+  transcript::{Transcript as ProverTranscript, VerifierTranscript},
 };
 
 mod lincomb;
@@ -211,9 +217,9 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     (ClaimedPointWithDlog { divisor, dlog, point: (x, y) }, padding)
   }
 
-  fn commit<T: Transcript, C: Ciphersuite<F = F>>(
+  fn commit<C: Ciphersuite<F = F>>(
     &self,
-    generators: &Generators<T, C>,
+    generators: &Generators<C>,
     blinds: &[C::F],
   ) -> Vec<C::G> {
     assert_eq!(self.commitments.len(), blinds.len());
@@ -367,11 +373,11 @@ pub enum TreeRoot<C1: Ciphersuite, C2: Ciphersuite> {
 
 /// The parameters for full-chain membership proofs.
 #[derive(Clone, Debug)]
-pub struct FcmpParams<T: 'static + Transcript, C1: Ciphersuite, C2: Ciphersuite> {
+pub struct FcmpParams<C1: Ciphersuite, C2: Ciphersuite> {
   /// Generators for the first curve.
-  curve_1_generators: Generators<T, C1>,
+  curve_1_generators: Generators<C1>,
   /// Generators for the second curve.
-  curve_2_generators: Generators<T, C2>,
+  curve_2_generators: Generators<C2>,
 
   /// Initialization point for the hash function over the first curve.
   curve_1_hash_init: C1::G,
@@ -386,15 +392,15 @@ pub struct FcmpParams<T: 'static + Transcript, C1: Ciphersuite, C2: Ciphersuite>
   H_2_table: Vec<(C1::F, C1::F)>,
 }
 
-impl<T: 'static + Transcript, C1: Ciphersuite, C2: Ciphersuite> FcmpParams<T, C1, C2>
+impl<C1: Ciphersuite, C2: Ciphersuite> FcmpParams<C1, C2>
 where
   C1::G: DivisorCurve<FieldElement = C2::F>,
   C2::G: DivisorCurve<FieldElement = C1::F>,
 {
   #[allow(clippy::too_many_arguments)]
   pub fn new<OC: Ciphersuite>(
-    curve_1_generators: Generators<T, C1>,
-    curve_2_generators: Generators<T, C2>,
+    curve_1_generators: Generators<C1>,
+    curve_2_generators: Generators<C2>,
     curve_1_hash_init: C1::G,
     curve_2_hash_init: C2::G,
     G: OC::G,
@@ -452,10 +458,9 @@ pub struct Branches<
 /// The full-chain membership proof.
 #[derive(Clone, Debug, Zeroize)]
 pub struct Fcmp<C1: Ciphersuite, C2: Ciphersuite> {
-  proof_1: ArithmeticCircuitProof<C1>,
-  proof_1_vcs: Vec<C1::G>,
-  proof_2: ArithmeticCircuitProof<C2>,
-  proof_2_vcs: Vec<C2::G>,
+  _c1: PhantomData<C1>,
+  _c2: PhantomData<C2>,
+  proof: Vec<u8>,
   root_blind_pok: [u8; 64],
 }
 impl<C1: Ciphersuite, C2: Ciphersuite> Fcmp<C1, C2>
@@ -463,45 +468,40 @@ where
   C1::G: DivisorCurve<FieldElement = C2::F>,
   C2::G: DivisorCurve<FieldElement = C1::F>,
 {
-  fn transcript<T: Transcript>(
-    transcript: &mut T,
-    tree: TreeRoot<C1, C2>,
-    input: Input<C1::F>,
-    commitments_1: &[C1::G],
-    commitments_2: &[C2::G],
-    root_blind_R: &[u8],
-  ) -> T::Challenge {
+  fn transcript(tree: TreeRoot<C1, C2>, input: Input<C1::F>, root_blind_R: &[u8]) -> [u8; 32] {
+    let mut res = Blake2b::<U32>::new();
+
     // Transcript the tree root
     match tree {
-      TreeRoot::C1(p) => transcript.append_message(b"root_1", p.to_bytes()),
-      TreeRoot::C2(p) => transcript.append_message(b"root_2", p.to_bytes()),
+      TreeRoot::C1(p) => {
+        res.update([0]);
+        res.update(p.to_bytes());
+      }
+      TreeRoot::C2(p) => {
+        res.update([1]);
+        res.update(p.to_bytes());
+      }
     }
+
     // Transcript the input tuple
-    transcript.append_message(b"O_tilde_x", input.O_tilde.0.to_repr());
-    transcript.append_message(b"O_tilde_y", input.O_tilde.1.to_repr());
-    transcript.append_message(b"I_tilde_x", input.I_tilde.0.to_repr());
-    transcript.append_message(b"I_tilde_y", input.I_tilde.1.to_repr());
-    transcript.append_message(b"R_x", input.R.0.to_repr());
-    transcript.append_message(b"R_y", input.R.1.to_repr());
-    transcript.append_message(b"C_tilde_x", input.C_tilde.0.to_repr());
-    transcript.append_message(b"C_tilde_y", input.C_tilde.1.to_repr());
+    res.update(input.O_tilde.0.to_repr());
+    res.update(input.O_tilde.1.to_repr());
+    res.update(input.I_tilde.0.to_repr());
+    res.update(input.I_tilde.1.to_repr());
+    res.update(input.R.0.to_repr());
+    res.update(input.R.1.to_repr());
+    res.update(input.C_tilde.0.to_repr());
+    res.update(input.C_tilde.1.to_repr());
 
-    for commitment in commitments_1 {
-      transcript.append_message(b"c1_commitment", commitment.to_bytes());
-    }
+    // Transcript the nonce for the difference of the root and our output VC of the root
+    res.update(root_blind_R);
 
-    for commitment in commitments_2 {
-      transcript.append_message(b"c2_commitment", commitment.to_bytes());
-    }
-
-    transcript.append_message(b"root_blind_R", root_blind_R);
-    transcript.challenge(b"root_blind_challenge")
+    res.finalize().into()
   }
 
-  pub fn prove<R: RngCore + CryptoRng, T: Transcript, OC: Ciphersuite>(
+  pub fn prove<R: RngCore + CryptoRng, OC: Ciphersuite>(
     rng: &mut R,
-    transcript: &mut T,
-    params: &FcmpParams<T, C1, C2>,
+    params: &FcmpParams<C1, C2>,
     tree: TreeRoot<C1, C2>,
     output: Output<OC>,
     output_blinds: PreparedBlinds<C1::F>,
@@ -703,24 +703,21 @@ where
 
     let commitments_1 = c1_tape.commit(&params.curve_1_generators, &pvc_blinds_1);
     let commitments_2 = c2_tape.commit(&params.curve_2_generators, &pvc_blinds_2);
-    let root_blind_c = Self::transcript(
-      transcript,
-      tree,
-      output_blinds.input,
-      &commitments_1,
-      &commitments_2,
-      &root_blind_R,
-    );
+
+    let mut transcript =
+      ProverTranscript::new(Self::transcript(tree, output_blinds.input, &root_blind_R));
+    transcript.write_commitments(&commitments_1, &[]);
+    transcript.write_commitments(&commitments_2, &[]);
 
     let mut root_blind_pok = [0; 64];
     if c1_branches.len() > c2_branches.len() {
-      let s = *root_blind_r_C1.unwrap() +
-        (C1::hash_to_F(b"fcmp", root_blind_c.as_ref()) * root_blind_C1.unwrap());
+      let s =
+        *root_blind_r_C1.unwrap() + (transcript.challenge::<C1::F>() * root_blind_C1.unwrap());
       root_blind_pok[.. 32].copy_from_slice(&root_blind_R);
       root_blind_pok[32 ..].copy_from_slice(s.to_repr().as_ref());
     } else {
-      let s = *root_blind_r_C2.unwrap() +
-        (C2::hash_to_F(b"fcmp", root_blind_c.as_ref()) * root_blind_C2.unwrap());
+      let s =
+        *root_blind_r_C2.unwrap() + (transcript.challenge::<C2::F>() * root_blind_C2.unwrap());
       root_blind_pok[.. 32].copy_from_slice(&root_blind_R);
       root_blind_pok[32 ..].copy_from_slice(s.to_repr().as_ref());
     }
@@ -731,7 +728,7 @@ where
 
     // Perform the layers
     c1_circuit.first_layer(
-      transcript,
+      &mut transcript,
       &CurveSpec { a: <OC::G as DivisorCurve>::a(), b: <OC::G as DivisorCurve>::b() },
       &params.T_table,
       &params.U_table,
@@ -775,7 +772,7 @@ where
     let mut c1_dlog_challenge = None;
     if let Some(blind) = commitment_blind_claims_1.first() {
       c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
-        transcript,
+        &mut transcript,
         &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
         1 + blind.divisor.x_from_power_of_2.len(),
         blind.divisor.yx.len(),
@@ -808,7 +805,7 @@ where
     let mut c2_dlog_challenge = None;
     if let Some(blind) = commitment_blind_claims_2.first() {
       c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
-        transcript,
+        &mut transcript,
         &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
         1 + blind.divisor.x_from_power_of_2.len(),
         blind.divisor.yx.len(),
@@ -851,7 +848,7 @@ where
         pvc_blinds_1,
       )
       .unwrap();
-    let c1_proof = c1_statement.clone().prove(rng, transcript, c1_witness.unwrap()).unwrap();
+    c1_statement.clone().prove(rng, &mut transcript, c1_witness.unwrap()).unwrap();
 
     let (c2_statement, c2_witness) = c2_circuit
       .statement(
@@ -860,25 +857,18 @@ where
         pvc_blinds_2,
       )
       .unwrap();
-    let c2_proof = c2_statement.prove(rng, transcript, c2_witness.unwrap()).unwrap();
+    c2_statement.prove(rng, &mut transcript, c2_witness.unwrap()).unwrap();
 
-    Fcmp {
-      proof_1: c1_proof,
-      proof_2: c2_proof,
-      proof_1_vcs: commitments_1,
-      proof_2_vcs: commitments_2,
-      root_blind_pok,
-    }
+    Fcmp { _c1: PhantomData, _c2: PhantomData, proof: transcript.complete(), root_blind_pok }
   }
 
   #[allow(clippy::too_many_arguments)]
-  pub fn verify<R: RngCore + CryptoRng, T: Transcript, OC: Ciphersuite>(
-    self,
+  pub fn verify<R: RngCore + CryptoRng, OC: Ciphersuite>(
+    &self,
     rng: &mut R,
-    transcript: &mut T,
     verifier_1: &mut BatchVerifier<C1>,
     verifier_2: &mut BatchVerifier<C2>,
-    params: &FcmpParams<T, C1, C2>,
+    params: &FcmpParams<C1, C2>,
     tree: TreeRoot<C1, C2>,
     layer_lens: &[usize],
     input: Input<C1::F>,
@@ -889,17 +879,11 @@ where
 
     // Append the leaves and the rest of the branches to the tape
 
-    let mut c1_tape = VectorCommitmentTape {
-      commitment_len: 256,
-      current_j_offset: 0,
-      commitments: Vec::with_capacity(self.proof_1_vcs.len()),
-    };
+    let mut c1_tape =
+      VectorCommitmentTape { commitment_len: 256, current_j_offset: 0, commitments: vec![] };
     let mut c1_branches = Vec::with_capacity((layer_lens.len() / 2) + (layer_lens.len() % 2));
-    let mut c2_tape = VectorCommitmentTape {
-      commitment_len: 128,
-      current_j_offset: 0,
-      commitments: Vec::with_capacity(self.proof_2_vcs.len()),
-    };
+    let mut c2_tape =
+      VectorCommitmentTape { commitment_len: 128, current_j_offset: 0, commitments: vec![] };
     let mut c2_branches = Vec::with_capacity(layer_lens.len() / 2);
 
     for (i, layer_len) in layer_lens.iter().enumerate() {
@@ -967,25 +951,24 @@ where
       );
     }
 
-    let root_blind_c = Self::transcript(
-      transcript,
-      tree,
-      input,
-      &self.proof_1_vcs,
-      &self.proof_2_vcs,
-      &self.root_blind_pok[.. 32],
+    let mut transcript = VerifierTranscript::new(
+      Self::transcript(tree, input, &self.root_blind_pok[.. 32]),
+      &self.proof,
     );
+    // TODO: Return an error here
+    let proof_1_vcs = transcript.read_commitments::<C1>(c1_tape.commitments.len(), 0).unwrap().0;
+    let proof_2_vcs = transcript.read_commitments::<C2>(c2_tape.commitments.len(), 0).unwrap().0;
 
     // Verify the root blind PoK
     {
       let claimed_root = if (layer_lens.len() % 2) == 1 {
         TreeRoot::<C1, C2>::C1(match c1_branches.last().unwrap()[0] {
-          Variable::CL(i, _) => params.curve_1_hash_init + self.proof_1_vcs[i],
+          Variable::CL(i, _) => params.curve_1_hash_init + proof_1_vcs[i],
           _ => panic!("branch wasn't present in a vector commitment"),
         })
       } else {
         TreeRoot::<C1, C2>::C2(match c2_branches.last().unwrap()[0] {
-          Variable::CL(i, _) => params.curve_2_hash_init + self.proof_2_vcs[i],
+          Variable::CL(i, _) => params.curve_2_hash_init + proof_2_vcs[i],
           _ => panic!("branch wasn't present in a vector commitment"),
         })
       };
@@ -1001,7 +984,7 @@ where
           s.as_mut().copy_from_slice(&self.root_blind_pok[32 ..]);
           let s = C1::F::from_repr(s).unwrap();
 
-          let c = C1::hash_to_F(b"fcmp", root_blind_c.as_ref());
+          let c: C1::F = transcript.challenge();
 
           // R + cX == sH, where X is the difference in the roots
           // (which should only be the randomness, and H is the generator for the randomness)
@@ -1016,7 +999,7 @@ where
           s.as_mut().copy_from_slice(&self.root_blind_pok[32 ..]);
           let s = C2::F::from_repr(s).unwrap();
 
-          let c = C2::hash_to_F(b"fcmp", root_blind_c.as_ref());
+          let c: C2::F = transcript.challenge();
 
           // R + cX == sH, where X is the difference in the roots
           // (which should only be the randomness, and H is the generator for the randomness)
@@ -1032,7 +1015,7 @@ where
 
     // Perform the layers
     c1_circuit.first_layer(
-      transcript,
+      &mut transcript,
       &CurveSpec { a: <OC::G as DivisorCurve>::a(), b: <OC::G as DivisorCurve>::b() },
       &params.T_table,
       &params.U_table,
@@ -1067,7 +1050,7 @@ where
     let mut c1_dlog_challenge = None;
     if let Some(blind) = commitment_blind_claims_1.first() {
       c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
-        transcript,
+        &mut transcript,
         &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
         1 + blind.divisor.x_from_power_of_2.len(),
         blind.divisor.yx.len(),
@@ -1077,8 +1060,8 @@ where
 
     // - 1, as the leaves are the first branch
     assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
-    assert!(self.proof_2_vcs.len() > c1_branches.len());
-    let commitment_iter = self.proof_2_vcs.clone().into_iter();
+    assert!(proof_2_vcs.len() > c1_branches.len());
+    let commitment_iter = proof_2_vcs.clone().into_iter();
     let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
     for (prior_commitment, (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
@@ -1097,7 +1080,7 @@ where
     let mut c2_dlog_challenge = None;
     if let Some(blind) = commitment_blind_claims_2.first() {
       c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
-        transcript,
+        &mut transcript,
         &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
         1 + blind.divisor.x_from_power_of_2.len(),
         blind.divisor.yx.len(),
@@ -1106,8 +1089,8 @@ where
     }
 
     assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
-    assert!(self.proof_1_vcs.len() > c2_branches.len());
-    let commitment_iter = self.proof_1_vcs.clone().into_iter();
+    assert!(proof_1_vcs.len() > c2_branches.len());
+    let commitment_iter = proof_1_vcs.clone().into_iter();
     let branch_iter = c2_branches.into_iter().zip(commitment_blind_claims_2);
     for (prior_commitment, (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
@@ -1131,13 +1114,13 @@ where
 
     // TODO: unwrap -> Result
     let (c1_statement, _witness) = c1_circuit
-      .statement(params.curve_1_generators.reduce(256).unwrap(), self.proof_1_vcs, vec![])
+      .statement(params.curve_1_generators.reduce(256).unwrap(), proof_1_vcs, vec![])
       .unwrap();
-    c1_statement.verify(rng, verifier_1, transcript, self.proof_1).unwrap();
+    c1_statement.verify(rng, verifier_1, &mut transcript).unwrap();
 
     let (c2_statement, _witness) = c2_circuit
-      .statement(params.curve_2_generators.reduce(128).unwrap(), self.proof_2_vcs, vec![])
+      .statement(params.curve_2_generators.reduce(128).unwrap(), proof_2_vcs, vec![])
       .unwrap();
-    c2_statement.verify(rng, verifier_2, transcript, self.proof_2).unwrap();
+    c2_statement.verify(rng, verifier_2, &mut transcript).unwrap();
   }
 }

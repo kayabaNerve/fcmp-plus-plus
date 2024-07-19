@@ -1,11 +1,10 @@
 use rand_core::{RngCore, OsRng};
 
-use transcript::{Transcript, RecommendedTranscript};
-
 use ciphersuite::{group::ff::Field, Ciphersuite, Ristretto};
 
 use crate::{
   ScalarVector, ScalarMatrix, PointVector, PedersenCommitment, PedersenVectorCommitment,
+  transcript::*,
   arithmetic_circuit_proof::{ArithmeticCircuitStatement, ArithmeticCircuitWitness},
   tests::generators,
 };
@@ -35,7 +34,7 @@ fn test_zero_arithmetic_circuit() {
   WV.push(vec![(0, <Ristretto as Ciphersuite>::F::ZERO)]);
   let c = zero_vec();
 
-  let statement = ArithmeticCircuitStatement::<_, Ristretto>::new(
+  let statement = ArithmeticCircuitStatement::<Ristretto>::new(
     generators.reduce(1).unwrap(),
     WL,
     WR,
@@ -56,10 +55,15 @@ fn test_zero_arithmetic_circuit() {
   )
   .unwrap();
 
-  let mut transcript = RecommendedTranscript::new(b"Zero Circuit Test");
-  let proof = statement.clone().prove(&mut OsRng, &mut transcript.clone(), witness).unwrap();
+  let proof = {
+    let mut transcript = Transcript::new([0; 32]);
+    statement.clone().prove(&mut OsRng, &mut transcript, witness).unwrap();
+    transcript.complete()
+  };
   let mut verifier = generators.batch_verifier();
-  statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
+  statement
+    .verify(&mut OsRng, &mut verifier, &mut VerifierTranscript::new([0; 32], &proof))
+    .unwrap();
   assert!(generators.verify(verifier));
 }
 
@@ -110,7 +114,7 @@ fn test_vector_commitment_arithmetic_circuit() {
   ]);
 
   let statement =
-    ArithmeticCircuitStatement::<_, Ristretto>::new(reduced, WL, WR, WO, WCL, WCR, WV, c, C, V)
+    ArithmeticCircuitStatement::<Ristretto>::new(reduced, WL, WR, WO, WCL, WCR, WV, c, C, V)
       .unwrap();
   let witness = ArithmeticCircuitWitness::<Ristretto>::new(
     aL,
@@ -124,10 +128,15 @@ fn test_vector_commitment_arithmetic_circuit() {
   )
   .unwrap();
 
-  let mut transcript = RecommendedTranscript::new(b"Vector Commitment Circuit Test");
-  let proof = statement.clone().prove(&mut OsRng, &mut transcript.clone(), witness).unwrap();
+  let proof = {
+    let mut transcript = Transcript::new([0; 32]);
+    statement.clone().prove(&mut OsRng, &mut transcript, witness).unwrap();
+    transcript.complete()
+  };
   let mut verifier = generators.batch_verifier();
-  statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
+  statement
+    .verify(&mut OsRng, &mut verifier, &mut VerifierTranscript::new([0; 32], &proof))
+    .unwrap();
   assert!(generators.verify(verifier));
 }
 
@@ -258,7 +267,7 @@ fn fuzz_test_arithmetic_circuit() {
       c.0.push(eval);
     }
 
-    let statement = ArithmeticCircuitStatement::<_, Ristretto>::new(
+    let statement = ArithmeticCircuitStatement::<Ristretto>::new(
       generators.reduce(16).unwrap(),
       WL,
       WR,
@@ -269,7 +278,9 @@ fn fuzz_test_arithmetic_circuit() {
       c,
       PointVector(
         C.iter()
-          .map(|C| C.commit(generators.g_bold_slice(), generators.h_bold_slice(), generators.h()))
+          .map(|C| {
+            C.commit(generators.g_bold_slice(), generators.h_bold_slice(), generators.h()).unwrap()
+          })
           .collect(),
       ),
       PointVector(V.iter().map(|V| V.commit(generators.g(), generators.h())).collect()),
@@ -278,10 +289,15 @@ fn fuzz_test_arithmetic_circuit() {
 
     let witness = ArithmeticCircuitWitness::<Ristretto>::new(aL, aR, C, V).unwrap();
 
-    let mut transcript = RecommendedTranscript::new(b"Fuzz Arithmetic Circuit Test");
-    let proof = statement.clone().prove(&mut OsRng, &mut transcript.clone(), witness).unwrap();
+    let proof = {
+      let mut transcript = Transcript::new([0; 32]);
+      statement.clone().prove(&mut OsRng, &mut transcript, witness).unwrap();
+      transcript.complete()
+    };
     let mut verifier = generators.batch_verifier();
-    statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
+    statement
+      .verify(&mut OsRng, &mut verifier, &mut VerifierTranscript::new([0; 32], &proof))
+      .unwrap();
     assert!(generators.verify(verifier));
   }
 }

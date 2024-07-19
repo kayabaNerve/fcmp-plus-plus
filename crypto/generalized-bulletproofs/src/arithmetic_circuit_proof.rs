@@ -2,21 +2,14 @@ use rand_core::{RngCore, CryptoRng};
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use transcript::Transcript;
-
 use multiexp::{multiexp, multiexp_vartime};
-use ciphersuite::{
-  group::{
-    ff::{Field, PrimeField},
-    GroupEncoding,
-  },
-  Ciphersuite,
-};
+use ciphersuite::{group::ff::Field, Ciphersuite};
 
 use crate::{
   ScalarVector, ScalarMatrix, PointVector, ProofGenerators, PedersenCommitment,
   PedersenVectorCommitment, BatchVerifier,
-  inner_product::{IpError, IpStatement, IpWitness, IpProof, P},
+  transcript::*,
+  inner_product::{IpError, IpStatement, IpWitness, P},
 };
 
 /// Bulletproofs' Arithmetic Circuit Statement from 5.1, modified per Generalized Bulletproofs.
@@ -25,8 +18,8 @@ use crate::{
 /// is modified to
 /// Generalized Bulletproofs' aL * aR = aO, WL * aL + WR * aR + WO * aO + WC * C = WV * V + c
 #[derive(Clone, Debug)]
-pub struct ArithmeticCircuitStatement<'a, T: 'static + Transcript, C: Ciphersuite> {
-  generators: ProofGenerators<'a, T, C>,
+pub struct ArithmeticCircuitStatement<'a, C: Ciphersuite> {
+  generators: ProofGenerators<'a, C>,
 
   // Circuit constraints
   pub WL: ScalarMatrix<C>,
@@ -42,7 +35,7 @@ pub struct ArithmeticCircuitStatement<'a, T: 'static + Transcript, C: Ciphersuit
   pub V: PointVector<C>,
 }
 
-impl<'a, T: 'static + Transcript, C: Ciphersuite> Zeroize for ArithmeticCircuitStatement<'a, T, C> {
+impl<'a, C: Ciphersuite> Zeroize for ArithmeticCircuitStatement<'a, C> {
   fn zeroize(&mut self) {
     self.WL.zeroize();
     self.WR.zeroize();
@@ -77,8 +70,7 @@ pub enum AcError {
   ConstrainedNonExistentCommitment,
   IncorrectAmountOfGenerators,
   InconsistentWitness,
-  IncorrectTBeforeNiLength,
-  IncorrectTAfterNiLength,
+  IncorrectLength,
   Ip(IpError),
 }
 
@@ -102,30 +94,12 @@ impl<C: Ciphersuite> ArithmeticCircuitWitness<C> {
   }
 }
 
-/// A proof for an arithmetic circuit statement.
-#[derive(Clone, Debug, Zeroize)]
-pub struct ArithmeticCircuitProof<C: Ciphersuite> {
-  AI: C::G,
-  AO: C::G,
-  S: C::G,
-
-  // TODO: Merge these two vectors
-  T_before_ni: Vec<C::G>,
-  T_after_ni: Vec<C::G>,
-  tau_x: C::F,
-  u: C::F,
-  t_caret: C::F,
-
-  ip: IpProof<C>,
-}
-
 struct YzChallenges<C: Ciphersuite> {
-  y: C::F,
   y_inv: ScalarVector<C::F>,
   z: ScalarVector<C::F>,
 }
 
-impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a, T, C> {
+impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
   // The amount of multiplications performed.
   fn n(&self) -> usize {
     self.generators.len()
@@ -148,13 +122,13 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
 
   /// Create a new ArithmeticCircuitStatement for the specified relationship.
   ///
-  /// The weights and c vector are not transcripted. They're expected to be deterministic from the
-  /// static program and higher-level statement. If your constraints are variable with regards to
-  /// variables which aren't the commitments, you must transcript them as needed before calling
-  /// prove/verify.
+  /// The weights, c vector, and commitments are not transcripted. The first two are expected to be
+  /// deterministic from the context and higher-level statement, the last is expected to already
+  /// be transcripted. If your constraints are variable, you MUST transcript them before
+  /// calling prove/verify.
   #[allow(clippy::too_many_arguments)]
   pub fn new(
-    generators: ProofGenerators<'a, T, C>,
+    generators: ProofGenerators<'a, C>,
     WL: ScalarMatrix<C>,
     WR: ScalarMatrix<C>,
     WO: ScalarMatrix<C>,
@@ -218,43 +192,14 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     Ok(Self { generators, WL, WR, WO, WCL, WCR, WV, c, C, V })
   }
 
-  fn initial_transcript(&self, transcript: &mut T, AI: C::G, AO: C::G, S: C::G) -> YzChallenges<C> {
-    transcript.domain_separate(b"arithmetic_circuit_proof");
-
-    transcript.append_message(b"generators", self.generators.transcript.as_ref());
-
-    let n = self.n();
-    transcript.append_message(
-      b"n",
-      u32::try_from(n).expect("more than 2**32 multiplications").to_le_bytes(),
-    );
-    let q = self.q();
-    transcript
-      .append_message(b"q", u32::try_from(q).expect("more than 2**32 constraints").to_le_bytes());
-
-    self.C.transcript(transcript, b"vector_commitment");
-    self.V.transcript(transcript, b"commitment");
-
-    transcript.append_message(b"AI", AI.to_bytes());
-    transcript.append_message(b"AO", AO.to_bytes());
-    transcript.append_message(b"S", S.to_bytes());
-
-    let y = C::hash_to_F(b"arithmetic_circuit_proof", transcript.challenge(b"y").as_ref());
-    if bool::from(y.is_zero()) {
-      panic!("zero challenge in arithmetic circuit proof");
-    }
+  fn yz_challenges(&self, y: C::F, z_1: C::F) -> YzChallenges<C> {
     let y_inv = y.invert().unwrap();
-
-    let y_inv = ScalarVector::powers(y_inv, n);
-
-    let z_1 = C::hash_to_F(b"arithmetic_circuit_proof", transcript.challenge(b"z").as_ref());
-    if bool::from(z_1.is_zero()) {
-      panic!("zero challenge in arithmetic circuit proof");
-    }
+    let y_inv = ScalarVector::powers(y_inv, self.n());
 
     // Powers of z *starting with z**1*
     // We could reuse powers and remove the first element, yet this is cheaper than the shift that
     // would require
+    let q = self.q();
     let mut z = ScalarVector(Vec::with_capacity(q));
     z.0.push(z_1);
     for _ in 1 .. q {
@@ -262,45 +207,15 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     }
     z.0.truncate(q);
 
-    YzChallenges { y, y_inv, z }
-  }
-
-  fn transcript_Ts(
-    transcript: &mut T,
-    T_before_ni: &[C::G],
-    T_after_ni: &[C::G],
-  ) -> ScalarVector<C::F> {
-    for Ti in T_before_ni {
-      transcript.append_message(b"Ti", Ti.to_bytes());
-    }
-    for Ti in T_after_ni {
-      transcript.append_message(b"Tni+1+i", Ti.to_bytes());
-    }
-
-    let x = C::hash_to_F(b"arithmetic_circuit_proof", transcript.challenge(b"x").as_ref());
-    if bool::from(x.is_zero()) {
-      panic!("zero challenge in arithmetic circuit proof");
-    }
-    ScalarVector::powers(x, T_before_ni.len() + 1 + T_after_ni.len())
-  }
-
-  fn transcript_tau_x_u_t_caret(transcript: &mut T, tau_x: C::F, u: C::F, t_caret: C::F) -> C::F {
-    transcript.append_message(b"tau_x", tau_x.to_repr());
-    transcript.append_message(b"u", u.to_repr());
-    transcript.append_message(b"t_caret", t_caret.to_repr());
-    let ip_x = C::hash_to_F(b"arithmetic_circuit_proof", transcript.challenge(b"ip_x").as_ref());
-    if bool::from(ip_x.is_zero()) {
-      panic!("zero challenge in arithmetic circuit proof");
-    }
-    ip_x
+    YzChallenges { y_inv, z }
   }
 
   pub fn prove<R: RngCore + CryptoRng>(
     self,
     rng: &mut R,
-    transcript: &mut T,
+    transcript: &mut Transcript,
     mut witness: ArithmeticCircuitWitness<C>,
-  ) -> Result<ArithmeticCircuitProof<C>, AcError> {
+  ) -> Result<(), AcError> {
     let n = self.n();
     let c = self.c();
     let m = self.m();
@@ -340,7 +255,7 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       }
     }
     for (commitment, opening) in self.C.0.iter().zip(witness.c.iter()) {
-      if *commitment !=
+      if Some(*commitment) !=
         opening.commit(
           self.generators.g_bold_slice(),
           self.generators.h_bold_slice(),
@@ -415,7 +330,12 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       S
     };
 
-    let YzChallenges { y, y_inv, z } = self.initial_transcript(transcript, AI, AO, S);
+    transcript.push_point(AI);
+    transcript.push_point(AO);
+    transcript.push_point(S);
+    let y = transcript.challenge();
+    let z = transcript.challenge();
+    let YzChallenges { y_inv, z } = self.yz_challenges(y, z);
     let y = ScalarVector::powers(y, n);
 
     // t is a n'-term polynomial
@@ -505,18 +425,16 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       tau_after_ni.push(C::F::random(&mut *rng));
     }
     // Calculate commitments to the coefficients of t, blinded by tau
-    let mut T_before_ni = vec![];
     assert_eq!(t.0[0 .. ni].len(), tau_before_ni.len());
     for (t, tau) in t.0[0 .. ni].iter().zip(tau_before_ni.iter()) {
-      T_before_ni.push(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
+      transcript.push_point(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
     }
-    let mut T_after_ni = vec![];
     assert_eq!(t.0[(ni + 1) ..].len(), tau_after_ni.len());
     for (t, tau) in t.0[(ni + 1) ..].iter().zip(tau_after_ni.iter()) {
-      T_after_ni.push(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
+      transcript.push_point(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
     }
 
-    let x = Self::transcript_Ts(transcript, &T_before_ni, &T_after_ni);
+    let x: ScalarVector<C::F> = ScalarVector::powers(transcript.challenge(), t.len());
 
     let poly_eval = |poly: &[ScalarVector<C::F>], x: &ScalarVector<_>| -> ScalarVector<_> {
       let mut res = ScalarVector::<C::F>::new(poly[0].0.len());
@@ -562,40 +480,39 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     };
 
     // Use the Inner-Product argument to prove for this
-    let ip = {
-      // P = t_caret * g + l * g_bold + r * (y_inv * h_bold)
+    // P = t_caret * g + l * g_bold + r * (y_inv * h_bold)
 
-      let mut P_terms = Vec::with_capacity(1 + (2 * self.generators.len()));
-      assert_eq!(l.len(), r.len());
-      for (i, (l, r)) in l.0.iter().zip(r.0.iter()).enumerate() {
-        P_terms.push((*l, self.generators.g_bold(i)));
-        P_terms.push((y_inv[i] * r, self.generators.h_bold(i)));
-      }
+    let mut P_terms = Vec::with_capacity(1 + (2 * self.generators.len()));
+    assert_eq!(l.len(), r.len());
+    for (i, (l, r)) in l.0.iter().zip(r.0.iter()).enumerate() {
+      P_terms.push((*l, self.generators.g_bold(i)));
+      P_terms.push((y_inv[i] * r, self.generators.h_bold(i)));
+    }
 
-      // Protocol 1, inlined, since our IpStatement is for Protocol 2
-      let ip_x = Self::transcript_tau_x_u_t_caret(transcript, tau_x, u, t_caret);
-      P_terms.push((ip_x * t_caret, self.generators.g()));
-      IpStatement::new_without_P_transcript(
-        self.generators,
-        y_inv,
-        ip_x,
-        // Safe since IpStatement isn't a ZK proof
-        P::ProverWithoutTranscript(multiexp_vartime(&P_terms)),
-      )
-      .unwrap()
-      .prove(transcript, IpWitness::new(l, r).unwrap())
-      .unwrap()
-    };
-
-    Ok(ArithmeticCircuitProof { AI, AO, S, T_before_ni, T_after_ni, tau_x, u, t_caret, ip })
+    // Protocol 1, inlined, since our IpStatement is for Protocol 2
+    transcript.push_scalar(tau_x);
+    transcript.push_scalar(u);
+    transcript.push_scalar(t_caret);
+    let ip_x = transcript.challenge();
+    P_terms.push((ip_x * t_caret, self.generators.g()));
+    IpStatement::new(
+      self.generators,
+      y_inv,
+      ip_x,
+      // Safe since IpStatement isn't a ZK proof
+      P::ProverWithoutTranscript(multiexp_vartime(&P_terms)),
+    )
+    .unwrap()
+    .prove(transcript, IpWitness::new(l, r).unwrap())
+    .unwrap();
+    Ok(())
   }
 
   pub fn verify<R: RngCore + CryptoRng>(
     self,
     rng: &mut R,
     verifier: &mut BatchVerifier<C>,
-    transcript: &mut T,
-    proof: ArithmeticCircuitProof<C>,
+    transcript: &mut VerifierTranscript,
   ) -> Result<(), AcError> {
     let n = self.n();
     let c = self.c();
@@ -611,26 +528,35 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
     let l_r_poly_len = 1 + ni + 1;
     let t_poly_len = (2 * l_r_poly_len) - 1;
 
-    if proof.T_before_ni.len() != ni {
-      Err(AcError::IncorrectTBeforeNiLength)?;
-    }
-    if proof.T_after_ni.len() != (t_poly_len - ni - 1) {
-      Err(AcError::IncorrectTAfterNiLength)?;
-    }
-
-    let YzChallenges { y: _, y_inv, z } =
-      self.initial_transcript(transcript, proof.AI, proof.AO, proof.S);
+    let AI = transcript.read_point::<C>().map_err(|_| AcError::IncorrectLength)?;
+    let AO = transcript.read_point::<C>().map_err(|_| AcError::IncorrectLength)?;
+    let S = transcript.read_point::<C>().map_err(|_| AcError::IncorrectLength)?;
+    let y = transcript.challenge();
+    let z = transcript.challenge();
+    let YzChallenges { y_inv, z } = self.yz_challenges(y, z);
 
     let delta = (self.WR.mul_vec(n, &z) * &y_inv).inner_product(&self.WL.mul_vec(n, &z));
 
-    let x = Self::transcript_Ts(transcript, &proof.T_before_ni, &proof.T_after_ni);
+    let mut T_before_ni = Vec::with_capacity(ni);
+    let mut T_after_ni = Vec::with_capacity(t_poly_len - ni - 1);
+    for _ in 0 .. ni {
+      T_before_ni.push(transcript.read_point::<C>().map_err(|_| AcError::IncorrectLength)?);
+    }
+    for _ in 0 .. (t_poly_len - ni - 1) {
+      T_after_ni.push(transcript.read_point::<C>().map_err(|_| AcError::IncorrectLength)?);
+    }
+    let x: ScalarVector<C::F> = ScalarVector::powers(transcript.challenge(), t_poly_len);
+
+    let tau_x = transcript.read_scalar::<C>().map_err(|_| AcError::IncorrectLength)?;
+    let u = transcript.read_scalar::<C>().map_err(|_| AcError::IncorrectLength)?;
+    let t_caret = transcript.read_scalar::<C>().map_err(|_| AcError::IncorrectLength)?;
 
     // Lines 88-90, modified per Generalized Bulletproofs as needed w.r.t. t
     {
       let verifier_weight = C::F::random(&mut *rng);
       // lhs of the equation, weighted to enable batch verification
-      verifier.g += proof.t_caret * verifier_weight;
-      verifier.h += proof.tau_x * verifier_weight;
+      verifier.g += t_caret * verifier_weight;
+      verifier.h += tau_x * verifier_weight;
 
       // rhs of the equation, negated to cause a sum to zero
       verifier.g -= verifier_weight * x[ni] * (delta + z.inner_product(&self.c));
@@ -639,10 +565,10 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       for pair in V_weights.0.into_iter().zip(self.V.0) {
         verifier.additional.push((-verifier_weight * pair.0, pair.1));
       }
-      for (i, T) in proof.T_before_ni.into_iter().enumerate() {
+      for (i, T) in T_before_ni.into_iter().enumerate() {
         verifier.additional.push((-verifier_weight * x[i], T));
       }
-      for (i, T) in proof.T_after_ni.into_iter().enumerate() {
+      for (i, T) in T_after_ni.into_iter().enumerate() {
         verifier.additional.push((-verifier_weight * x[ni + 1 + i], T));
       }
     }
@@ -651,15 +577,15 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
 
     // This following block effectively calculates P, within the multiexp
     {
-      verifier.additional.push((verifier_weight * x[ilr], proof.AI));
-      verifier.additional.push((verifier_weight * x[io], proof.AO));
+      verifier.additional.push((verifier_weight * x[ilr], AI));
+      verifier.additional.push((verifier_weight * x[io], AO));
       // h' ** y is equivalent to h as h' is h ** y_inv
       let mut log2_n = 0;
       while (1 << log2_n) != n {
         log2_n += 1;
       }
       verifier.h_sum[log2_n] -= verifier_weight;
-      verifier.additional.push((verifier_weight * x[is], proof.S));
+      verifier.additional.push((verifier_weight * x[is], S));
 
       let mut h_bold_scalars = ScalarVector::new(n);
       // Lines 85-87 calculate WL, WR, WO
@@ -695,22 +621,22 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> ArithmeticCircuitStatement<'a,
       }
 
       // Remove u * h from P
-      verifier.h -= verifier_weight * proof.u;
+      verifier.h -= verifier_weight * u;
     }
 
     // Prove for lines 88, 92 with an Inner-Product statement
     // This inlines Protocol 1, as our IpStatement implements Protocol 2
-    let ip_x = Self::transcript_tau_x_u_t_caret(transcript, proof.tau_x, proof.u, proof.t_caret);
+    let ip_x = transcript.challenge();
     // P is amended with this additional term
-    verifier.g += verifier_weight * ip_x * proof.t_caret;
-    IpStatement::new_without_P_transcript(
+    verifier.g += verifier_weight * ip_x * t_caret;
+    IpStatement::new(
       self.generators,
       y_inv,
       ip_x,
       P::VerifierWithoutTranscript { verifier_weight },
     )
     .unwrap()
-    .verify(rng, verifier, transcript, proof.ip)
+    .verify(rng, verifier, transcript)
     .map_err(AcError::Ip)?;
 
     Ok(())

@@ -1,16 +1,10 @@
 use rand_core::{RngCore, CryptoRng};
 
-use zeroize::Zeroize;
-
-use transcript::Transcript;
-
 use multiexp::multiexp_vartime;
-use ciphersuite::{
-  group::{ff::Field, GroupEncoding},
-  Ciphersuite,
-};
+use ciphersuite::{group::ff::Field, Ciphersuite};
 
-use crate::{ScalarVector, PointVector, ProofGenerators, BatchVerifier, padded_pow_of_2};
+#[rustfmt::skip]
+use crate::{ScalarVector, PointVector, ProofGenerators, BatchVerifier, transcript::*, padded_pow_of_2};
 
 /// An error from proving/verifying Inner-Product statements.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -23,7 +17,6 @@ pub enum IpError {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum P<C: Ciphersuite> {
-  Point(C::G),
   VerifierWithoutTranscript { verifier_weight: C::F },
   ProverWithoutTranscript(C::G),
 }
@@ -32,8 +25,8 @@ pub(crate) enum P<C: Ciphersuite> {
 ///
 /// This is for usage with Protocol 2 from the Bulletproofs paper.
 #[derive(Clone, Debug)]
-pub struct IpStatement<'a, T: 'static + Transcript, C: Ciphersuite> {
-  generators: ProofGenerators<'a, T, C>,
+pub(crate) struct IpStatement<'a, C: Ciphersuite> {
+  generators: ProofGenerators<'a, C>,
   // Weights for h_bold
   h_bold_weights: ScalarVector<C::F>,
   // u as the discrete logarithm of G
@@ -44,7 +37,7 @@ pub struct IpStatement<'a, T: 'static + Transcript, C: Ciphersuite> {
 
 /// The witness for the Bulletproofs Inner-Product statement.
 #[derive(Clone, Debug)]
-pub struct IpWitness<C: Ciphersuite> {
+pub(crate) struct IpWitness<C: Ciphersuite> {
   // a
   a: ScalarVector<C::F>,
   // b
@@ -57,7 +50,7 @@ impl<C: Ciphersuite> IpWitness<C> {
   /// If the witness is less than a power of two, it is padded to the nearest power of two.
   ///
   /// This functions return None if the lengths of a, b are mismatched or either are empty.
-  pub fn new(mut a: ScalarVector<C::F>, mut b: ScalarVector<C::F>) -> Option<Self> {
+  pub(crate) fn new(mut a: ScalarVector<C::F>, mut b: ScalarVector<C::F>) -> Option<Self> {
     if a.0.is_empty() || (a.len() != b.len()) {
       None?;
     }
@@ -75,49 +68,13 @@ impl<C: Ciphersuite> IpWitness<C> {
   }
 }
 
-/// A proof for the Bulletproofs Inner-Product statement.
-#[derive(Clone, PartialEq, Eq, Debug, Zeroize)]
-pub struct IpProof<C: Ciphersuite> {
-  L: Vec<C::G>,
-  R: Vec<C::G>,
-  a: C::F,
-  b: C::F,
-}
-
-impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
+impl<'a, C: Ciphersuite> IpStatement<'a, C> {
   /// Create a new Inner-Product statement.
   ///
-  /// `h_bold_weights` is weights for `h_bold` making the effective `h_bold`
-  /// `h_bold_weights * h_bold`, while remaining in terms of `h_bold`.
-  ///
-  /// `u` is the discrete logarithm of the `u` defined within the Bulletproofs paper, relative to
-  /// `g`. This prevents some Inner-Product statements yet offers more efficient statements for
-  /// those which are compatible (the focus of this library).
-  ///
-  /// The generators are not transcripted (nor weights for the generators). If your generators are
-  /// variable, independently transcript them. If your weights aren't deterministic to the
-  /// transcript, independently transcript them.
-  pub fn new(
-    generators: ProofGenerators<'a, T, C>,
-    h_bold_weights: ScalarVector<C::F>,
-    u: C::F,
-    P: C::G,
-  ) -> Result<Self, IpError> {
-    if generators.h_bold_slice().len() != h_bold_weights.len() {
-      Err(IpError::IncorrectAmountOfGenerators)?
-    }
-    Ok(Self { generators, h_bold_weights, u, P: P::Point(P) })
-  }
-
-  /// Create a new Inner-Product statement which won't transcript P.
-  ///
-  /// This MUST only be called when P is deterministic to already transcripted elements.
-  ///
-  /// The generators are not transcripted (nor weights for the generators). If your generators are
-  /// variable, independently transcript them. If your weights aren't deterministic to the
-  /// transcript, independently transcript them.
-  pub(crate) fn new_without_P_transcript(
-    generators: ProofGenerators<'a, T, C>,
+  /// This does not perform any transcripting of any variables within this statement. They must be
+  /// deterministic to the existing transcript.
+  pub(crate) fn new(
+    generators: ProofGenerators<'a, C>,
     h_bold_weights: ScalarVector<C::F>,
     u: C::F,
     P: P<C>,
@@ -128,39 +85,15 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
     Ok(Self { generators, h_bold_weights, u, P })
   }
 
-  fn initial_transcript(&mut self, transcript: &mut T) {
-    transcript.domain_separate(b"inner_product");
-    // If P is a point, transcript it
-    // If P is terms, as it will be if this was constructed by `new_without_P_transcript`, P
-    // is expected to be deterministic to already transcripted items (and therefore not need
-    // additional transcripting), letting us delay its calculation (as would be needed to
-    // transcript it)
-    if let P::Point(P) = &self.P {
-      transcript.append_message(b"P", P.to_bytes());
-    }
-  }
-
-  // Transcript a round of the protocol
-  fn transcript_L_R(transcript: &mut T, L: C::G, R: C::G) -> C::F {
-    transcript.append_message(b"L", L.to_bytes());
-    transcript.append_message(b"R", R.to_bytes());
-
-    let x = C::hash_to_F(b"inner_product", transcript.challenge(b"x").as_ref());
-    // Negligible probability
-    if bool::from(x.is_zero()) {
-      panic!("zero challenge in IP round");
-    }
-    x
-  }
-
   /// Prove for this Inner-Product statement.
   ///
   /// Returns an error if this statement couldn't be proven for (such as if the witness isn't
   /// consistent).
-  pub fn prove(mut self, transcript: &mut T, witness: IpWitness<C>) -> Result<IpProof<C>, IpError> {
-    // Perform the initial transcript
-    self.initial_transcript(transcript);
-
+  pub(crate) fn prove(
+    self,
+    transcript: &mut Transcript,
+    witness: IpWitness<C>,
+  ) -> Result<(), IpError> {
     let (mut g_bold, mut h_bold, u, mut P, mut a, mut b) = {
       let IpStatement { generators, h_bold_weights, u, P } = self;
       let u = generators.g() * u;
@@ -176,7 +109,6 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
       let IpWitness { a, b } = witness;
 
       let P = match P {
-        P::Point(point) => point,
         P::ProverWithoutTranscript(point) => point,
         P::VerifierWithoutTranscript { .. } => Err(IpError::InapplicableP)?,
       };
@@ -251,7 +183,9 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
       R_vec.push(R);
 
       // Now that we've calculate L, R, transcript them to receive x (26-27)
-      let x = Self::transcript_L_R(transcript, L, R);
+      transcript.push_point(L);
+      transcript.push_point(R);
+      let x: C::F = transcript.challenge();
       let x_inv = x.invert().unwrap();
 
       // The prover and verifier now calculate the following (28-31)
@@ -279,7 +213,9 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
     debug_assert_eq!(b.len(), 1);
 
     // We simply send a/b
-    Ok(IpProof { L: L_vec, R: R_vec, a: a[0], b: b[0] })
+    transcript.push_scalar(a[0]);
+    transcript.push_scalar(b[0]);
+    Ok(())
   }
 
   /*
@@ -332,37 +268,22 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
   /// This will return Err if there is an error. This will return Ok if the proof was successfully
   /// queued for batch verification. The caller is required to verify the batch in order to ensure
   /// the proof is actually correct.
-  pub fn verify<R: RngCore + CryptoRng>(
-    mut self,
+  pub(crate) fn verify<R: RngCore + CryptoRng>(
+    self,
     rng: &mut R,
     verifier: &mut BatchVerifier<C>,
-    transcript: &mut T,
-    proof: IpProof<C>,
+    transcript: &mut VerifierTranscript,
   ) -> Result<(), IpError> {
-    self.initial_transcript(transcript);
-
     let IpStatement { generators, h_bold_weights, u, P } = self;
 
-    // Verify the L/R lengths
-    {
-      // Calculate the discrete log w.r.t. 2 for the amount of generators present
-      let mut lr_len = 0;
-      while (1 << lr_len) < generators.g_bold_slice().len() {
-        lr_len += 1;
-      }
-
-      // This proof has less/more terms than the passed in generators are for
-      if proof.L.len() != lr_len {
-        Err(IpError::IncorrectAmountOfGenerators)?;
-      }
-      if proof.L.len() != proof.R.len() {
-        Err(IpError::DifferingLrLengths)?;
-      }
+    // Calculate the discrete log w.r.t. 2 for the amount of generators present
+    let mut lr_len = 0;
+    while (1 << lr_len) < generators.g_bold_slice().len() {
+      lr_len += 1;
     }
 
     let mut weight = C::F::random(rng);
     match P {
-      P::Point(point) => verifier.additional.push((weight, point)),
       P::ProverWithoutTranscript(_) => Err(IpError::InapplicableP)?,
       P::VerifierWithoutTranscript { verifier_weight } => weight = verifier_weight,
     };
@@ -370,9 +291,13 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
     // Again, we start with the `else: (n > 1)` case
 
     // We need x, x_inv per lines 25-27 for lines 28-31
-    let mut xs = Vec::with_capacity(proof.L.len());
-    for (L, R) in proof.L.iter().zip(proof.R.iter()) {
-      xs.push(Self::transcript_L_R(transcript, *L, *R));
+    let mut L = Vec::with_capacity(lr_len);
+    let mut R = Vec::with_capacity(lr_len);
+    let mut xs: Vec<C::F> = Vec::with_capacity(lr_len);
+    for _ in 0 .. lr_len {
+      L.push(transcript.read_point::<C>().map_err(|_| IpError::DifferingLrLengths)?);
+      R.push(transcript.read_point::<C>().map_err(|_| IpError::DifferingLrLengths)?);
+      xs.push(transcript.challenge());
     }
 
     // We calculate their inverse in batch
@@ -396,10 +321,10 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
     // For the series of g_bold, h_bold, we use the `challenge_products` function
     // For how that works, please see its own documentation
     let product_cache = {
-      let mut challenges = Vec::with_capacity(proof.L.len());
+      let mut challenges = Vec::with_capacity(lr_len);
 
       let x_iter = xs.into_iter().zip(x_invs);
-      let lr_iter = proof.L.into_iter().zip(proof.R);
+      let lr_iter = L.into_iter().zip(R);
       for ((x, x_inv), (L, R)) in x_iter.zip(lr_iter) {
         challenges.push((x, x_inv));
         verifier.additional.push((weight * x.square(), L));
@@ -410,7 +335,9 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
     };
 
     // And now for the `if n = 1` case
-    let c = proof.a * proof.b;
+    let a = transcript.read_scalar::<C>().map_err(|_| IpError::DifferingLrLengths)?;
+    let b = transcript.read_scalar::<C>().map_err(|_| IpError::DifferingLrLengths)?;
+    let c = a * b;
 
     // The multiexp of these terms equate to the final permutation of P
     // We now add terms for a * g_bold' + b * h_bold' b + c * u, with the scalars negative such
@@ -419,12 +346,12 @@ impl<'a, T: 'static + Transcript, C: Ciphersuite> IpStatement<'a, T, C> {
     // The g_bold * a term case from line 16
     #[allow(clippy::needless_range_loop)]
     for i in 0 .. generators.g_bold_slice().len() {
-      verifier.g_bold[i] -= weight * product_cache[i] * proof.a;
+      verifier.g_bold[i] -= weight * product_cache[i] * a;
     }
     // The h_bold * b term case from line 16
     for i in 0 .. generators.h_bold_slice().len() {
       verifier.h_bold[i] -=
-        weight * product_cache[product_cache.len() - 1 - i] * proof.b * h_bold_weights[i];
+        weight * product_cache[product_cache.len() - 1 - i] * b * h_bold_weights[i];
     }
     // The c * u term case from line 16
     verifier.g -= weight * c * u;

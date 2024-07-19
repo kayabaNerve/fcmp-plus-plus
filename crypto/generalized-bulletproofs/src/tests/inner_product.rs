@@ -2,8 +2,6 @@
 
 use rand_core::OsRng;
 
-use transcript::{Transcript, RecommendedTranscript};
-
 use ciphersuite::{
   group::{ff::Field, Group},
   Ciphersuite, Ristretto,
@@ -11,7 +9,8 @@ use ciphersuite::{
 
 use crate::{
   ScalarVector, PointVector,
-  inner_product::{IpStatement, IpWitness},
+  transcript::*,
+  inner_product::{P, IpStatement, IpWitness},
   tests::generators,
 };
 
@@ -21,24 +20,37 @@ fn test_zero_inner_product() {
 
   let generators = generators::<Ristretto>(1);
   let reduced = generators.reduce(1).unwrap();
-  let statement = IpStatement::<_, Ristretto>::new(
-    reduced,
-    ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; 1]),
-    <Ristretto as Ciphersuite>::F::ONE,
-    P,
-  )
-  .unwrap();
   let witness = IpWitness::<Ristretto>::new(
     ScalarVector::<<Ristretto as Ciphersuite>::F>::new(1),
     ScalarVector::<<Ristretto as Ciphersuite>::F>::new(1),
   )
   .unwrap();
 
-  let mut transcript = RecommendedTranscript::new(b"Zero IP Test");
-  let proof = statement.clone().prove(&mut transcript.clone(), witness).unwrap();
+  let proof = {
+    let mut transcript = Transcript::new([0; 32]);
+    IpStatement::<Ristretto>::new(
+      reduced,
+      ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; 1]),
+      <Ristretto as Ciphersuite>::F::ONE,
+      P::ProverWithoutTranscript(P),
+    )
+    .unwrap()
+    .clone()
+    .prove(&mut transcript, witness)
+    .unwrap();
+    transcript.complete()
+  };
 
   let mut verifier = generators.batch_verifier();
-  statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
+  IpStatement::<Ristretto>::new(
+    reduced,
+    ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; 1]),
+    <Ristretto as Ciphersuite>::F::ONE,
+    P::VerifierWithoutTranscript { verifier_weight: <Ristretto as Ciphersuite>::F::ONE },
+  )
+  .unwrap()
+  .verify(&mut OsRng, &mut verifier, &mut VerifierTranscript::new([0; 32], &proof))
+  .unwrap();
   assert!(generators.verify(verifier));
 }
 
@@ -70,18 +82,32 @@ fn test_inner_product() {
 
     let P = g_bold.multiexp(&a) + h_bold.multiexp(&b) + (g * a.inner_product(&b));
 
-    let statement = IpStatement::<_, Ristretto>::new(
+    let witness = IpWitness::<Ristretto>::new(a, b).unwrap();
+
+    let proof = {
+      let mut transcript = Transcript::new([0; 32]);
+      IpStatement::<Ristretto>::new(
+        generators,
+        ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; i]),
+        <Ristretto as Ciphersuite>::F::ONE,
+        P::ProverWithoutTranscript(P),
+      )
+      .unwrap()
+      .prove(&mut transcript, witness)
+      .unwrap();
+      transcript.complete()
+    };
+
+    verifier.additional.push((<Ristretto as Ciphersuite>::F::ONE, P));
+    IpStatement::<Ristretto>::new(
       generators,
       ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; i]),
       <Ristretto as Ciphersuite>::F::ONE,
-      P,
+      P::VerifierWithoutTranscript { verifier_weight: <Ristretto as Ciphersuite>::F::ONE },
     )
+    .unwrap()
+    .verify(&mut OsRng, &mut verifier, &mut VerifierTranscript::new([0; 32], &proof))
     .unwrap();
-    let witness = IpWitness::<Ristretto>::new(a, b).unwrap();
-
-    let mut transcript = RecommendedTranscript::new(b"IP Test");
-    let proof = statement.clone().prove(&mut transcript.clone(), witness).unwrap();
-    statement.verify(&mut OsRng, &mut verifier, &mut transcript, proof).unwrap();
   }
   assert!(generators.verify(verifier));
 }

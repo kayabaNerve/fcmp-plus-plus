@@ -1,6 +1,5 @@
 use rand_core::OsRng;
 
-use transcript::RecommendedTranscript;
 use ciphersuite::{group::Group, Ciphersuite};
 
 use crate::{Generators, padded_pow_of_2};
@@ -11,7 +10,7 @@ mod inner_product;
 #[cfg(test)]
 mod arithmetic_circuit_proof;
 
-pub fn generators<C: Ciphersuite>(n: usize) -> Generators<RecommendedTranscript, C> {
+pub fn generators<C: Ciphersuite>(n: usize) -> Generators<C> {
   assert_eq!(padded_pow_of_2(n), n, "amount of generators wasn't a power of 2");
 
   let gens = || {

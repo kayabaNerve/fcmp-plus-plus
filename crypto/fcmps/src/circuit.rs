@@ -1,14 +1,30 @@
-use transcript::Transcript;
-
-use ciphersuite::{group::ff::Field, Ciphersuite};
+use ciphersuite::{
+  group::ff::{Field, PrimeField},
+  Ciphersuite,
+};
 
 use generalized_bulletproofs::{
   ScalarVector, ScalarMatrix, PointVector, PedersenVectorCommitment, ProofGenerators,
+  transcript::{Transcript as ProverTranscript, VerifierTranscript},
   arithmetic_circuit_proof::{AcError, ArithmeticCircuitStatement, ArithmeticCircuitWitness},
 };
 
 use crate::lincomb::*;
 use crate::gadgets::*;
+
+pub(crate) trait Transcript {
+  fn challenge<F: PrimeField>(&mut self) -> F;
+}
+impl Transcript for ProverTranscript {
+  fn challenge<F: PrimeField>(&mut self) -> F {
+    self.challenge()
+  }
+}
+impl Transcript for VerifierTranscript<'_> {
+  fn challenge<F: PrimeField>(&mut self) -> F {
+    self.challenge()
+  }
+}
 
 /// The witness for the satisfaction of this circuit.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -225,13 +241,12 @@ impl<C: Ciphersuite> Circuit<C> {
   }
 
   #[allow(clippy::type_complexity)]
-  pub(crate) fn statement<T: Transcript>(
+  pub(crate) fn statement(
     self,
-    generators: ProofGenerators<'_, T, C>,
+    generators: ProofGenerators<'_, C>,
     C: Vec<C::G>,
     commitment_blinds: Vec<C::F>,
-  ) -> Result<(ArithmeticCircuitStatement<'_, T, C>, Option<ArithmeticCircuitWitness<C>>), AcError>
-  {
+  ) -> Result<(ArithmeticCircuitStatement<'_, C>, Option<ArithmeticCircuitWitness<C>>), AcError> {
     let mut WL = ScalarMatrix::new();
     let mut WR = ScalarMatrix::new();
     let mut WO = ScalarMatrix::new();

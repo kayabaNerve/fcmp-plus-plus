@@ -1,5 +1,3 @@
-use transcript::Transcript;
-
 use multiexp::multiexp_vartime;
 use ciphersuite::Ciphersuite;
 
@@ -8,8 +6,8 @@ use generalized_bulletproofs::Generators;
 /// Add children to an existing hash.
 ///
 /// For a new hash, pass the hash initialization point as the existing hash.
-pub fn hash_grow<T: Transcript, C: Ciphersuite>(
-  generators: &Generators<T, C>,
+pub fn hash_grow<C: Ciphersuite>(
+  generators: &Generators<C>,
   existing_hash: C::G,
   offset: usize,
   existing_child_at_offset: C::F,
@@ -34,8 +32,8 @@ pub fn hash_grow<T: Transcript, C: Ciphersuite>(
 /// This should only be called when the amount of children removed is less than the amount of
 /// children remaining. If less children remain, calling `hash_grow` on a new hash with the
 /// remaining children will be faster.
-pub fn hash_trim<T: Transcript, C: Ciphersuite>(
-  generators: &Generators<T, C>,
+pub fn hash_trim<C: Ciphersuite>(
+  generators: &Generators<C>,
   existing_hash: C::G,
   offset: usize,
   children: &[C::F],
