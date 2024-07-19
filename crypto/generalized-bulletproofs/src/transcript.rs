@@ -39,6 +39,9 @@ fn challenge<F: PrimeField>(digest: &mut Blake2b512) -> F {
   res
 }
 
+/// Commitments written to a transcript.
+// We use a dedicated type for this to coerce the caller into transcripting the commitments as
+// expected.
 #[cfg_attr(test, derive(Clone, PartialEq, Debug))]
 pub struct Commitments<C: Ciphersuite> {
   pub(crate) C: PointVector<C>,
@@ -46,14 +49,17 @@ pub struct Commitments<C: Ciphersuite> {
 }
 
 impl<C: Ciphersuite> Commitments<C> {
+  /// The vector commitments.
   pub fn C(&self) -> &[C::G] {
     &self.C.0
   }
+  /// The non-vector commitments.
   pub fn V(&self) -> &[C::G] {
     &self.V.0
   }
 }
 
+/// A transcript for proving proofs.
 pub struct Transcript {
   digest: Blake2b512,
   transcript: Vec<u8>,
@@ -65,6 +71,7 @@ pub struct Transcript {
   constant to the context.
 */
 impl Transcript {
+  /// Create a new transcript off some context.
   pub fn new(context: [u8; 32]) -> Self {
     let mut digest = Blake2b512::new();
     digest.update(context);
@@ -85,6 +92,7 @@ impl Transcript {
     self.transcript.extend(bytes.as_ref());
   }
 
+  /// Write the Pedersen (Vector) Commitments to this transcript.
   pub fn write_commitments<C: Ciphersuite>(
     &mut self,
     C: Vec<C::G>,
@@ -99,25 +107,29 @@ impl Transcript {
     Commitments { C: PointVector(C), V: PointVector(V) }
   }
 
+  /// Sample a challenge.
   pub fn challenge<F: PrimeField>(&mut self) -> F {
     challenge(&mut self.digest)
   }
 
+  /// Complete a transcript, yielding the fully serialized proof.
   pub fn complete(self) -> Vec<u8> {
     self.transcript
   }
 }
 
+/// A transcript for verifying proofs.
 pub struct VerifierTranscript<'a> {
   digest: Blake2b512,
   transcript: &'a [u8],
 }
 
 impl<'a> VerifierTranscript<'a> {
-  pub fn new(context: [u8; 32], transcript: &'a [u8]) -> Self {
+  /// Create a new transcript to verify a proof with.
+  pub fn new(context: [u8; 32], proof: &'a [u8]) -> Self {
     let mut digest = Blake2b512::new();
     digest.update(context);
-    Self { digest, transcript }
+    Self { digest, transcript: proof }
   }
 
   pub(crate) fn read_scalar<C: Ciphersuite>(&mut self) -> io::Result<C::F> {
@@ -136,6 +148,9 @@ impl<'a> VerifierTranscript<'a> {
     Ok(point)
   }
 
+  /// Read the Pedersen (Vector) Commitments from the transcript.
+  ///
+  /// The lengths of the vectors are not transcripted.
   #[allow(clippy::type_complexity)]
   pub fn read_commitments<C: Ciphersuite>(
     &mut self,
@@ -153,6 +168,7 @@ impl<'a> VerifierTranscript<'a> {
     Ok(Commitments { C: PointVector(C_vec), V: PointVector(V_vec) })
   }
 
+  /// Sample a challenge.
   pub fn challenge<F: PrimeField>(&mut self) -> F {
     challenge(&mut self.digest)
   }

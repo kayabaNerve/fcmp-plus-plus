@@ -215,6 +215,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     YzChallenges { y_inv, z }
   }
 
+  /// Prove for this statement/witness.
   pub fn prove<R: RngCore + CryptoRng>(
     self,
     rng: &mut R,
@@ -513,6 +514,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     Ok(())
   }
 
+  /// Verify a proof for this statement.
   pub fn verify<R: RngCore + CryptoRng>(
     self,
     rng: &mut R,
