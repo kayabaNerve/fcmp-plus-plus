@@ -14,9 +14,9 @@ use crate::{
 
 /// Bulletproofs' Arithmetic Circuit Statement from 5.1, modified per Generalized Bulletproofs.
 ///
-/// Bulletproofs' aL * aR = aO, WL * aL + WR * aR + WO * aO = WV * V + c
+/// Bulletproofs' `aL * aR = aO, WL * aL + WR * aR + WO * aO = WV * V + c`
 /// is modified to
-/// Generalized Bulletproofs' aL * aR = aO, WL * aL + WR * aR + WO * aO + WC * C = WV * V + c
+/// Generalized Bulletproofs' `aL * aR = aO, WL * aL + WR * aR + WO * aO + WC * C = WV * V + c`.
 #[derive(Clone, Debug)]
 pub struct ArithmeticCircuitStatement<'a, C: Ciphersuite> {
   generators: ProofGenerators<'a, C>,
@@ -89,6 +89,10 @@ impl<C: Ciphersuite> ArithmeticCircuitWitness<C> {
     // The Pedersen Vector Commitments don't have their variables' lengths checked as they aren't
     // paired off with each other as aL, aR are
 
+    // The PVC commit function ensures there's enough generators for their amount of terms
+    // If there aren't enough/the same generators when this is proven for, it'll trigger
+    // InconsistentWitness
+
     let aO = aL.clone() * &aR;
     Ok(ArithmeticCircuitWitness { aL, aR, aO, c, v })
   }
@@ -136,9 +140,10 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     WCR: Vec<ScalarMatrix<C>>,
     WV: ScalarMatrix<C>,
     c: ScalarVector<C::F>,
-    C: PointVector<C>,
-    V: PointVector<C>,
+    commitments: Commitments<C>,
   ) -> Result<Self, AcError> {
+    let Commitments { C, V } = commitments;
+
     // n is the amount of multiplications
     let n = generators.len();
 
@@ -173,13 +178,13 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
       Err(AcError::ConstrainedNonExistentCommitment)?;
     }
     for WCL in &WCL {
-      // The Pedersen Vector Commitments have as many terms as we have multiplications
+      // The Pedersen Vector Commitments internally have as many terms as we have multiplications
       if WCL.highest_index > n {
         Err(AcError::ConstrainedNonExistentTerm)?;
       }
     }
     for WCR in &WCR {
-      // The Pedersen Vector Commitments have as many terms as we have multiplications
+      // The Pedersen Vector Commitments internally have as many terms as we have multiplications
       if WCR.highest_index > n {
         Err(AcError::ConstrainedNonExistentTerm)?;
       }
@@ -340,7 +345,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
 
     // t is a n'-term polynomial
     // While Bulletproofs discuss it as a 6-term polynomial, Generalized Bulletproofs re-defines it
-    // as `2(n' + 1)`, where `n'` is `2 + 2 (c // 2)`.
+    // as `2(n' + 1)`-term, where `n'` is `2 (c + 1)`.
     // When `c = 0`, `n' = 2`, and t is `6` (which lines up with Bulletproofs having a 6-term
     // polynomial).
 
@@ -379,13 +384,13 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
 
     // Pad as expected
     for l in &mut l {
-      assert!((l.len() == 0) || (l.len() == n));
+      debug_assert!((l.len() == 0) || (l.len() == n));
       if l.len() == 0 {
         *l = ScalarVector::new(n);
       }
     }
     for r in &mut r {
-      assert!((r.len() == 0) || (r.len() == n));
+      debug_assert!((r.len() == 0) || (r.len() == n));
       if r.len() == 0 {
         *r = ScalarVector::new(n);
       }
@@ -500,7 +505,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
       y_inv,
       ip_x,
       // Safe since IpStatement isn't a ZK proof
-      P::ProverWithoutTranscript(multiexp_vartime(&P_terms)),
+      P::Prover(multiexp_vartime(&P_terms)),
     )
     .unwrap()
     .prove(transcript, IpWitness::new(l, r).unwrap())
@@ -629,15 +634,10 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     let ip_x = transcript.challenge();
     // P is amended with this additional term
     verifier.g += verifier_weight * ip_x * t_caret;
-    IpStatement::new(
-      self.generators,
-      y_inv,
-      ip_x,
-      P::VerifierWithoutTranscript { verifier_weight },
-    )
-    .unwrap()
-    .verify(rng, verifier, transcript)
-    .map_err(AcError::Ip)?;
+    IpStatement::new(self.generators, y_inv, ip_x, P::Verifier { verifier_weight })
+      .unwrap()
+      .verify(rng, verifier, transcript)
+      .map_err(AcError::Ip)?;
 
     Ok(())
   }

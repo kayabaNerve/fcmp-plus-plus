@@ -11,14 +11,14 @@ use crate::{ScalarVector, PointVector, ProofGenerators, BatchVerifier, transcrip
 pub enum IpError {
   IncorrectAmountOfGenerators,
   InconsistentWitness,
-  DifferingLrLengths,
+  IncompleteProof,
   InapplicableP,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum P<C: Ciphersuite> {
-  VerifierWithoutTranscript { verifier_weight: C::F },
-  ProverWithoutTranscript(C::G),
+  Verifier { verifier_weight: C::F },
+  Prover(C::G),
 }
 
 /// The Bulletproofs Inner-Product statement.
@@ -109,8 +109,8 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       let IpWitness { a, b } = witness;
 
       let P = match P {
-        P::ProverWithoutTranscript(point) => point,
-        P::VerifierWithoutTranscript { .. } => Err(IpError::InapplicableP)?,
+        P::Prover(point) => point,
+        P::Verifier { .. } => Err(IpError::InapplicableP)?,
       };
 
       // Ensure this witness actually opens this statement
@@ -125,9 +125,6 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
 
       (g_bold, h_bold, u, P, a, b)
     };
-
-    let mut L_vec = vec![];
-    let mut R_vec = vec![];
 
     // `else: (n > 1)` case, lines 18-35 of the Bulletproofs paper
     // This interprets `g_bold.len()` as `n`
@@ -167,7 +164,6 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
         // Uses vartime since this isn't a ZK proof
         multiexp_vartime(&L_terms)
       };
-      L_vec.push(L);
 
       let R = {
         let mut R_terms = Vec::with_capacity(1 + (2 * g_bold1.len()));
@@ -180,7 +176,6 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
         R_terms.push((cr, u));
         multiexp_vartime(&R_terms)
       };
-      R_vec.push(R);
 
       // Now that we've calculate L, R, transcript them to receive x (26-27)
       transcript.push_point(L);
@@ -284,8 +279,8 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
 
     let mut weight = C::F::random(rng);
     match P {
-      P::ProverWithoutTranscript(_) => Err(IpError::InapplicableP)?,
-      P::VerifierWithoutTranscript { verifier_weight } => weight = verifier_weight,
+      P::Prover(_) => Err(IpError::InapplicableP)?,
+      P::Verifier { verifier_weight } => weight = verifier_weight,
     };
 
     // Again, we start with the `else: (n > 1)` case
@@ -295,8 +290,8 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
     let mut R = Vec::with_capacity(lr_len);
     let mut xs: Vec<C::F> = Vec::with_capacity(lr_len);
     for _ in 0 .. lr_len {
-      L.push(transcript.read_point::<C>().map_err(|_| IpError::DifferingLrLengths)?);
-      R.push(transcript.read_point::<C>().map_err(|_| IpError::DifferingLrLengths)?);
+      L.push(transcript.read_point::<C>().map_err(|_| IpError::IncompleteProof)?);
+      R.push(transcript.read_point::<C>().map_err(|_| IpError::IncompleteProof)?);
       xs.push(transcript.challenge());
     }
 
@@ -335,8 +330,8 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
     };
 
     // And now for the `if n = 1` case
-    let a = transcript.read_scalar::<C>().map_err(|_| IpError::DifferingLrLengths)?;
-    let b = transcript.read_scalar::<C>().map_err(|_| IpError::DifferingLrLengths)?;
+    let a = transcript.read_scalar::<C>().map_err(|_| IpError::IncompleteProof)?;
+    let b = transcript.read_scalar::<C>().map_err(|_| IpError::IncompleteProof)?;
     let c = a * b;
 
     // The multiexp of these terms equate to the final permutation of P

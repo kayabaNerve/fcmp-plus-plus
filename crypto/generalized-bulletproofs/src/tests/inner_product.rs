@@ -32,7 +32,7 @@ fn test_zero_inner_product() {
       reduced,
       ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; 1]),
       <Ristretto as Ciphersuite>::F::ONE,
-      P::ProverWithoutTranscript(P),
+      P::Prover(P),
     )
     .unwrap()
     .clone()
@@ -46,7 +46,7 @@ fn test_zero_inner_product() {
     reduced,
     ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; 1]),
     <Ristretto as Ciphersuite>::F::ONE,
-    P::VerifierWithoutTranscript { verifier_weight: <Ristretto as Ciphersuite>::F::ONE },
+    P::Verifier { verifier_weight: <Ristretto as Ciphersuite>::F::ONE },
   )
   .unwrap()
   .verify(&mut OsRng, &mut verifier, &mut VerifierTranscript::new([0; 32], &proof))
@@ -90,7 +90,7 @@ fn test_inner_product() {
         generators,
         ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; i]),
         <Ristretto as Ciphersuite>::F::ONE,
-        P::ProverWithoutTranscript(P),
+        P::Prover(P),
       )
       .unwrap()
       .prove(&mut transcript, witness)
@@ -103,7 +103,7 @@ fn test_inner_product() {
       generators,
       ScalarVector(vec![<Ristretto as Ciphersuite>::F::ONE; i]),
       <Ristretto as Ciphersuite>::F::ONE,
-      P::VerifierWithoutTranscript { verifier_weight: <Ristretto as Ciphersuite>::F::ONE },
+      P::Verifier { verifier_weight: <Ristretto as Ciphersuite>::F::ONE },
     )
     .unwrap()
     .verify(&mut OsRng, &mut verifier, &mut VerifierTranscript::new([0; 32], &proof))

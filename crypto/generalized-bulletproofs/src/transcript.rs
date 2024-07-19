@@ -7,6 +7,8 @@ use ciphersuite::{
   Ciphersuite,
 };
 
+use crate::PointVector;
+
 const SCALAR: u8 = 0;
 const POINT: u8 = 1;
 const CHALLENGE: u8 = 2;
@@ -35,6 +37,21 @@ fn challenge<F: PrimeField>(digest: &mut Blake2b512) -> F {
   }
 
   res
+}
+
+#[cfg_attr(test, derive(Clone, PartialEq, Debug))]
+pub struct Commitments<C: Ciphersuite> {
+  pub(crate) C: PointVector<C>,
+  pub(crate) V: PointVector<C>,
+}
+
+impl<C: Ciphersuite> Commitments<C> {
+  pub fn C(&self) -> &[C::G] {
+    &self.C.0
+  }
+  pub fn V(&self) -> &[C::G] {
+    &self.V.0
+  }
 }
 
 pub struct Transcript {
@@ -68,13 +85,18 @@ impl Transcript {
     self.transcript.extend(bytes.as_ref());
   }
 
-  pub fn write_commitments<G: Copy + GroupEncoding>(&mut self, C: &[G], V: &[G]) {
-    for C in C {
+  pub fn write_commitments<C: Ciphersuite>(
+    &mut self,
+    C: Vec<C::G>,
+    V: Vec<C::G>,
+  ) -> Commitments<C> {
+    for C in &C {
       self.push_point(*C);
     }
-    for V in V {
+    for V in &V {
       self.push_point(*V);
     }
+    Commitments { C: PointVector(C), V: PointVector(V) }
   }
 
   pub fn challenge<F: PrimeField>(&mut self) -> F {
@@ -119,7 +141,7 @@ impl<'a> VerifierTranscript<'a> {
     &mut self,
     C: usize,
     V: usize,
-  ) -> io::Result<(Vec<C::G>, Vec<C::G>)> {
+  ) -> io::Result<Commitments<C>> {
     let mut C_vec = Vec::with_capacity(C);
     for _ in 0 .. C {
       C_vec.push(self.read_point::<C>()?);
@@ -128,7 +150,7 @@ impl<'a> VerifierTranscript<'a> {
     for _ in 0 .. V {
       V_vec.push(self.read_point::<C>()?);
     }
-    Ok((C_vec, V_vec))
+    Ok(Commitments { C: PointVector(C_vec), V: PointVector(V_vec) })
   }
 
   pub fn challenge<F: PrimeField>(&mut self) -> F {

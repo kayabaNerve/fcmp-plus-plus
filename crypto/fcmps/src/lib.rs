@@ -706,8 +706,8 @@ where
 
     let mut transcript =
       ProverTranscript::new(Self::transcript(tree, output_blinds.input, &root_blind_R));
-    transcript.write_commitments(&commitments_1, &[]);
-    transcript.write_commitments(&commitments_2, &[]);
+    let commitments_1 = transcript.write_commitments(commitments_1, vec![]);
+    let commitments_2 = transcript.write_commitments(commitments_2, vec![]);
 
     let mut root_blind_pok = [0; 64];
     if c1_branches.len() > c2_branches.len() {
@@ -780,11 +780,11 @@ where
       ));
     }
 
-    assert_eq!(commitments_2.len(), pvc_blinds_2.len());
+    assert_eq!(commitments_2.C().len(), pvc_blinds_2.len());
     // - 1, as the leaves are the first branch
     assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
-    assert!(commitments_2.len() > c1_branches.len());
-    let commitment_iter = commitments_2.clone().into_iter().zip(pvc_blinds_2.clone());
+    assert!(commitments_2.C().len() > c1_branches.len());
+    let commitment_iter = commitments_2.C().iter().cloned().zip(pvc_blinds_2.clone());
     let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
     for ((mut prior_commitment, prior_blind), (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
@@ -813,10 +813,10 @@ where
       ));
     }
 
-    assert_eq!(commitments_1.len(), pvc_blinds_1.len());
+    assert_eq!(commitments_1.C().len(), pvc_blinds_1.len());
     assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
-    assert!(commitments_1.len() > c2_branches.len());
-    let commitment_iter = commitments_1.clone().into_iter().zip(pvc_blinds_1.clone());
+    assert!(commitments_1.C().len() > c2_branches.len());
+    let commitment_iter = commitments_1.C().iter().cloned().zip(pvc_blinds_1.clone());
     let branch_iter = c2_branches.into_iter().zip(commitment_blind_claims_2);
     for ((mut prior_commitment, prior_blind), (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
@@ -842,20 +842,12 @@ where
 
     // TODO: unwrap -> Result
     let (c1_statement, c1_witness) = c1_circuit
-      .statement(
-        params.curve_1_generators.reduce(256).unwrap(),
-        commitments_1.clone(),
-        pvc_blinds_1,
-      )
+      .statement(params.curve_1_generators.reduce(256).unwrap(), commitments_1, pvc_blinds_1)
       .unwrap();
     c1_statement.clone().prove(rng, &mut transcript, c1_witness.unwrap()).unwrap();
 
     let (c2_statement, c2_witness) = c2_circuit
-      .statement(
-        params.curve_2_generators.reduce(128).unwrap(),
-        commitments_2.clone(),
-        pvc_blinds_2,
-      )
+      .statement(params.curve_2_generators.reduce(128).unwrap(), commitments_2, pvc_blinds_2)
       .unwrap();
     c2_statement.prove(rng, &mut transcript, c2_witness.unwrap()).unwrap();
 
@@ -956,19 +948,20 @@ where
       &self.proof,
     );
     // TODO: Return an error here
-    let proof_1_vcs = transcript.read_commitments::<C1>(c1_tape.commitments.len(), 0).unwrap().0;
-    let proof_2_vcs = transcript.read_commitments::<C2>(c2_tape.commitments.len(), 0).unwrap().0;
+    // TODO: `1 +`? Fuzz this for different layer lens
+    let proof_1_vcs = transcript.read_commitments::<C1>(1 + c1_tape.commitments.len(), 0).unwrap();
+    let proof_2_vcs = transcript.read_commitments::<C2>(c2_tape.commitments.len(), 0).unwrap();
 
     // Verify the root blind PoK
     {
       let claimed_root = if (layer_lens.len() % 2) == 1 {
         TreeRoot::<C1, C2>::C1(match c1_branches.last().unwrap()[0] {
-          Variable::CL(i, _) => params.curve_1_hash_init + proof_1_vcs[i],
+          Variable::CL(i, _) => params.curve_1_hash_init + proof_1_vcs.C()[i],
           _ => panic!("branch wasn't present in a vector commitment"),
         })
       } else {
         TreeRoot::<C1, C2>::C2(match c2_branches.last().unwrap()[0] {
-          Variable::CL(i, _) => params.curve_2_hash_init + proof_2_vcs[i],
+          Variable::CL(i, _) => params.curve_2_hash_init + proof_2_vcs.C()[i],
           _ => panic!("branch wasn't present in a vector commitment"),
         })
       };
@@ -1003,7 +996,7 @@ where
 
           // R + cX == sH, where X is the difference in the roots
           // (which should only be the randomness, and H is the generator for the randomness)
-          assert_eq!(R + (claimed - actual) * c, params.curve_2_generators.h() * s);
+          assert_eq!(R + ((claimed - actual) * c), params.curve_2_generators.h() * s);
         }
         _ => panic!("claimed root is on a distinct layer than tree root"),
       }
@@ -1060,8 +1053,8 @@ where
 
     // - 1, as the leaves are the first branch
     assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
-    assert!(proof_2_vcs.len() > c1_branches.len());
-    let commitment_iter = proof_2_vcs.clone().into_iter();
+    assert!(proof_2_vcs.C().len() > c1_branches.len());
+    let commitment_iter = proof_2_vcs.C().iter().cloned();
     let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
     for (prior_commitment, (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
@@ -1089,8 +1082,8 @@ where
     }
 
     assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
-    assert!(proof_1_vcs.len() > c2_branches.len());
-    let commitment_iter = proof_1_vcs.clone().into_iter();
+    assert!(proof_1_vcs.C().len() > c2_branches.len());
+    let commitment_iter = proof_1_vcs.C().iter().cloned();
     let branch_iter = c2_branches.into_iter().zip(commitment_blind_claims_2);
     for (prior_commitment, (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)

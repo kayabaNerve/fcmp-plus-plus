@@ -4,8 +4,8 @@ use ciphersuite::{
 };
 
 use generalized_bulletproofs::{
-  ScalarVector, ScalarMatrix, PointVector, PedersenVectorCommitment, ProofGenerators,
-  transcript::{Transcript as ProverTranscript, VerifierTranscript},
+  ScalarVector, ScalarMatrix, PedersenVectorCommitment, ProofGenerators,
+  transcript::{Transcript as ProverTranscript, VerifierTranscript, Commitments},
   arithmetic_circuit_proof::{AcError, ArithmeticCircuitStatement, ArithmeticCircuitWitness},
 };
 
@@ -244,18 +244,18 @@ impl<C: Ciphersuite> Circuit<C> {
   pub(crate) fn statement(
     self,
     generators: ProofGenerators<'_, C>,
-    C: Vec<C::G>,
+    commitments: Commitments<C>,
     commitment_blinds: Vec<C::F>,
   ) -> Result<(ArithmeticCircuitStatement<'_, C>, Option<ArithmeticCircuitWitness<C>>), AcError> {
     let mut WL = ScalarMatrix::new();
     let mut WR = ScalarMatrix::new();
     let mut WO = ScalarMatrix::new();
-    let mut WCL = Vec::with_capacity(C.len());
-    for _ in 0 .. C.len() {
+    let mut WCL = Vec::with_capacity(commitments.C().len());
+    for _ in 0 .. commitments.C().len() {
       WCL.push(ScalarMatrix::new());
     }
-    let mut WCR = Vec::with_capacity(C.len());
-    for _ in 0 .. C.len() {
+    let mut WCR = Vec::with_capacity(commitments.C().len());
+    for _ in 0 .. commitments.C().len() {
       WCR.push(ScalarMatrix::new());
     }
     let mut WV = ScalarMatrix::new();
@@ -286,18 +286,8 @@ impl<C: Ciphersuite> Circuit<C> {
       c.0.push(-constraint.c);
     }
 
-    let statement = ArithmeticCircuitStatement::new(
-      generators,
-      WL,
-      WR,
-      WO,
-      WCL,
-      WCR,
-      WV,
-      c,
-      PointVector(C),
-      PointVector(vec![]),
-    )?;
+    let statement =
+      ArithmeticCircuitStatement::new(generators, WL, WR, WO, WCL, WCR, WV, c, commitments)?;
 
     let witness = self
       .prover
