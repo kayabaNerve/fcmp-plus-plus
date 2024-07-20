@@ -16,8 +16,6 @@ use ciphersuite::{
 
 mod scalar_vector;
 pub use scalar_vector::ScalarVector;
-mod scalar_matrix;
-pub use scalar_matrix::ScalarMatrix;
 mod point_vector;
 pub use point_vector::PointVector;
 
@@ -25,6 +23,8 @@ pub use point_vector::PointVector;
 pub mod transcript;
 
 pub(crate) mod inner_product;
+
+pub(crate) mod lincomb;
 
 /// The arithmetic circuit proof.
 pub mod arithmetic_circuit_proof;
@@ -223,8 +223,13 @@ impl<C: Ciphersuite> Generators<C> {
   /// Reduce a set of generators to the quantity necessary to support a certain amount of
   /// in-circuit multiplications/terms in a Pedersen vector commitment.
   ///
-  /// Returns None if the generators reduced are insufficient to provide this many generators.
+  /// Returns None if reducing to 0 or if the generators reduced are insufficient to provide this
+  /// many generators.
   pub fn reduce(&self, generators: usize) -> Option<ProofGenerators<'_, C>> {
+    if generators == 0 {
+      None?;
+    }
+
     // Round to the nearest power of 2
     let generators = padded_pow_of_2(generators);
     if generators > self.g_bold.len() {

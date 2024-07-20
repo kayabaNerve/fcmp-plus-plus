@@ -6,53 +6,36 @@ use multiexp::{multiexp, multiexp_vartime};
 use ciphersuite::{group::ff::Field, Ciphersuite};
 
 use crate::{
-  ScalarVector, ScalarMatrix, PointVector, ProofGenerators, PedersenCommitment,
-  PedersenVectorCommitment, BatchVerifier,
+  ScalarVector, PointVector, ProofGenerators, PedersenCommitment, PedersenVectorCommitment,
+  BatchVerifier,
   transcript::*,
+  lincomb::accumulate_vector,
   inner_product::{IpError, IpStatement, IpWitness, P},
 };
+pub use crate::lincomb::{Variable, LinComb};
 
-/// Bulletproofs' Arithmetic Circuit Statement from 5.1, modified per Generalized Bulletproofs.
+/// An Arithmetic Circuit Statement.
 ///
-/// Bulletproofs' `aL * aR = aO, WL * aL + WR * aR + WO * aO = WV * V + c`
-/// is modified to
-/// Generalized Bulletproofs'
-/// `aL * aR = aO, WL * aL + WR * aR + WO * aO + WCL * C_L + WCR * C_R = WV * V + c`.
+/// Bulletproofs' constraints are of the form
+///  `aL * aR = aO, WL * aL + WR * aR + WO * aO = WV * V + c`.
+///
+/// Generalized Bulletproofs modifies this to
+/// `aL * aR = aO, WL * aL + WR * aR + WO * aO + WCG * C_G + WCH * C_H = WV * V + c`.
+///
+/// We implement the latter, yet represented (for simplicity) as
+/// `aL * aR = aO, WL * aL + WR * aR + WO * aO + WCG * C_G + WCH * C_H + WV * V + c = 0`.
 #[derive(Clone, Debug)]
 pub struct ArithmeticCircuitStatement<'a, C: Ciphersuite> {
   generators: ProofGenerators<'a, C>,
 
-  /// The WL matrix from the above statement.
-  WL: ScalarMatrix<C>,
-  /// The WR matrix from the above statement.
-  WR: ScalarMatrix<C>,
-  /// The WO matrix from the above statement.
-  WO: ScalarMatrix<C>,
-  /// The WV matrix from the above statement.
-  WV: ScalarMatrix<C>,
-  /// The WCL matrix from the above statement.
-  WCL: Vec<ScalarMatrix<C>>,
-  /// The WCR matrix from the above statement.
-  WCR: Vec<ScalarMatrix<C>>,
-  /// The c vector from the above statement.
-  c: ScalarVector<C::F>,
-
-  /// The vector commitments.
+  constraints: Vec<LinComb<C::F>>,
   C: PointVector<C>,
-  /// The non-vector commitments.
   V: PointVector<C>,
 }
 
 impl<'a, C: Ciphersuite> Zeroize for ArithmeticCircuitStatement<'a, C> {
   fn zeroize(&mut self) {
-    self.WL.zeroize();
-    self.WR.zeroize();
-    self.WO.zeroize();
-    self.WCL.zeroize();
-    self.WCR.zeroize();
-    self.WV.zeroize();
-    self.c.zeroize();
-
+    self.constraints.zeroize();
     self.C.zeroize();
     self.V.zeroize();
   }
@@ -131,93 +114,50 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
 
   // The amount of constraints.
   fn q(&self) -> usize {
-    self.WL.len()
+    self.constraints.len()
   }
 
-  // The amount of Pedersen Vector Commitments.
+  // The amount of Pedersen vector commitments.
   fn c(&self) -> usize {
     self.C.len()
   }
 
-  // The amount of Pedersen Commitments.
+  // The amount of Pedersen commitments.
   fn m(&self) -> usize {
     self.V.len()
   }
 
   /// Create a new ArithmeticCircuitStatement for the specified relationship.
   ///
-  /// The weights and c vector are not transcripted. They're expected to be deterministic from the
-  /// context and higher-level statement. If your constraints are variable, you MUST transcript
-  /// them before calling prove/verify.
+  /// The `LinComb`s passed as `constraints` will be bound to evaluate to 0.
+  ///
+  /// The constraints are not transcripted. They're expected to be deterministic from the context
+  /// and higher-level statement. If your constraints are variable, you MUST transcript them before
+  /// calling prove/verify.
   ///
   /// The commitments are expected to have been transcripted extenally to this statement's
   /// invocation. That's practically ensured by taking a `Commitments` struct here, which is only
   /// obtainable via a transcript.
-  #[allow(clippy::too_many_arguments)]
   pub fn new(
     generators: ProofGenerators<'a, C>,
-    WL: ScalarMatrix<C>,
-    WR: ScalarMatrix<C>,
-    WO: ScalarMatrix<C>,
-    WCL: Vec<ScalarMatrix<C>>,
-    WCR: Vec<ScalarMatrix<C>>,
-    WV: ScalarMatrix<C>,
-    c: ScalarVector<C::F>,
+    constraints: Vec<LinComb<C::F>>,
     commitments: Commitments<C>,
   ) -> Result<Self, AcError> {
     let Commitments { C, V } = commitments;
 
-    // n is the amount of multiplications
-    let n = generators.len();
-
-    // m is the amount of Pedersen Commitments
-    let m = V.len();
-
-    // q is the amount of constraints
-    let q = WL.len();
-    if (WR.len() != q) || (WO.len() != q) || (WV.len() != q) || (c.len() != q) {
-      Err(AcError::InconsistentAmountOfConstraints)?;
-    }
-    for WCL in &WCL {
-      if WCL.len() != q {
-        Err(AcError::InconsistentAmountOfConstraints)?;
-      }
-    }
-    for WCR in &WCR {
-      if WCR.len() != q {
-        Err(AcError::InconsistentAmountOfConstraints)?;
-      }
-    }
-
-    // Check if the highest index exceeds n, meaning this matrix has a faulty constraint
-    if WL.highest_index.max(WR.highest_index).max(WO.highest_index) >= n {
-      Err(AcError::ConstrainedNonExistentTerm)?;
-    }
-
-    if WCL.len() != C.len() {
-      Err(AcError::ConstrainedNonExistentCommitment)?;
-    }
-    if WCR.len() != C.len() {
-      Err(AcError::ConstrainedNonExistentCommitment)?;
-    }
-    for WCL in &WCL {
-      // The Pedersen Vector Commitments internally have as many terms as we have multiplications
-      if WCL.highest_index > n {
+    for constraint in &constraints {
+      if Some(generators.len()) <= constraint.highest_a_index {
         Err(AcError::ConstrainedNonExistentTerm)?;
       }
-    }
-    for WCR in &WCR {
-      // The Pedersen Vector Commitments internally have as many terms as we have multiplications
-      if WCR.highest_index > n {
-        Err(AcError::ConstrainedNonExistentTerm)?;
+      if Some(C.len()) <= constraint.highest_c_index {
+        Err(AcError::ConstrainedNonExistentCommitment)?;
+      }
+      if Some(V.len()) <= constraint.highest_v_index {
+        Err(AcError::ConstrainedNonExistentCommitment)?;
       }
     }
 
-    if WV.highest_index > m {
-      Err(AcError::ConstrainedNonExistentCommitment)?;
-    }
-
-    Ok(Self { generators, WL, WR, WO, WCL, WCR, WV, c, C, V })
+    Ok(Self { generators, constraints, C, V })
   }
 
   fn yz_challenges(&self, y: C::F, z_1: C::F) -> YzChallenges<C> {
@@ -297,35 +237,29 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
           Err(AcError::InconsistentWitness)?;
         }
       }
-      for i in 0 .. self.q() {
-        if (self.WL.data[i].iter().map(|(j, weight)| *weight * witness.aL[*j]).sum::<C::F>() +
-          self.WR.data[i].iter().map(|(j, weight)| *weight * witness.aR[*j]).sum::<C::F>() +
-          self.WO.data[i].iter().map(|(j, weight)| *weight * witness.aO[*j]).sum::<C::F>() +
-          self
-            .WCL
+      for constraint in &self.constraints {
+        let eval =
+          constraint
+            .WL
             .iter()
-            .enumerate()
-            .map(|(c, WCL)| {
-              WCL.data[i]
-                .iter()
-                .map(|(j, weight)| *weight * witness.c[c].g_values[*j])
-                .sum::<C::F>()
-            })
-            .sum::<C::F>() +
-          self
-            .WCR
-            .iter()
-            .enumerate()
-            .map(|(c, WCR)| {
-              WCR.data[i]
-                .iter()
-                .map(|(j, weight)| *weight * witness.c[c].h_values[*j])
-                .sum::<C::F>()
-            })
-            .sum::<C::F>()) !=
-          (self.WV.data[i].iter().map(|(j, weight)| *weight * witness.v[*j].value).sum::<C::F>() +
-            self.c[i])
-        {
+            .map(|(i, weight)| *weight * witness.aL[*i])
+            .chain(constraint.WR.iter().map(|(i, weight)| *weight * witness.aR[*i]))
+            .chain(constraint.WO.iter().map(|(i, weight)| *weight * witness.aO[*i]))
+            .chain(
+              constraint.WCG.iter().zip(&witness.c).flat_map(|(weights, c)| {
+                weights.iter().map(|(j, weight)| *weight * c.g_values[*j])
+              }),
+            )
+            .chain(
+              constraint.WCH.iter().zip(&witness.c).flat_map(|(weights, c)| {
+                weights.iter().map(|(j, weight)| *weight * c.h_values[*j])
+              }),
+            )
+            .chain(constraint.WV.iter().map(|(i, weight)| *weight * witness.v[*i].value))
+            .chain(core::iter::once(constraint.c))
+            .sum::<C::F>();
+
+        if eval != C::F::ZERO {
           Err(AcError::InconsistentWitness)?;
         }
       }
@@ -409,11 +343,21 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
       l.push(ScalarVector::new(0));
       r.push(ScalarVector::new(0));
     }
-    l[ilr] = (self.WR.mul_vec(n, &z) * &y_inv) + &witness.aL;
+
+    let mut l_weights = ScalarVector::new(n);
+    let mut r_weights = ScalarVector::new(n);
+    let mut o_weights = ScalarVector::new(n);
+    for (constraint, z) in self.constraints.iter().zip(&z.0) {
+      accumulate_vector(&mut l_weights, &constraint.WL, *z);
+      accumulate_vector(&mut r_weights, &constraint.WR, *z);
+      accumulate_vector(&mut o_weights, &constraint.WO, *z);
+    }
+
+    l[ilr] = (r_weights * &y_inv) + &witness.aL;
     l[io] = witness.aO.clone();
     l[is] = sL;
-    r[jlr] = self.WL.mul_vec(n, &z) + &(witness.aR.clone() * &y);
-    r[jo] = self.WO.mul_vec(n, &z) - &y;
+    r[jlr] = l_weights + &(witness.aR.clone() * &y);
+    r[jo] = o_weights - &y;
     r[js] = sR * &y;
 
     // Pad as expected
@@ -433,13 +377,33 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     // We now fill in the vector commitments
     // We use unused coefficients of l increasing from 0 (skipping ilr), and unused coefficients of
     // r decreasing from n' (skipping jlr)
-    for (i, ((c, WCL), WCR)) in witness.c.iter().zip(self.WCL).zip(self.WCR).enumerate() {
+
+    let mut cg_weights = Vec::with_capacity(witness.c.len());
+    let mut ch_weights = Vec::with_capacity(witness.c.len());
+    for i in 0 .. witness.c.len() {
+      let mut cg = ScalarVector::new(n);
+      let mut ch = ScalarVector::new(n);
+      for (constraint, z) in self.constraints.iter().zip(&z.0) {
+        if let Some(WCG) = constraint.WCG.get(i) {
+          accumulate_vector(&mut cg, WCG, *z);
+        }
+        if let Some(WCH) = constraint.WCH.get(i) {
+          accumulate_vector(&mut ch, WCH, *z);
+        }
+      }
+      cg_weights.push(cg);
+      ch_weights.push(ch);
+    }
+
+    for (i, (c, (cg_weights, ch_weights))) in
+      witness.c.iter().zip(cg_weights.into_iter().zip(ch_weights)).enumerate()
+    {
       let i = i + 1;
       let j = ni - i;
 
       l[i] = c.g_values.clone();
-      l[j] = WCR.mul_vec(n, &z) * &y_inv;
-      r[j] = WCL.mul_vec(n, &z);
+      l[j] = ch_weights * &y_inv;
+      r[j] = cg_weights;
       r[i] = (c.h_values.clone() * &y) + &r[i];
     }
 
@@ -448,7 +412,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     for (i, l) in l.iter().enumerate() {
       for (j, r) in r.iter().enumerate() {
         let new_coeff = i + j;
-        t[new_coeff] += l.inner_product(r);
+        t[new_coeff] += l.inner_product(r.0.iter());
       }
     }
 
@@ -485,17 +449,19 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     let l = poly_eval(&l, &x);
     let r = poly_eval(&r, &x);
 
-    let t_caret = l.inner_product(&r);
+    let t_caret = l.inner_product(r.0.iter());
+
+    let mut V_weights = ScalarVector::new(self.V.len());
+    for (constraint, z) in self.constraints.iter().zip(&z.0) {
+      // We use `-z`, not `z`, as we write our constraint as `... + WV V = 0` not `= WV V + ..`
+      // This means we need to subtract `WV V` from both sides, which we accomplish here
+      accumulate_vector(&mut V_weights, &constraint.WV, -*z);
+    }
 
     let tau_x = {
       let mut tau_x_poly = vec![];
       tau_x_poly.extend(tau_before_ni);
-      tau_x_poly.push(
-        self
-          .WV
-          .mul_vec(m, &z)
-          .inner_product(&ScalarVector(witness.v.iter().map(|v| v.mask).collect())),
-      );
+      tau_x_poly.push(V_weights.inner_product(witness.v.iter().map(|v| &v.mask)));
       tau_x_poly.extend(tau_after_ni);
 
       let mut tau_x = C::F::ZERO;
@@ -555,7 +521,6 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
   ) -> Result<(), AcError> {
     let n = self.n();
     let c = self.c();
-    let m = self.m();
 
     let ni = 2 * (c + 1);
 
@@ -574,7 +539,16 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     let z = transcript.challenge();
     let YzChallenges { y_inv, z } = self.yz_challenges(y, z);
 
-    let delta = (self.WR.mul_vec(n, &z) * &y_inv).inner_product(&self.WL.mul_vec(n, &z));
+    let mut l_weights = ScalarVector::new(n);
+    let mut r_weights = ScalarVector::new(n);
+    let mut o_weights = ScalarVector::new(n);
+    for (constraint, z) in self.constraints.iter().zip(&z.0) {
+      accumulate_vector(&mut l_weights, &constraint.WL, *z);
+      accumulate_vector(&mut r_weights, &constraint.WR, *z);
+      accumulate_vector(&mut o_weights, &constraint.WO, *z);
+    }
+
+    let delta = (r_weights.clone() * &y_inv).inner_product(l_weights.0.iter());
 
     let mut T_before_ni = Vec::with_capacity(ni);
     let mut T_after_ni = Vec::with_capacity(t_poly_len - ni - 1);
@@ -597,10 +571,20 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
       verifier.g += t_caret * verifier_weight;
       verifier.h += tau_x * verifier_weight;
 
+      let mut V_weights = ScalarVector::new(self.V.len());
+      for (constraint, z) in self.constraints.iter().zip(&z.0) {
+        // We use `-z`, not `z`, as we write our constraint as `... + WV V = 0` not `= WV V + ..`
+        // This means we need to subtract `WV V` from both sides, which we accomplish here
+        accumulate_vector(&mut V_weights, &constraint.WV, -*z);
+      }
+      V_weights = V_weights * x[ni];
+
       // rhs of the equation, negated to cause a sum to zero
-      verifier.g -= verifier_weight * x[ni] * (delta + z.inner_product(&self.c));
-      let V_weights = self.WV.mul_vec(m, &z) * x[ni];
-      assert_eq!(V_weights.len(), self.V.len());
+      // `delta - z...`, instead of `delta + z...`, is done for the same reason as in the above WV
+      // matrix transform
+      verifier.g -= verifier_weight *
+        x[ni] *
+        (delta - z.inner_product(self.constraints.iter().map(|constraint| &constraint.c)));
       for pair in V_weights.0.into_iter().zip(self.V.0) {
         verifier.additional.push((-verifier_weight * pair.0, pair.1));
       }
@@ -629,26 +613,41 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
       let mut h_bold_scalars = ScalarVector::new(n);
       // Lines 85-87 calculate WL, WR, WO
       // We preserve them in terms of g_bold and h_bold for a more efficient multiexp
-      h_bold_scalars = h_bold_scalars + &(self.WL.mul_vec(n, &z) * x[jlr]);
+      h_bold_scalars = h_bold_scalars + &(l_weights * x[jlr]);
       // WO is weighted by x**jo where jo == 0, hence why we can ignore the x term
-      h_bold_scalars = h_bold_scalars + &self.WO.mul_vec(n, &z);
+      h_bold_scalars = h_bold_scalars + &o_weights;
 
-      for (i, wr) in (self.WR.mul_vec(n, &z) * &y_inv * x[jlr]).0.into_iter().enumerate() {
+      for (i, wr) in (r_weights * &y_inv * x[jlr]).0.into_iter().enumerate() {
         verifier.g_bold[i] += verifier_weight * wr;
+      }
+
+      let mut cg_weights = Vec::with_capacity(self.C.len());
+      let mut ch_weights = Vec::with_capacity(self.C.len());
+      for i in 0 .. self.C.len() {
+        let mut cg = ScalarVector::new(n);
+        let mut ch = ScalarVector::new(n);
+        for (constraint, z) in self.constraints.iter().zip(&z.0) {
+          if let Some(WCG) = constraint.WCG.get(i) {
+            accumulate_vector(&mut cg, WCG, *z);
+          }
+          if let Some(WCH) = constraint.WCH.get(i) {
+            accumulate_vector(&mut ch, WCH, *z);
+          }
+        }
+        cg_weights.push(cg);
+        ch_weights.push(ch);
       }
 
       // Push the terms for C, which increment from 0, and the terms for WC, which decrement from
       // n'
-      assert_eq!(self.C.len(), self.WCL.len());
-      assert_eq!(self.C.len(), self.WCR.len());
-      for (i, ((C, WCL), WCR)) in
-        self.C.0.into_iter().zip(self.WCL.into_iter()).zip(self.WCR.into_iter()).enumerate()
+      for (i, (C, (WCG, WCH))) in
+        self.C.0.into_iter().zip(cg_weights.into_iter().zip(ch_weights)).enumerate()
       {
         let i = i + 1;
         let j = ni - i;
         verifier.additional.push((verifier_weight * x[i], C));
-        h_bold_scalars = h_bold_scalars + &(WCL.mul_vec(n, &z) * x[j]);
-        for (i, scalar) in (WCR.mul_vec(n, &z) * &y_inv * x[j]).0.into_iter().enumerate() {
+        h_bold_scalars = h_bold_scalars + &(WCG * x[j]);
+        for (i, scalar) in (WCH * &y_inv * x[j]).0.into_iter().enumerate() {
           verifier.g_bold[i] += verifier_weight * scalar;
         }
       }

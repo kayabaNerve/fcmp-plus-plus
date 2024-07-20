@@ -80,7 +80,7 @@ fn test_inner_product() {
       b[i] = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
     }
 
-    let P = g_bold.multiexp(&a) + h_bold.multiexp(&b) + (g * a.inner_product(&b));
+    let P = g_bold.multiexp(&a) + h_bold.multiexp(&b) + (g * a.inner_product(b.0.iter()));
 
     let witness = IpWitness::<Ristretto>::new(a, b).unwrap();
 

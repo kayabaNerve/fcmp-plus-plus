@@ -123,7 +123,7 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       {
         let ag = a.0.iter().cloned().zip(g_bold.0.iter().cloned());
         let bh = b.0.iter().cloned().zip(h_bold.0.iter().cloned());
-        let cu = core::iter::once((a.inner_product(&b), u));
+        let cu = core::iter::once((a.inner_product(b.0.iter()), u));
         if P != multiexp_vartime(&ag.chain(bh).chain(cu).collect::<Vec<_>>()) {
           Err(IpError::InconsistentWitness)?;
         }
@@ -155,8 +155,8 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       debug_assert_eq!(h_bold2.len(), n_hat);
 
       // cl, cr, lines 21-22
-      let cl = a1.inner_product(&b2);
-      let cr = a2.inner_product(&b1);
+      let cl = a1.inner_product(b2.0.iter());
+      let cr = a2.inner_product(b1.0.iter());
 
       let L = {
         let mut L_terms = Vec::with_capacity(1 + (2 * g_bold1.len()));

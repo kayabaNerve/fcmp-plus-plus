@@ -25,8 +25,6 @@ use generalized_bulletproofs::{
   transcript::{Transcript as ProverTranscript, VerifierTranscript},
 };
 
-mod lincomb;
-pub(crate) use lincomb::*;
 mod gadgets;
 pub(crate) use gadgets::*;
 mod circuit;
@@ -69,8 +67,8 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     };
     let i = self.commitments.len() - 1;
     let j_range = self.current_j_offset .. (self.current_j_offset + 128);
-    let left = j_range.clone().map(|j| Variable::CL(i, j));
-    let right = j_range.map(|j| Variable::CR(i, j));
+    let left = j_range.clone().map(|j| Variable::CG { commitment: i, index: j });
+    let right = j_range.map(|j| Variable::CH { commitment: i, index: j });
     let res = left.chain(right).collect();
 
     self.current_j_offset += 128;
@@ -982,12 +980,12 @@ where
     {
       let claimed_root = if (layer_lens.len() % 2) == 1 {
         TreeRoot::<C1, C2>::C1(match c1_branches.last().unwrap()[0] {
-          Variable::CL(i, _) => params.curve_1_hash_init + proof_1_vcs.C()[i],
+          Variable::CG { commitment: i, index: _ } => params.curve_1_hash_init + proof_1_vcs.C()[i],
           _ => panic!("branch wasn't present in a vector commitment"),
         })
       } else {
         TreeRoot::<C1, C2>::C2(match c2_branches.last().unwrap()[0] {
-          Variable::CL(i, _) => params.curve_2_hash_init + proof_2_vcs.C()[i],
+          Variable::CG { commitment: i, index: _ } => params.curve_2_hash_init + proof_2_vcs.C()[i],
           _ => panic!("branch wasn't present in a vector commitment"),
         })
       };

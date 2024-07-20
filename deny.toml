@@ -11,12 +11,10 @@ version = 2
 
 allow = [
   # Effective public domain
-  "CC0-1.0",
   "Unlicense",
 
   # Attribution required
   "MIT",
-  "MITNFA",
   "BSD-2-Clause",
   "BSD-3-Clause",
   "ISC",

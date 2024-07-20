@@ -120,11 +120,14 @@ impl<F: PrimeField> ScalarVector<F> {
   }
   */
 
-  pub(crate) fn inner_product(&self, vector: &Self) -> F {
+  pub(crate) fn inner_product<'a, V: Iterator<Item = &'a F>>(&self, vector: V) -> F {
+    let mut count = 0;
     let mut res = F::ZERO;
-    for (a, b) in self.0.iter().zip(vector.0.iter()) {
+    for (a, b) in self.0.iter().zip(vector) {
       res += *a * b;
+      count += 1;
     }
+    assert_eq!(self.len(), count);
     res
   }
 

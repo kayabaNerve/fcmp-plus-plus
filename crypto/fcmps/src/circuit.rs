@@ -4,12 +4,12 @@ use ciphersuite::{
 };
 
 use generalized_bulletproofs::{
-  ScalarVector, ScalarMatrix, PedersenVectorCommitment, ProofGenerators,
+  ScalarVector, PedersenVectorCommitment, ProofGenerators,
   transcript::{Transcript as ProverTranscript, VerifierTranscript, Commitments},
   arithmetic_circuit_proof::{AcError, ArithmeticCircuitStatement, ArithmeticCircuitWitness},
 };
+pub(crate) use generalized_bulletproofs::arithmetic_circuit_proof::{Variable, LinComb};
 
-use crate::lincomb::*;
 use crate::gadgets::*;
 
 pub(crate) trait Transcript {
@@ -66,30 +66,30 @@ impl<C: Ciphersuite> Circuit<C> {
 
   /// Evaluate a constraint.
   ///
-  /// Yields WL aL + WR aR + WO aO + WCL CL + WCR CR + c.
+  /// Yields WL aL + WR aR + WO aO + WCG CG + WCH CH + c.
   ///
   /// Panics if the constraint references non-existent terms.
   ///
   /// Returns None if not a prover.
   pub(crate) fn eval(&self, constraint: &LinComb<C::F>) -> Option<C::F> {
     self.prover.as_ref().map(|prover| {
-      let mut res = constraint.c;
-      for (index, weight) in &constraint.WL {
+      let mut res = constraint.c();
+      for (index, weight) in constraint.WL() {
         res += prover.aL[*index] * weight;
       }
-      for (index, weight) in &constraint.WR {
+      for (index, weight) in constraint.WR() {
         res += prover.aR[*index] * weight;
       }
-      for (index, weight) in &constraint.WO {
+      for (index, weight) in constraint.WO() {
         res += prover.aL[*index] * prover.aR[*index] * weight;
       }
-      for (WCL, C) in constraint.WCL.iter().zip(&prover.C) {
-        for (j, weight) in WCL {
+      for (WCG, C) in constraint.WCG().iter().zip(&prover.C) {
+        for (j, weight) in WCG {
           res += C.0[*j] * weight;
         }
       }
-      for (WCR, C) in constraint.WCR.iter().zip(&prover.C) {
-        for (j, weight) in WCR {
+      for (WCH, C) in constraint.WCH().iter().zip(&prover.C) {
+        for (j, weight) in WCH {
           res += C.1[*j] * weight;
         }
       }
@@ -247,47 +247,7 @@ impl<C: Ciphersuite> Circuit<C> {
     commitments: Commitments<C>,
     commitment_blinds: Vec<C::F>,
   ) -> Result<(ArithmeticCircuitStatement<'_, C>, Option<ArithmeticCircuitWitness<C>>), AcError> {
-    let mut WL = ScalarMatrix::new();
-    let mut WR = ScalarMatrix::new();
-    let mut WO = ScalarMatrix::new();
-    let mut WCL = Vec::with_capacity(commitments.C().len());
-    for _ in 0 .. commitments.C().len() {
-      WCL.push(ScalarMatrix::new());
-    }
-    let mut WCR = Vec::with_capacity(commitments.C().len());
-    for _ in 0 .. commitments.C().len() {
-      WCR.push(ScalarMatrix::new());
-    }
-    let mut WV = ScalarMatrix::new();
-    let mut c = Vec::with_capacity(self.constraints.len());
-
-    for constraint in self.constraints {
-      WL.push(constraint.WL);
-      WR.push(constraint.WR);
-      WO.push(constraint.WO);
-      let cWCL_len = constraint.WCL.len();
-      for (WCL, cWCL) in WCL.iter_mut().zip(constraint.WCL.into_iter()) {
-        WCL.push(cWCL);
-      }
-      for WCL in &mut WCL[cWCL_len ..] {
-        WCL.push(vec![]);
-      }
-      let cWCR_len = constraint.WCR.len();
-      for (WCR, cWCR) in WCR.iter_mut().zip(constraint.WCR.into_iter()) {
-        WCR.push(cWCR);
-      }
-      for WCR in &mut WCR[cWCR_len ..] {
-        WCR.push(vec![]);
-      }
-      WV.push(vec![]);
-      // We represent `c` as `+ c = 0`, yet BP uses `= c`
-      // If we subtract `c` from both sides, we get `= -c`
-      // Negate this to achieve the intended `c`
-      c.push(-constraint.c);
-    }
-
-    let statement =
-      ArithmeticCircuitStatement::new(generators, WL, WR, WO, WCL, WCR, WV, c.into(), commitments)?;
+    let statement = ArithmeticCircuitStatement::new(generators, self.constraints, commitments)?;
 
     let witness = self
       .prover

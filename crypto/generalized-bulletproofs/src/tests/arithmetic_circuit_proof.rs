@@ -3,9 +3,11 @@ use rand_core::{RngCore, OsRng};
 use ciphersuite::{group::ff::Field, Ciphersuite, Ristretto};
 
 use crate::{
-  ScalarVector, ScalarMatrix, PedersenCommitment, PedersenVectorCommitment,
+  ScalarVector, PedersenCommitment, PedersenVectorCommitment,
   transcript::*,
-  arithmetic_circuit_proof::{ArithmeticCircuitStatement, ArithmeticCircuitWitness},
+  arithmetic_circuit_proof::{
+    Variable, LinComb, ArithmeticCircuitStatement, ArithmeticCircuitWitness,
+  },
   tests::generators,
 };
 
@@ -18,33 +20,14 @@ fn test_zero_arithmetic_circuit() {
   let commitment = (generators.g() * value) + (generators.h() * gamma);
   let V = vec![commitment];
 
-  let zero_vec =
-    || ScalarVector::<<Ristretto as Ciphersuite>::F>(vec![<Ristretto as Ciphersuite>::F::ZERO]);
-
-  let aL = zero_vec();
-  let aR = zero_vec();
-
-  let mut WL = ScalarMatrix::new();
-  WL.push(vec![(0, <Ristretto as Ciphersuite>::F::ZERO)]);
-  let mut WR = ScalarMatrix::new();
-  WR.push(vec![(0, <Ristretto as Ciphersuite>::F::ZERO)]);
-  let mut WO = ScalarMatrix::new();
-  WO.push(vec![(0, <Ristretto as Ciphersuite>::F::ZERO)]);
-  let mut WV = ScalarMatrix::new();
-  WV.push(vec![(0, <Ristretto as Ciphersuite>::F::ZERO)]);
-  let c = zero_vec();
+  let aL = ScalarVector::<<Ristretto as Ciphersuite>::F>(vec![<Ristretto as Ciphersuite>::F::ZERO]);
+  let aR = aL.clone();
 
   let mut transcript = Transcript::new([0; 32]);
   let commitments = transcript.write_commitments(vec![], V);
   let statement = ArithmeticCircuitStatement::<Ristretto>::new(
     generators.reduce(1).unwrap(),
-    WL,
-    WR,
-    WO,
     vec![],
-    vec![],
-    WV,
-    c,
     commitments.clone(),
   )
   .unwrap();
@@ -93,39 +76,16 @@ fn test_vector_commitment_arithmetic_circuit() {
   let aL = zero_vec();
   let aR = zero_vec();
 
-  let mut WL = ScalarMatrix::new();
-  WL.push(vec![(0, <Ristretto as Ciphersuite>::F::ZERO)]);
-  let mut WR = ScalarMatrix::new();
-  WR.push(vec![(0, <Ristretto as Ciphersuite>::F::ZERO)]);
-  let mut WO = ScalarMatrix::new();
-  WO.push(vec![(0, <Ristretto as Ciphersuite>::F::ZERO)]);
-  let mut WV = ScalarMatrix::new();
-  WV.push(vec![]);
-  let mut WCL = vec![ScalarMatrix::new()];
-  WCL[0].push(vec![
-    (0, <Ristretto as Ciphersuite>::F::ONE),
-    (1, <Ristretto as Ciphersuite>::F::from(2u64)),
-  ]);
-  let mut WCR = vec![ScalarMatrix::new()];
-  WCR[0].push(vec![
-    (0, <Ristretto as Ciphersuite>::F::from(3u64)),
-    (1, <Ristretto as Ciphersuite>::F::from(4u64)),
-  ]);
-  let c = ScalarVector::<<Ristretto as Ciphersuite>::F>(vec![
-    v1 + (v2 + v2) + (v3 + v3 + v3) + (v4 + v4 + v4 + v4),
-  ]);
-
   let mut transcript = Transcript::new([0; 32]);
   let commitments = transcript.write_commitments(C, V);
   let statement = ArithmeticCircuitStatement::<Ristretto>::new(
     reduced,
-    WL,
-    WR,
-    WO,
-    WCL,
-    WCR,
-    WV,
-    c,
+    vec![LinComb::empty()
+      .term(<Ristretto as Ciphersuite>::F::ONE, Variable::CG { commitment: 0, index: 0 })
+      .term(<Ristretto as Ciphersuite>::F::from(2u64), Variable::CG { commitment: 0, index: 1 })
+      .term(<Ristretto as Ciphersuite>::F::from(3u64), Variable::CH { commitment: 0, index: 0 })
+      .term(<Ristretto as Ciphersuite>::F::from(4u64), Variable::CH { commitment: 0, index: 1 })
+      .constant(-(v1 + (v2 + v2) + (v3 + v3 + v3) + (v4 + v4 + v4 + v4)))],
     commitments.clone(),
   )
   .unwrap();
@@ -172,6 +132,7 @@ fn fuzz_test_arithmetic_circuit() {
     }
     let aO = aL.clone() * &aR;
 
+    // Create C
     let mut C = vec![];
     while C.len() < (OsRng.next_u64() % 16).try_into().unwrap() {
       let mut g_values = ScalarVector(vec![]);
@@ -188,6 +149,8 @@ fn fuzz_test_arithmetic_circuit() {
         mask: <Ristretto as Ciphersuite>::F::random(&mut OsRng),
       });
     }
+
+    // Create V
     let mut V = vec![];
     while V.len() < (OsRng.next_u64() % 4).try_into().unwrap() {
       V.push(PedersenCommitment {
@@ -196,89 +159,61 @@ fn fuzz_test_arithmetic_circuit() {
       });
     }
 
-    let mut WL = ScalarMatrix::new();
-    let mut WR = ScalarMatrix::new();
-    let mut WO = ScalarMatrix::new();
-    let mut WCL = vec![];
-    let mut WCR = vec![];
-    for _ in 0 .. C.len() {
-      WCL.push(ScalarMatrix::new());
-      WCR.push(ScalarMatrix::new());
-    }
-    let mut WV = ScalarMatrix::new();
-    let mut c = ScalarVector(vec![]);
-
     // Generate random constraints
+    let mut constraints = vec![];
     for _ in 0 .. (OsRng.next_u64() % 8).try_into().unwrap() {
       let mut eval = <Ristretto as Ciphersuite>::F::ZERO;
+      let mut constraint = LinComb::empty();
 
-      {
-        let mut wl = vec![];
-        for _ in 0 .. (OsRng.next_u64() % 4) {
-          let index = usize::try_from(OsRng.next_u64()).unwrap() % aL.len();
-          let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-          wl.push((index, weight));
-          eval += weight * aL[index];
-        }
-        WL.push(wl);
+      for _ in 0 .. (OsRng.next_u64() % 4) {
+        let index = usize::try_from(OsRng.next_u64()).unwrap() % aL.len();
+        let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+        constraint = constraint.term(weight, Variable::aL(index));
+        eval += weight * aL[index];
       }
 
-      {
-        let mut wr = vec![];
-        for _ in 0 .. (OsRng.next_u64() % 4) {
-          let index = usize::try_from(OsRng.next_u64()).unwrap() % aR.len();
-          let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-          wr.push((index, weight));
-          eval += weight * aR[index];
-        }
-        WR.push(wr);
+      for _ in 0 .. (OsRng.next_u64() % 4) {
+        let index = usize::try_from(OsRng.next_u64()).unwrap() % aR.len();
+        let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+        constraint = constraint.term(weight, Variable::aR(index));
+        eval += weight * aR[index];
       }
 
-      {
-        let mut wo = vec![];
-        for _ in 0 .. (OsRng.next_u64() % 4) {
-          let index = usize::try_from(OsRng.next_u64()).unwrap() % aO.len();
-          let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-          wo.push((index, weight));
-          eval += weight * aO[index];
-        }
-        WO.push(wo);
+      for _ in 0 .. (OsRng.next_u64() % 4) {
+        let index = usize::try_from(OsRng.next_u64()).unwrap() % aO.len();
+        let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+        constraint = constraint.term(weight, Variable::aO(index));
+        eval += weight * aO[index];
       }
 
-      for ((WCL, WCR), C) in WCL.iter_mut().zip(WCR.iter_mut()).zip(C.iter()) {
-        let mut wcl = vec![];
+      for (commitment, C) in C.iter().enumerate() {
         for _ in 0 .. (OsRng.next_u64() % 4) {
           let index = usize::try_from(OsRng.next_u64()).unwrap() % C.g_values.len();
           let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-          wcl.push((index, weight));
+          constraint = constraint.term(weight, Variable::CG { commitment, index });
           eval += weight * C.g_values[index];
         }
-        WCL.push(wcl);
 
-        let mut wcr = vec![];
         for _ in 0 .. (OsRng.next_u64() % 4) {
           let index = usize::try_from(OsRng.next_u64()).unwrap() % C.h_values.len();
           let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-          wcr.push((index, weight));
+          constraint = constraint.term(weight, Variable::CH { commitment, index });
           eval += weight * C.h_values[index];
         }
-        WCR.push(wcr);
       }
 
-      {
-        let mut wv = vec![];
-        if !V.is_empty() {
-          for _ in 0 .. (OsRng.next_u64() % 4) {
-            let index = usize::try_from(OsRng.next_u64()).unwrap() % V.len();
-            let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
-            wv.push((index, weight));
-            eval -= weight * V[index].value;
-          }
+      if !V.is_empty() {
+        for _ in 0 .. (OsRng.next_u64() % 4) {
+          let index = usize::try_from(OsRng.next_u64()).unwrap() % V.len();
+          let weight = <Ristretto as Ciphersuite>::F::random(&mut OsRng);
+          constraint = constraint.term(weight, Variable::V(index));
+          eval += weight * V[index].value;
         }
-        WV.push(wv);
       }
 
-      c.0.push(eval);
+      constraint = constraint.constant(-eval);
+
+      constraints.push(constraint);
     }
 
     let mut transcript = Transcript::new([0; 32]);
@@ -293,13 +228,7 @@ fn fuzz_test_arithmetic_circuit() {
 
     let statement = ArithmeticCircuitStatement::<Ristretto>::new(
       generators.reduce(16).unwrap(),
-      WL,
-      WR,
-      WO,
-      WCL,
-      WCR,
-      WV,
-      c,
+      constraints,
       commitments.clone(),
     )
     .unwrap();
