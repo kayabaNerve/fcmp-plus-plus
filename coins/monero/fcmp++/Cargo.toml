@@ -24,7 +24,6 @@ ciphersuite = { path = "../../../crypto/ciphersuite", features = ["ed25519", "he
 
 generalized-schnorr = { path = "../../../crypto/generalized-schnorr" }
 generalized-bulletproofs = { path = "../../../crypto/generalized-bulletproofs" }
-ec-divisors = { path = "../../../crypto/divisors", features = ["ed25519"] }
 fcmps = { package = "full-chain-membership-proofs", path = "../../../crypto/fcmps" }
 
 monero-generators = { path = "../generators" }
