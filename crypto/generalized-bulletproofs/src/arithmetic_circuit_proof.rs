@@ -547,8 +547,9 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
       accumulate_vector(&mut r_weights, &constraint.WR, *z);
       accumulate_vector(&mut o_weights, &constraint.WO, *z);
     }
+    let r_weights = r_weights * &y_inv;
 
-    let delta = (r_weights.clone() * &y_inv).inner_product(l_weights.0.iter());
+    let delta = r_weights.inner_product(l_weights.0.iter());
 
     let mut T_before_ni = Vec::with_capacity(ni);
     let mut T_after_ni = Vec::with_capacity(t_poly_len - ni - 1);
@@ -597,29 +598,30 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     }
 
     let verifier_weight = C::F::random(&mut *rng);
+    // Multiply `x` by `verifier_weight` as this effects `verifier_weight` onto most scalars and
+    // saves a notable amount of operations
+    let x = x * verifier_weight;
 
     // This following block effectively calculates P, within the multiexp
     {
-      verifier.additional.push((verifier_weight * x[ilr], AI));
-      verifier.additional.push((verifier_weight * x[io], AO));
+      verifier.additional.push((x[ilr], AI));
+      verifier.additional.push((x[io], AO));
       // h' ** y is equivalent to h as h' is h ** y_inv
       let mut log2_n = 0;
       while (1 << log2_n) != n {
         log2_n += 1;
       }
       verifier.h_sum[log2_n] -= verifier_weight;
-      verifier.additional.push((verifier_weight * x[is], S));
+      verifier.additional.push((x[is], S));
 
-      let mut h_bold_scalars = ScalarVector::new(n);
       // Lines 85-87 calculate WL, WR, WO
       // We preserve them in terms of g_bold and h_bold for a more efficient multiexp
-      h_bold_scalars = h_bold_scalars + &(l_weights * x[jlr]);
-      // WO is weighted by x**jo where jo == 0, hence why we can ignore the x term
-      h_bold_scalars = h_bold_scalars + &o_weights;
-
-      for (i, wr) in (r_weights * &y_inv * x[jlr]).0.into_iter().enumerate() {
-        verifier.g_bold[i] += verifier_weight * wr;
+      let mut h_bold_scalars = l_weights * x[jlr];
+      for (i, wr) in (r_weights * x[jlr]).0.into_iter().enumerate() {
+        verifier.g_bold[i] += wr;
       }
+      // WO is weighted by x**jo where jo == 0, hence why we can ignore the x term
+      h_bold_scalars = h_bold_scalars + &(o_weights * verifier_weight);
 
       let mut cg_weights = Vec::with_capacity(self.C.len());
       let mut ch_weights = Vec::with_capacity(self.C.len());
@@ -645,17 +647,17 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
       {
         let i = i + 1;
         let j = ni - i;
-        verifier.additional.push((verifier_weight * x[i], C));
+        verifier.additional.push((x[i], C));
         h_bold_scalars = h_bold_scalars + &(WCG * x[j]);
         for (i, scalar) in (WCH * &y_inv * x[j]).0.into_iter().enumerate() {
-          verifier.g_bold[i] += verifier_weight * scalar;
+          verifier.g_bold[i] += scalar;
         }
       }
 
       // All terms for h_bold here have actually been for h_bold', h_bold * y_inv
       h_bold_scalars = h_bold_scalars * &y_inv;
       for (i, scalar) in h_bold_scalars.0.into_iter().enumerate() {
-        verifier.h_bold[i] += verifier_weight * scalar;
+        verifier.h_bold[i] += scalar;
       }
 
       // Remove u * h from P
