@@ -428,11 +428,11 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
       tau_after_ni.push(C::F::random(&mut *rng));
     }
     // Calculate commitments to the coefficients of t, blinded by tau
-    assert_eq!(t.0[0 .. ni].len(), tau_before_ni.len());
+    debug_assert_eq!(t.0[0 .. ni].len(), tau_before_ni.len());
     for (t, tau) in t.0[0 .. ni].iter().zip(tau_before_ni.iter()) {
       transcript.push_point(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
     }
-    assert_eq!(t.0[(ni + 1) ..].len(), tau_after_ni.len());
+    debug_assert_eq!(t.0[(ni + 1) ..].len(), tau_after_ni.len());
     for (t, tau) in t.0[(ni + 1) ..].iter().zip(tau_after_ni.iter()) {
       transcript.push_point(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
     }
@@ -488,7 +488,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     // P = t_caret * g + l * g_bold + r * (y_inv * h_bold)
 
     let mut P_terms = Vec::with_capacity(1 + (2 * self.generators.len()));
-    assert_eq!(l.len(), r.len());
+    debug_assert_eq!(l.len(), r.len());
     for (i, (l, r)) in l.0.iter().zip(r.0.iter()).enumerate() {
       P_terms.push((*l, self.generators.g_bold(i)));
       P_terms.push((y_inv[i] * r, self.generators.h_bold(i)));

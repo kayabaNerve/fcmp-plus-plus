@@ -127,14 +127,14 @@ impl<F: PrimeField> ScalarVector<F> {
       res += *a * b;
       count += 1;
     }
-    assert_eq!(self.len(), count);
+    debug_assert_eq!(self.len(), count);
     res
   }
 
   pub(crate) fn split(mut self) -> (Self, Self) {
     assert!(self.len() > 1);
     let r = self.0.split_off(self.0.len() / 2);
-    assert_eq!(self.len(), r.len());
+    debug_assert_eq!(self.len(), r.len());
     (self, ScalarVector(r))
   }
 }

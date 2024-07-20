@@ -56,7 +56,7 @@ impl<C: Ciphersuite> PointVector<C> {
   }
 
   pub(crate) fn add_vec(&self, vector: &Self) -> Self {
-    assert_eq!(self.len(), vector.len());
+    debug_assert_eq!(self.len(), vector.len());
     let mut res = self.clone();
     for (i, val) in res.0.iter_mut().enumerate() {
       *val += vector.0[i];
@@ -65,7 +65,7 @@ impl<C: Ciphersuite> PointVector<C> {
   }
 
   pub(crate) fn sub_vec(&self, vector: &Self) -> Self {
-    assert_eq!(self.len(), vector.len());
+    debug_assert_eq!(self.len(), vector.len());
     let mut res = self.clone();
     for (i, val) in res.0.iter_mut().enumerate() {
       *val -= vector.0[i];
@@ -75,7 +75,7 @@ impl<C: Ciphersuite> PointVector<C> {
   */
 
   pub(crate) fn mul_vec(&self, vector: &ScalarVector<C::F>) -> Self {
-    assert_eq!(self.len(), vector.len());
+    debug_assert_eq!(self.len(), vector.len());
     let mut res = self.clone();
     for (i, val) in res.0.iter_mut().enumerate() {
       *val *= vector.0[i];
@@ -85,7 +85,7 @@ impl<C: Ciphersuite> PointVector<C> {
 
   #[cfg(test)]
   pub(crate) fn multiexp(&self, vector: &crate::ScalarVector<C::F>) -> C::G {
-    assert_eq!(self.len(), vector.len());
+    debug_assert_eq!(self.len(), vector.len());
     let mut res = Vec::with_capacity(self.len());
     for (point, scalar) in self.0.iter().copied().zip(vector.0.iter().copied()) {
       res.push((scalar, point));
@@ -95,7 +95,7 @@ impl<C: Ciphersuite> PointVector<C> {
 
   /*
   pub(crate) fn multiexp_vartime(&self, vector: &ScalarVector<C::F>) -> C::G {
-    assert_eq!(self.len(), vector.len());
+    debug_assert_eq!(self.len(), vector.len());
     let mut res = Vec::with_capacity(self.len());
     for (point, scalar) in self.0.iter().copied().zip(vector.0.iter().copied()) {
       res.push((scalar, point));
@@ -115,7 +115,7 @@ impl<C: Ciphersuite> PointVector<C> {
   pub(crate) fn split(mut self) -> (Self, Self) {
     assert!(self.len() > 1);
     let r = self.0.split_off(self.0.len() / 2);
-    assert_eq!(self.len(), r.len());
+    debug_assert_eq!(self.len(), r.len());
     (self, PointVector(r))
   }
 }
