@@ -19,11 +19,33 @@ impl DivisorCurve for Ep {
     Self::FieldElement::from(5u64)
   }
 
-  fn to_xy(point: Self) -> (Self::FieldElement, Self::FieldElement) {
+  fn to_xy(point: Self) -> Option<(Self::FieldElement, Self::FieldElement)> {
     Option::<Coordinates<_>>::from(point.to_affine().coordinates())
       .map(|coords| (*coords.x(), *coords.y()))
-      .unwrap_or((Fp::ZERO, Fp::ZERO))
   }
+}
+
+// Equation 4 in the security proofs
+fn check_divisor<C: DivisorCurve>(points: Vec<C>) {
+  // Create the divisor
+  let divisor = new_divisor::<C>(&points).unwrap();
+  let eval = |c| {
+    let (x, y) = C::to_xy(c).unwrap();
+    divisor.eval(x, y)
+  };
+
+  // Decide challgenges
+  let c0 = C::random(&mut OsRng);
+  let c1 = C::random(&mut OsRng);
+  let c2 = -(c0 + c1);
+  let (slope, intercept) = crate::slope_intercept::<C>(c0, c1);
+
+  let mut rhs = <C as DivisorCurve>::FieldElement::ONE;
+  for point in points {
+    let (x, y) = C::to_xy(point).unwrap();
+    rhs *= intercept - (y - (slope * x));
+  }
+  assert_eq!(eval(c0) * eval(c1) * eval(c2), rhs);
 }
 
 fn test_divisor<C: DivisorCurve>() {
@@ -37,6 +59,9 @@ fn test_divisor<C: DivisorCurve>() {
     }
     points.push(-points.iter().sum::<C>());
     println!("Points {}", points.len());
+
+    // Perform the original check
+    check_divisor(points.clone());
 
     // Create the divisor
     let divisor = new_divisor::<C>(&points).unwrap();
@@ -58,21 +83,6 @@ fn test_divisor<C: DivisorCurve>() {
     let c1 = C::random(&mut OsRng);
     let c2 = -(c0 + c1);
     let (slope, intercept) = crate::slope_intercept::<C>(c0, c1);
-
-    // Perform the original check
-    {
-      let eval = |c| {
-        let (x, y) = C::to_xy(c);
-        divisor.eval(x, y)
-      };
-
-      let mut rhs = C::FieldElement::ONE;
-      for point in &points {
-        let (x, y) = C::to_xy(*point);
-        rhs *= intercept - (y - (slope * x));
-      }
-      assert_eq!(eval(c0) * eval(c1) * eval(c2), rhs);
-    }
 
     // Perform the Logarithmic derivative check
     {
@@ -100,7 +110,7 @@ fn test_divisor<C: DivisorCurve>() {
 
       {
         let sanity_eval = |c| {
-          let (x, y) = C::to_xy(c);
+          let (x, y) = C::to_xy(c).unwrap();
           dx_over_dz.0.eval(x, y) * dx_over_dz.1.eval(x, y).invert().unwrap()
         };
         let sanity = sanity_eval(c0) + sanity_eval(c1) + sanity_eval(c2);
@@ -113,7 +123,7 @@ fn test_divisor<C: DivisorCurve>() {
         let (dx, dy) = divisor.differentiate();
 
         let lhs = |c| {
-          let (x, y) = C::to_xy(c);
+          let (x, y) = C::to_xy(c).unwrap();
 
           let n_0 = (C::FieldElement::from(3) * (x * x)) + C::a();
           let d_0 = (C::FieldElement::from(2) * y).invert().unwrap();
@@ -138,7 +148,7 @@ fn test_divisor<C: DivisorCurve>() {
 
         let mut rhs = C::FieldElement::ZERO;
         for point in &points {
-          let (x, y) = <C as DivisorCurve>::to_xy(*point);
+          let (x, y) = <C as DivisorCurve>::to_xy(*point).unwrap();
           rhs += (intercept - (y - (slope * x))).invert().unwrap();
         }
 
@@ -155,30 +165,47 @@ fn test_same_point<C: DivisorCurve>() {
   let mut points = vec![C::random(&mut OsRng)];
   points.push(points[0]);
   points.push(-points.iter().sum::<C>());
+  check_divisor(points);
+}
 
-  let divisor = new_divisor::<C>(&points).unwrap();
-  let eval = |c| {
-    let (x, y) = C::to_xy(c);
-    divisor.eval(x, y)
-  };
+fn test_subset_sum_to_infinity<C: DivisorCurve>() {
+  // Internally, a binary tree algorithm is used
+  // This executes the first pass to end up with [0, 0] for further reductions
+  {
+    let mut points = vec![C::random(&mut OsRng)];
+    points.push(-points[0]);
 
-  let c0 = C::random(&mut OsRng);
-  let c1 = C::random(&mut OsRng);
-  let c2 = -(c0 + c1);
-  let (slope, intercept) = crate::slope_intercept::<C>(c0, c1);
-
-  let mut rhs = <C as DivisorCurve>::FieldElement::ONE;
-  for point in points {
-    let (x, y) = C::to_xy(point);
-    rhs *= intercept - (y - (slope * x));
+    let next = C::random(&mut OsRng);
+    points.push(next);
+    points.push(-next);
+    check_divisor(points);
   }
-  assert_eq!(eval(c0) * eval(c1) * eval(c2), rhs);
+
+  // This executes the first pass to end up with [0, X, -X, 0]
+  {
+    let mut points = vec![C::random(&mut OsRng)];
+    points.push(-points[0]);
+
+    let x_1 = C::random(&mut OsRng);
+    let x_2 = C::random(&mut OsRng);
+    points.push(x_1);
+    points.push(x_2);
+
+    points.push(-x_1);
+    points.push(-x_2);
+
+    let next = C::random(&mut OsRng);
+    points.push(next);
+    points.push(-next);
+    check_divisor(points);
+  }
 }
 
 #[test]
 fn test_divisor_pallas() {
   test_divisor::<Ep>();
   test_same_point::<Ep>();
+  test_subset_sum_to_infinity::<Ep>();
 }
 
 #[test]
@@ -186,8 +213,8 @@ fn test_divisor_ed25519() {
   // Since we're implementing Wei25519 ourselves, check the isomorphism works as expected
   {
     let incomplete_add = |p1, p2| {
-      let (x1, y1) = EdwardsPoint::to_xy(p1);
-      let (x2, y2) = EdwardsPoint::to_xy(p2);
+      let (x1, y1) = EdwardsPoint::to_xy(p1).unwrap();
+      let (x2, y2) = EdwardsPoint::to_xy(p2).unwrap();
 
       // mmadd-1998-cmo
       let u = y2 - y1;
@@ -206,7 +233,7 @@ fn test_divisor_ed25519() {
       let y3 = y3 * z3.invert().unwrap();
 
       // Edwards addition -> Wei25519 coordinates should be equivalent to Wei25519 addition
-      assert_eq!(EdwardsPoint::to_xy(p1 + p2), (x3, y3));
+      assert_eq!(EdwardsPoint::to_xy(p1 + p2).unwrap(), (x3, y3));
     };
 
     for _ in 0 .. 256 {
@@ -216,4 +243,5 @@ fn test_divisor_ed25519() {
 
   test_divisor::<EdwardsPoint>();
   test_same_point::<EdwardsPoint>();
+  test_subset_sum_to_infinity::<EdwardsPoint>();
 }

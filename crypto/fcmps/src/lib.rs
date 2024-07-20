@@ -259,7 +259,7 @@ struct PreparedBlind<F: PrimeFieldBits> {
 }
 
 impl<F: PrimeFieldBits> PreparedBlind<F> {
-  fn new<C1: Ciphersuite>(blinding_generator: C1::G, blind: C1::F) -> Self
+  fn new<C1: Ciphersuite>(blinding_generator: C1::G, blind: C1::F) -> Option<Self>
   where
     C1::G: DivisorCurve<FieldElement = F>,
   {
@@ -281,8 +281,8 @@ impl<F: PrimeFieldBits> PreparedBlind<F> {
       new_divisor::<C1::G>(&points).unwrap().normalize_x_coefficient()
     };
 
-    let (x, y) = C1::G::to_xy(res_point);
-    Self { bits, divisor, x, y }
+    let (x, y) = C1::G::to_xy(res_point)?;
+    Some(Self { bits, divisor, x, y })
   }
 }
 
@@ -292,6 +292,15 @@ pub struct Output<OC: Ciphersuite> {
   O: OC::G,
   I: OC::G,
   C: OC::G,
+}
+
+impl<OC: Ciphersuite> Output<OC> {
+  pub fn new(O: OC::G, I: OC::G, C: OC::G) -> Option<Self> {
+    if bool::from(O.is_identity() | I.is_identity() | C.is_identity()) {
+      None?;
+    }
+    Some(Output { O, I, C })
+  }
 }
 
 /// A struct representing an input tuple.
@@ -304,13 +313,18 @@ pub struct Input<F: Field> {
 }
 
 impl<F: Field> Input<F> {
-  pub fn new<G: DivisorCurve<FieldElement = F>>(O_tilde: G, I_tilde: G, R: G, C_tilde: G) -> Self {
-    Input {
-      O_tilde: G::to_xy(O_tilde),
-      I_tilde: G::to_xy(I_tilde),
-      R: G::to_xy(R),
-      C_tilde: G::to_xy(C_tilde),
-    }
+  pub fn new<G: DivisorCurve<FieldElement = F>>(
+    O_tilde: G,
+    I_tilde: G,
+    R: G,
+    C_tilde: G,
+  ) -> Option<Self> {
+    Some(Input {
+      O_tilde: G::to_xy(O_tilde)?,
+      I_tilde: G::to_xy(I_tilde)?,
+      R: G::to_xy(R)?,
+      C_tilde: G::to_xy(C_tilde)?,
+    })
   }
 }
 
@@ -353,13 +367,16 @@ impl<F: PrimeFieldBits> OutputBlinds<F> {
     let C_tilde = output.C + (G * self.c_blind);
 
     PreparedBlinds {
-      // o_blind, i_blind, c_blind are used in-circuit as negative
-      o_blind: PreparedBlind::new::<C>(T, -self.o_blind),
-      i_blind_u: PreparedBlind::new::<C>(U, -self.i_blind),
-      i_blind_v: PreparedBlind::new::<C>(V, -self.i_blind),
-      i_blind_blind: PreparedBlind::new::<C>(T, self.i_blind_blind),
-      c_blind: PreparedBlind::new::<C>(G, -self.c_blind),
-      input: Input::new::<C::G>(O_tilde, I_tilde, R, C_tilde),
+      // o_blind, i_blind, c_blind are used in-circuit as their negatives
+      // These unwraps should be safe as select blinds on our end, uniformly from random
+      o_blind: PreparedBlind::new::<C>(T, -self.o_blind).unwrap(),
+      i_blind_u: PreparedBlind::new::<C>(U, -self.i_blind).unwrap(),
+      i_blind_v: PreparedBlind::new::<C>(V, -self.i_blind).unwrap(),
+      i_blind_blind: PreparedBlind::new::<C>(T, self.i_blind_blind).unwrap(),
+      c_blind: PreparedBlind::new::<C>(G, -self.c_blind).unwrap(),
+      // This unwrap should be safe as else it'd require we randomly selected inverses of discrete
+      // logarithms of each other
+      input: Input::new::<C::G>(O_tilde, I_tilde, R, C_tilde).unwrap(),
     }
   }
 }
@@ -412,10 +429,11 @@ where
     OC::G: DivisorCurve<FieldElement = C1::F>,
   {
     fn table<C: DivisorCurve>(mut generator: C) -> Vec<(C::FieldElement, C::FieldElement)> {
-      let mut table = vec![C::to_xy(generator)];
+      // Assumes this is actually a generator and isn't the point at infinity
+      let mut table = vec![C::to_xy(generator).unwrap()];
       for _ in 1 .. C::Scalar::NUM_BITS {
         generator = generator.double();
-        table.push(C::to_xy(generator));
+        table.push(C::to_xy(generator).unwrap());
       }
       table
     }
@@ -517,10 +535,11 @@ where
     // Flatten the leaves for the branch
     let mut flattened_leaves = vec![];
     for leaf in branches.leaves {
+      // leaf is of type Output which checks its members to not be the identity
       flattened_leaves.extend(&[
-        OC::G::to_xy(leaf.O).0,
-        OC::G::to_xy(leaf.I).0,
-        OC::G::to_xy(leaf.C).0,
+        OC::G::to_xy(leaf.O).unwrap().0,
+        OC::G::to_xy(leaf.I).unwrap().0,
+        OC::G::to_xy(leaf.C).unwrap().0,
       ]);
     }
 
@@ -552,7 +571,7 @@ where
       let blind = C1::F::random(&mut *rng);
       branches_1_blinds.push(blind);
       branches_1_blinds_prepared
-        .push(PreparedBlind::<_>::new::<C1>(params.curve_1_generators.h(), -blind));
+        .push(PreparedBlind::<_>::new::<C1>(params.curve_1_generators.h(), -blind).unwrap());
     }
 
     let mut branches_2_blinds = vec![];
@@ -561,7 +580,7 @@ where
       let blind = C2::F::random(&mut *rng);
       branches_2_blinds.push(blind);
       branches_2_blinds_prepared
-        .push(PreparedBlind::<_>::new::<C2>(params.curve_2_generators.h(), -blind));
+        .push(PreparedBlind::<_>::new::<C2>(params.curve_2_generators.h(), -blind).unwrap());
     }
 
     // Accumulate the opening for the leaves
@@ -582,7 +601,7 @@ where
     // items avilable in padding. We use this padding for all the other points we must commit to
     // For o_blind, we use the padding for O
     let (o_blind_claim, O) = {
-      let (x, y) = OC::G::to_xy(output.O);
+      let (x, y) = OC::G::to_xy(output.O).unwrap();
 
       append_claimed_point_1(
         &mut c1_tape,
@@ -593,7 +612,7 @@ where
     };
     // For i_blind_u, we use the padding for I
     let (i_blind_u_claim, I) = {
-      let (x, y) = OC::G::to_xy(output.I);
+      let (x, y) = OC::G::to_xy(output.I).unwrap();
       append_claimed_point_1(
         &mut c1_tape,
         usize::try_from(OC::F::NUM_BITS).unwrap(),
@@ -627,7 +646,7 @@ where
 
     // For c_blind, we use the padding for C
     let (c_blind_claim, C) = {
-      let (x, y) = OC::G::to_xy(output.C);
+      let (x, y) = OC::G::to_xy(output.C).unwrap();
       append_claimed_point_1(
         &mut c1_tape,
         usize::try_from(OC::F::NUM_BITS).unwrap(),
@@ -786,16 +805,20 @@ where
     assert!(commitments_2.C().len() > c1_branches.len());
     let commitment_iter = commitments_2.C().iter().cloned().zip(pvc_blinds_2.clone());
     let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
+    // The following two to_xy calls have negligible probability of failing as they'd require
+    // randomly selected blinds be the discrete logarithm of commitments, or one of our own
+    // commitments be identity
     for ((mut prior_commitment, prior_blind), (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
     {
       prior_commitment += params.curve_2_hash_init;
       let unblinded_hash = prior_commitment - (params.curve_2_generators.h() * prior_blind);
-      let (hash_x, hash_y, _) = c1_circuit.mul(None, None, Some(C2::G::to_xy(unblinded_hash)));
+      let (hash_x, hash_y, _) =
+        c1_circuit.mul(None, None, Some(C2::G::to_xy(unblinded_hash).unwrap()));
       c1_circuit.additional_layer(
         &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
         c1_dlog_challenge.as_ref().unwrap(),
-        C2::G::to_xy(prior_commitment),
+        C2::G::to_xy(prior_commitment).unwrap(),
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
@@ -823,11 +846,14 @@ where
     {
       prior_commitment += params.curve_1_hash_init;
       let unblinded_hash = prior_commitment - (params.curve_1_generators.h() * prior_blind);
-      let (hash_x, hash_y, _) = c2_circuit.mul(None, None, Some(C1::G::to_xy(unblinded_hash)));
+      // unwrap should be safe as no hash we built should be identity
+      let (hash_x, hash_y, _) =
+        c2_circuit.mul(None, None, Some(C1::G::to_xy(unblinded_hash).unwrap()));
       c2_circuit.additional_layer(
         &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
         c2_dlog_challenge.as_ref().unwrap(),
-        C1::G::to_xy(prior_commitment),
+        // unwrap should be safe as no commitment we've made should be identity
+        C1::G::to_xy(prior_commitment).unwrap(),
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
@@ -1063,7 +1089,8 @@ where
       c1_circuit.additional_layer(
         &CurveSpec { a: <C2::G as DivisorCurve>::a(), b: <C2::G as DivisorCurve>::b() },
         c1_dlog_challenge.as_ref().unwrap(),
-        C2::G::to_xy(params.curve_2_hash_init + prior_commitment),
+        // TODO: unwrap -> error, this can get hit by a malicious proof
+        C2::G::to_xy(params.curve_2_hash_init + prior_commitment).unwrap(),
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
@@ -1092,7 +1119,8 @@ where
       c2_circuit.additional_layer(
         &CurveSpec { a: <C1::G as DivisorCurve>::a(), b: <C1::G as DivisorCurve>::b() },
         c2_dlog_challenge.as_ref().unwrap(),
-        C1::G::to_xy(params.curve_1_hash_init + prior_commitment),
+        // TODO: unwrap -> error, this can get hit by a malicious proof
+        C1::G::to_xy(params.curve_1_hash_init + prior_commitment).unwrap(),
         prior_blind_opening,
         (hash_x, hash_y),
         branch,

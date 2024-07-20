@@ -10,6 +10,9 @@ mod inner_product;
 #[cfg(test)]
 mod arithmetic_circuit_proof;
 
+/// Generate a set of generators for testing purposes.
+///
+/// This should not be considered secure.
 pub fn generators<C: Ciphersuite>(n: usize) -> Generators<C> {
   assert_eq!(padded_pow_of_2(n), n, "amount of generators wasn't a power of 2");
 

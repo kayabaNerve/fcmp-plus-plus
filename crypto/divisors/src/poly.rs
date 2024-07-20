@@ -4,7 +4,7 @@ use zeroize::Zeroize;
 
 use group::ff::PrimeField;
 
-/// A structure representing a Polynomial with x and y terms.
+/// A structure representing a Polynomial with x**i, y**i, and y**i * x**j terms.
 #[derive(Clone, PartialEq, Eq, Debug, Zeroize)]
 pub struct Poly<F: PrimeField + From<u64>> {
   /// c[i] * y ** (i + 1)
@@ -28,7 +28,7 @@ impl<F: PrimeField + From<u64>> Poly<F> {
     }
   }
 
-  /// The amount of non-zero terms in the polynomial.
+  /// The amount of terms in the polynomial.
   #[allow(clippy::len_without_is_empty)]
   #[must_use]
   pub fn len(&self) -> usize {
@@ -421,7 +421,7 @@ impl<F: PrimeField + From<u64>> Poly<F> {
 
   /// Normalize the x coefficient to 1.
   ///
-  /// Panics if there is no x coefficient to normalize or if it cannot be normalized.
+  /// Panics if there is no x coefficient to normalize or if it cannot be normalized to 1.
   #[must_use]
   pub fn normalize_x_coefficient(self) -> Self {
     let scalar = self.x_coefficients[0].invert().unwrap();

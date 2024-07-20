@@ -1,3 +1,6 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![doc = include_str!("../README.md")]
+#![deny(missing_docs)]
 #![allow(non_snake_case)]
 
 use group::{
@@ -9,7 +12,7 @@ mod poly;
 pub use poly::*;
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;
 
 /// A curve usable with this library.
 pub trait DivisorCurve: Group
@@ -25,34 +28,41 @@ where
   fn b() -> Self::FieldElement;
 
   /// y^2 - x^3 - A x - B
+  ///
+  /// Section 2 of the security proofs define this modulus.
+  ///
+  /// This MUST NOT be overriden.
   fn divisor_modulus() -> Poly<Self::FieldElement> {
     Poly {
+      // 0 y**1, 1 y*2
       y_coefficients: vec![Self::FieldElement::ZERO, Self::FieldElement::ONE],
       yx_coefficients: vec![],
       x_coefficients: vec![
-        // A x
+        // - A x
         -Self::a(),
-        // x^2
+        // 0 x^2
         Self::FieldElement::ZERO,
-        // x^3
+        // - x^3
         -Self::FieldElement::ONE,
       ],
+      // - B
       zero_coefficient: -Self::b(),
     }
   }
 
   /// Convert a point to its x and y coordinates.
-  // TODO: Move to Option upon identity, and handle identity here?
-  fn to_xy(point: Self) -> (Self::FieldElement, Self::FieldElement);
+  ///
+  /// Returns None if passed the point at infinity.
+  fn to_xy(point: Self) -> Option<(Self::FieldElement, Self::FieldElement)>;
 }
 
 /// Calculate the slope and intercept between two points.
 ///
-/// This function panics when `a == b`.
-pub fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::FieldElement, C::FieldElement) {
-  let (ax, ay) = C::to_xy(a);
+/// This function panics when `a @ infinity`, `b @ infinity`, `a == b`, or when `a == -b`.
+pub(crate) fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::FieldElement, C::FieldElement) {
+  let (ax, ay) = C::to_xy(a).unwrap();
   debug_assert_eq!(C::divisor_modulus().eval(ax, ay), C::FieldElement::ZERO);
-  let (bx, by) = C::to_xy(b);
+  let (bx, by) = C::to_xy(b).unwrap();
   debug_assert_eq!(C::divisor_modulus().eval(bx, by), C::FieldElement::ZERO);
   let slope = (by - ay) *
     Option::<C::FieldElement>::from((bx - ax).invert())
@@ -65,24 +75,39 @@ pub fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::FieldElement, C::Fiel
 
 // The line interpolating two points.
 fn line<C: DivisorCurve>(a: C, mut b: C) -> Poly<C::FieldElement> {
-  // If these are additive inverses, the line is 1 * x - x
-  if (a + b) == C::identity() {
-    let (ax, _) = C::to_xy(a);
+  // If they're both the point at infinity, we simply set the line to one
+  if bool::from(a.is_identity() & b.is_identity()) {
+    return Poly {
+      y_coefficients: vec![],
+      yx_coefficients: vec![],
+      x_coefficients: vec![],
+      zero_coefficient: C::FieldElement::ONE,
+    };
+  }
+
+  // If either point is the point at infinity, or these are additive inverses, the line is
+  // `1 * x - x`. The first `x` is a term in the polynomial, the `x` is the `x` coordinate of these
+  // points (of which there is one, as the second point is either at infinity or has a matching `x`
+  // coordinate).
+  if bool::from(a.is_identity() | b.is_identity()) || (a == -b) {
+    let (x, _) = C::to_xy(if !bool::from(a.is_identity()) { a } else { b }).unwrap();
     return Poly {
       y_coefficients: vec![],
       yx_coefficients: vec![],
       x_coefficients: vec![C::FieldElement::ONE],
-      zero_coefficient: -ax,
+      zero_coefficient: -x,
     };
   }
 
-  // If the points are equal, we use the line interpolating the sum of these points with identity.
+  // If the points are equal, we use the line interpolating the sum of these points with the point
+  // at infinity
   if a == b {
     b = -a.double();
   }
 
   let (slope, intercept) = slope_intercept::<C>(a, b);
 
+  // Section 4 of the proofs explicitly state the line `L = y - lambda * x - mu`
   // y - (slope * x) - intercept
   Poly {
     y_coefficients: vec![C::FieldElement::ONE],
@@ -96,11 +121,11 @@ fn line<C: DivisorCurve>(a: C, mut b: C) -> Poly<C::FieldElement> {
 ///
 /// Returns None if:
 ///   - No points were passed in
-///   - The points don't sum to identity
-///   - A passed in point was identity
+///   - The points don't sum to the point at infinity
+///   - A passed in point was the point at infinity
 #[allow(clippy::new_ret_no_self)]
 pub fn new_divisor<C: DivisorCurve>(points: &[C]) -> Option<Poly<C::FieldElement>> {
-  // A single point is either identity, or this doesn't sum to identity
+  // A single point is either the point at infinity, or this doesn't sum to the point at infinity
   // Both cause us to return None
   if points.len() < 2 {
     None?;
@@ -159,7 +184,7 @@ pub fn new_divisor<C: DivisorCurve>(points: &[C]) -> Option<Poly<C::FieldElement
 mod ed25519 {
   use group::{
     ff::{Field, PrimeField},
-    GroupEncoding,
+    Group, GroupEncoding,
   };
   use dalek_ff_group::{FieldElement, EdwardsPoint};
 
@@ -185,7 +210,11 @@ mod ed25519 {
     }
 
     // https://www.ietf.org/archive/id/draft-ietf-lwig-curve-representations-02.pdf E.2
-    fn to_xy(point: Self) -> (Self::FieldElement, Self::FieldElement) {
+    fn to_xy(point: Self) -> Option<(Self::FieldElement, Self::FieldElement)> {
+      if bool::from(point.is_identity()) {
+        None?;
+      }
+
       // Extract the y coordinate from the compressed point
       let mut edwards_y = point.to_bytes();
       let x_is_odd = edwards_y[31] >> 7;
@@ -212,7 +241,7 @@ mod ed25519 {
       let c =
         (-(Self::FieldElement::from(486662u64) + Self::FieldElement::from(2u64))).sqrt().unwrap();
       let wei_y = c * edwards_y_plus_one * (one_minus_edwards_y * edwards_x).invert().unwrap();
-      (wei_x, wei_y)
+      Some((wei_x, wei_y))
     }
   }
 }

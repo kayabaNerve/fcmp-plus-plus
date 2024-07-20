@@ -9,7 +9,7 @@ fn random_output() -> Output<Ed25519> {
   let O = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
   let I = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
   let C = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
-  Output { O, I, C }
+  Output::new(O, I, C).unwrap()
 }
 
 #[inline(never)]
@@ -88,9 +88,9 @@ fn test() {
       .iter()
       .flat_map(|output| {
         [
-          <Ed25519 as Ciphersuite>::G::to_xy(output.O).0,
-          <Ed25519 as Ciphersuite>::G::to_xy(output.I).0,
-          <Ed25519 as Ciphersuite>::G::to_xy(output.C).0,
+          <Ed25519 as Ciphersuite>::G::to_xy(output.O).unwrap().0,
+          <Ed25519 as Ciphersuite>::G::to_xy(output.I).unwrap().0,
+          <Ed25519 as Ciphersuite>::G::to_xy(output.C).unwrap().0,
         ]
       })
       .zip(curve_1_generators.g_bold_slice())
@@ -113,7 +113,7 @@ fn test() {
       selene_hash.take().unwrap();
     let curve_2_layer = curve_2_layer
       .into_iter()
-      .map(|point| <Selene as Ciphersuite>::G::to_xy(point).0)
+      .map(|point| <Selene as Ciphersuite>::G::to_xy(point).unwrap().0)
       .collect::<Vec<_>>();
 
     helios_hash = Some({
@@ -139,7 +139,7 @@ fn test() {
       helios_hash.take().unwrap();
     let curve_1_layer = curve_1_layer
       .into_iter()
-      .map(|point| <Helios as Ciphersuite>::G::to_xy(point).0)
+      .map(|point| <Helios as Ciphersuite>::G::to_xy(point).unwrap().0)
       .collect::<Vec<_>>();
 
     selene_hash = Some({

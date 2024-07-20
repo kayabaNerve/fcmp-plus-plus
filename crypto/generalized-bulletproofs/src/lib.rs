@@ -1,3 +1,6 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![doc = include_str!("../README.md")]
+#![deny(missing_docs)]
 #![allow(non_snake_case)]
 
 use core::fmt;
@@ -23,6 +26,7 @@ pub mod transcript;
 
 pub(crate) mod inner_product;
 
+/// The arithmetic circuit proof.
 pub mod arithmetic_circuit_proof;
 
 /// Functionlity useful when testing.
@@ -41,9 +45,13 @@ pub(crate) fn padded_pow_of_2(i: usize) -> usize {
 /// An error from working with generators.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GeneratorsError {
+  /// The provided list of generators for `g` (bold) was empty.
   GBoldEmpty,
+  /// The provided list of generators for `h` (bold) did not match `g` (bold) in length.
   DifferingGhBoldLengths,
+  /// The amount of provided generators were not a power of two.
   NotPowerOfTwo,
+  /// A generator was used multiple times.
   DuplicatedGenerator,
 }
 
