@@ -18,7 +18,9 @@ jobs:
           key: rust-advisory-db
 
       - name: Install cargo deny
-        run: cargo +nightly install --locked cargo-deny
+        run: |
+          rustup toolchain install nightly
+          cargo +nightly install --locked cargo-deny
 
       - name: Run cargo deny
         run: cargo deny -L error --all-features check
