@@ -21,7 +21,7 @@ use ciphersuite::{
 
 use ec_divisors::{Poly, DivisorCurve, new_divisor};
 use generalized_bulletproofs::{
-  Generators, BatchVerifier,
+  Generators, BatchVerifier, PedersenVectorCommitment,
   transcript::{Transcript as ProverTranscript, VerifierTranscript},
 };
 
@@ -740,8 +740,30 @@ where
     }
 
     // Create the circuits
-    let mut c1_circuit = Circuit::<C1>::prove(c1_tape.commitments);
-    let mut c2_circuit = Circuit::<C2>::prove(c2_tape.commitments);
+    let mut c1_circuit = Circuit::<C1>::prove(
+      c1_tape
+        .commitments
+        .into_iter()
+        .zip(&pvc_blinds_1)
+        .map(|((g_values, h_values), mask)| PedersenVectorCommitment {
+          g_values: g_values.into(),
+          h_values: h_values.into(),
+          mask: *mask,
+        })
+        .collect(),
+    );
+    let mut c2_circuit = Circuit::<C2>::prove(
+      c2_tape
+        .commitments
+        .into_iter()
+        .zip(&pvc_blinds_2)
+        .map(|((g_values, h_values), mask)| PedersenVectorCommitment {
+          g_values: g_values.into(),
+          h_values: h_values.into(),
+          mask: *mask,
+        })
+        .collect(),
+    );
 
     // Perform the layers
     c1_circuit.first_layer(
@@ -865,14 +887,12 @@ where
     // dbg!(c2_circuit.muls());
 
     // TODO: unwrap -> Result
-    let (c1_statement, c1_witness) = c1_circuit
-      .statement(params.curve_1_generators.reduce(256).unwrap(), commitments_1, pvc_blinds_1)
-      .unwrap();
+    let (c1_statement, c1_witness) =
+      c1_circuit.statement(params.curve_1_generators.reduce(256).unwrap(), commitments_1).unwrap();
     c1_statement.clone().prove(rng, &mut transcript, c1_witness.unwrap()).unwrap();
 
-    let (c2_statement, c2_witness) = c2_circuit
-      .statement(params.curve_2_generators.reduce(128).unwrap(), commitments_2, pvc_blinds_2)
-      .unwrap();
+    let (c2_statement, c2_witness) =
+      c2_circuit.statement(params.curve_2_generators.reduce(128).unwrap(), commitments_2).unwrap();
     c2_statement.prove(rng, &mut transcript, c2_witness.unwrap()).unwrap();
 
     Fcmp { _c1: PhantomData, _c2: PhantomData, proof: transcript.complete(), root_blind_pok }
@@ -1132,14 +1152,12 @@ where
     // dbg!(c2_circuit.muls());
 
     // TODO: unwrap -> Result
-    let (c1_statement, _witness) = c1_circuit
-      .statement(params.curve_1_generators.reduce(256).unwrap(), proof_1_vcs, vec![])
-      .unwrap();
+    let (c1_statement, _witness) =
+      c1_circuit.statement(params.curve_1_generators.reduce(256).unwrap(), proof_1_vcs).unwrap();
     c1_statement.verify(rng, verifier_1, &mut transcript).unwrap();
 
-    let (c2_statement, _witness) = c2_circuit
-      .statement(params.curve_2_generators.reduce(128).unwrap(), proof_2_vcs, vec![])
-      .unwrap();
+    let (c2_statement, _witness) =
+      c2_circuit.statement(params.curve_2_generators.reduce(128).unwrap(), proof_2_vcs).unwrap();
     c2_statement.verify(rng, verifier_2, &mut transcript).unwrap();
   }
 }

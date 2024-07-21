@@ -1,139 +1,50 @@
-use ciphersuite::{
-  group::ff::{Field, PrimeField},
-  Ciphersuite,
-};
+use ciphersuite::Ciphersuite;
 
 use generalized_bulletproofs::{
-  ScalarVector, PedersenVectorCommitment, ProofGenerators,
-  transcript::{Transcript as ProverTranscript, VerifierTranscript, Commitments},
+  PedersenVectorCommitment, ProofGenerators,
+  transcript::Commitments,
   arithmetic_circuit_proof::{AcError, ArithmeticCircuitStatement, ArithmeticCircuitWitness},
 };
 pub(crate) use generalized_bulletproofs::arithmetic_circuit_proof::{Variable, LinComb};
 
+use generalized_bulletproofs_circuit_abstraction::{Circuit as UnderlyingCircuit};
+pub(crate) use generalized_bulletproofs_circuit_abstraction::Transcript;
+
 use crate::gadgets::*;
-
-pub(crate) trait Transcript {
-  fn challenge<F: PrimeField>(&mut self) -> F;
-}
-impl Transcript for ProverTranscript {
-  fn challenge<F: PrimeField>(&mut self) -> F {
-    self.challenge()
-  }
-}
-impl Transcript for VerifierTranscript<'_> {
-  fn challenge<F: PrimeField>(&mut self) -> F {
-    self.challenge()
-  }
-}
-
-/// The witness for the satisfaction of this circuit.
-#[derive(Clone, PartialEq, Eq, Debug)]
-struct ProverData<F: Field> {
-  aL: Vec<F>,
-  aR: Vec<F>,
-  C: Vec<(Vec<F>, Vec<F>)>,
-}
 
 /// A struct representing a circuit.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub(crate) struct Circuit<C: Ciphersuite> {
-  muls: usize,
-  // A series of linear combinations which must evaluate to 0.
-  constraints: Vec<LinComb<C::F>>,
-  prover: Option<ProverData<C::F>>,
-}
+pub(crate) struct Circuit<C: Ciphersuite>(pub(crate) UnderlyingCircuit<C>);
 
 impl<C: Ciphersuite> Circuit<C> {
-  // Returns the amount of multiplications used by this circuit.
   pub(crate) fn muls(&self) -> usize {
-    self.muls
+    self.0.muls()
   }
 
-  // Create an instance to prove with.
   #[allow(clippy::type_complexity)]
-  pub(crate) fn prove(commitments: Vec<(Vec<C::F>, Vec<C::F>)>) -> Self {
-    Self {
-      muls: 0,
-      constraints: vec![],
-      prover: Some(ProverData { aL: vec![], aR: vec![], C: commitments }),
-    }
+  pub(crate) fn prove(commitments: Vec<PedersenVectorCommitment<C>>) -> Self {
+    Self(UnderlyingCircuit::prove(commitments, vec![]))
   }
 
-  // Create an instance to verify with.
   pub(crate) fn verify() -> Self {
-    Self { muls: 0, constraints: vec![], prover: None }
+    Self(UnderlyingCircuit::verify())
   }
 
-  /// Evaluate a constraint.
-  ///
-  /// Yields WL aL + WR aR + WO aO + WCG CG + WCH CH + c.
-  ///
-  /// Panics if the constraint references non-existent terms.
-  ///
-  /// Returns None if not a prover.
-  pub(crate) fn eval(&self, constraint: &LinComb<C::F>) -> Option<C::F> {
-    self.prover.as_ref().map(|prover| {
-      let mut res = constraint.c();
-      for (index, weight) in constraint.WL() {
-        res += prover.aL[*index] * weight;
-      }
-      for (index, weight) in constraint.WR() {
-        res += prover.aR[*index] * weight;
-      }
-      for (index, weight) in constraint.WO() {
-        res += prover.aL[*index] * prover.aR[*index] * weight;
-      }
-      for (WCG, C) in constraint.WCG().iter().zip(&prover.C) {
-        for (j, weight) in WCG {
-          res += C.0[*j] * weight;
-        }
-      }
-      for (WCH, C) in constraint.WCH().iter().zip(&prover.C) {
-        for (j, weight) in WCH {
-          res += C.1[*j] * weight;
-        }
-      }
-      res
-    })
+  pub(crate) fn eval(&self, lincomb: &LinComb<C::F>) -> Option<C::F> {
+    self.0.eval(lincomb)
   }
 
-  /// Multiply two values, optionally constrained, returning the constrainable left/right/out
-  /// terms.
-  ///
-  /// This will panic if passed a witness when this circuit isn't constructed for proving.
   pub(crate) fn mul(
     &mut self,
     a: Option<LinComb<C::F>>,
     b: Option<LinComb<C::F>>,
     witness: Option<(C::F, C::F)>,
   ) -> (Variable, Variable, Variable) {
-    let l = Variable::aL(self.muls);
-    let r = Variable::aR(self.muls);
-    let o = Variable::aO(self.muls);
-    self.muls += 1;
-
-    assert_eq!(self.prover.is_some(), witness.is_some());
-    if let Some(witness) = witness {
-      let prover = self.prover.as_mut().unwrap();
-      prover.aL.push(witness.0);
-      prover.aR.push(witness.1);
-    }
-
-    if let Some(a) = a {
-      self.constrain_equal_to_zero(a.term(-C::F::ONE, l));
-    }
-    if let Some(b) = b {
-      self.constrain_equal_to_zero(b.term(-C::F::ONE, r));
-    }
-
-    (l, r, o)
+    self.0.mul(a, b, witness)
   }
 
-  pub(crate) fn constrain_equal_to_zero(&mut self, constraint: LinComb<C::F>) {
-    if let Some(eval) = self.eval(&constraint) {
-      assert_eq!(eval, C::F::ZERO);
-    }
-    self.constraints.push(constraint);
+  pub(crate) fn constrain_equal_to_zero(&mut self, lincomb: LinComb<C::F>) {
+    self.0.constrain_equal_to_zero(lincomb)
   }
 
   #[allow(clippy::too_many_arguments)]
@@ -245,32 +156,7 @@ impl<C: Ciphersuite> Circuit<C> {
     self,
     generators: ProofGenerators<'_, C>,
     commitments: Commitments<C>,
-    commitment_blinds: Vec<C::F>,
   ) -> Result<(ArithmeticCircuitStatement<'_, C>, Option<ArithmeticCircuitWitness<C>>), AcError> {
-    let statement = ArithmeticCircuitStatement::new(generators, self.constraints, commitments)?;
-
-    let witness = self
-      .prover
-      .map(|prover| {
-        assert_eq!(prover.C.len(), commitment_blinds.len());
-        ArithmeticCircuitWitness::new(
-          ScalarVector::from(prover.aL),
-          ScalarVector::from(prover.aR),
-          prover
-            .C
-            .into_iter()
-            .zip(commitment_blinds)
-            .map(|(values, blind)| PedersenVectorCommitment {
-              g_values: ScalarVector::from(values.0),
-              h_values: ScalarVector::from(values.1),
-              mask: blind,
-            })
-            .collect(),
-          vec![],
-        )
-      })
-      .transpose()?;
-
-    Ok((statement, witness))
+    self.0.statement(generators, commitments)
   }
 }

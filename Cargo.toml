@@ -23,6 +23,7 @@ members = [
   "crypto/generalized-schnorr",
   "crypto/divisors",
   "crypto/generalized-bulletproofs",
+  "crypto/fcmps/circuit-abstraction",
   "crypto/fcmps",
 
   # "coins/monero/generators",

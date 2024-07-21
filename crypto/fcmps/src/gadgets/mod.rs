@@ -45,28 +45,16 @@ fn incomplete_add<F: Field>(x1: F, y1: F, x2: F, y2: F) -> Option<(F, F)> {
 }
 
 impl<C: Ciphersuite> Circuit<C> {
-  /// Constrain two constrainable items as equal.
   fn equality(&mut self, a: LinComb<C::F>, b: &LinComb<C::F>) {
-    self.constrain_equal_to_zero(a - b);
+    self.0.equality(a, b)
   }
 
-  /// Obtain the inverse of a value. Returns a constrainable reference to the value and its
-  /// inverse.
-  ///
-  /// This will panic if the witness is zero.
   fn inverse(&mut self, a: Option<LinComb<C::F>>, witness: Option<C::F>) -> (Variable, Variable) {
-    let (l, r, o) = self.mul(a, None, witness.map(|f| (f, f.invert().unwrap())));
-    // The output of a value multiplied by its inverse is 1
-    // Constrain `1 o - 1 = 0`
-    self.constrain_equal_to_zero(LinComb::from(o).constant(-C::F::ONE));
-    (l, r)
+    self.0.inverse(a, witness)
   }
 
-  /// Constrain two items as inequal.
   fn inequality(&mut self, a: LinComb<C::F>, b: &LinComb<C::F>, witness: Option<(C::F, C::F)>) {
-    let l_constraint = a - b;
-    // The existence of a multiplicative inverse means a-b != 0, which means a != b
-    self.inverse(Some(l_constraint), witness.map(|(a, b)| a - b));
+    self.0.inequality(a, b, witness)
   }
 
   /// Constrain an item as being a member of a list.

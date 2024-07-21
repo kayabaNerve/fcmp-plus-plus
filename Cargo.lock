@@ -513,6 +513,7 @@ dependencies = [
  "dalek-ff-group",
  "ec-divisors",
  "generalized-bulletproofs",
+ "generalized-bulletproofs-circuit-abstraction",
  "helioselene",
  "multiexp",
  "rand_core",
@@ -567,6 +568,15 @@ dependencies = [
  "flexible-transcript",
  "multiexp",
  "rand_core",
+ "zeroize",
+]
+
+[[package]]
+name = "generalized-bulletproofs-circuit-abstraction"
+version = "0.1.0"
+dependencies = [
+ "ciphersuite",
+ "generalized-bulletproofs",
  "zeroize",
 ]
 

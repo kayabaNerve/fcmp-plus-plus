@@ -24,6 +24,7 @@ ciphersuite = { path = "../ciphersuite", version = "0.4", default-features = fal
 
 ec-divisors = { path = "../divisors" }
 generalized-bulletproofs = { path = "../generalized-bulletproofs" }
+generalized-bulletproofs-circuit-abstraction = { path = "./circuit-abstraction" }
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
