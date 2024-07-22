@@ -1,9 +1,46 @@
 use rand_core::OsRng;
 
+use generic_array::typenum::{Sum, Diff, Quot, U, U1, U2};
+
 use multiexp::multiexp_vartime;
 use ciphersuite::{group::Group, Ciphersuite, Ed25519, Selene, Helios};
 
 use crate::*;
+
+struct Ed25519Params;
+impl DiscreteLogParameters for Ed25519Params {
+  type ScalarBits = U<{ <<Ed25519 as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
+  type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
+  type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+}
+
+struct SeleneParams;
+impl DiscreteLogParameters for SeleneParams {
+  type ScalarBits = U<{ <<Selene as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
+  type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
+  type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+}
+
+struct HeliosParams;
+impl DiscreteLogParameters for HeliosParams {
+  type ScalarBits = U<{ <<Helios as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
+  type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
+  type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+}
+
+#[derive(Clone)]
+struct MoneroCurves;
+impl FcmpCurves for MoneroCurves {
+  type OC = Ed25519;
+  type OcParameters = Ed25519Params;
+  type C1 = Selene;
+  type C1Parameters = SeleneParams;
+  type C2 = Helios;
+  type C2Parameters = HeliosParams;
+}
 
 fn random_output() -> Output<Ed25519> {
   let O = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
@@ -16,8 +53,8 @@ fn random_output() -> Output<Ed25519> {
 fn verify_fn(
   iters: usize,
   batch: usize,
-  proof: Fcmp<Selene, Helios>,
-  params: &FcmpParams<Selene, Helios>,
+  proof: Fcmp<MoneroCurves>,
+  params: &FcmpParams<MoneroCurves>,
   root: TreeRoot<Selene, Helios>,
   layer_lens: &[usize],
   input: Input<<Selene as Ciphersuite>::F>,
@@ -30,15 +67,7 @@ fn verify_fn(
     let mut verifier_2 = params.curve_2_generators.batch_verifier();
 
     for _ in 0 .. batch {
-      proof.verify::<_, Ed25519>(
-        &mut OsRng,
-        &mut verifier_1,
-        &mut verifier_2,
-        params,
-        root,
-        layer_lens,
-        input,
-      );
+      proof.verify(&mut OsRng, &mut verifier_1, &mut verifier_2, params, root, layer_lens, input);
     }
 
     assert!(params.curve_1_generators.verify(verifier_1));
@@ -59,7 +88,7 @@ fn test() {
 
   let curve_1_generators = generalized_bulletproofs::tests::generators::<Selene>(256);
   let curve_2_generators = generalized_bulletproofs::tests::generators::<Helios>(256);
-  let params = FcmpParams::<_, _>::new::<Ed25519>(
+  let params = FcmpParams::<MoneroCurves>::new(
     curve_1_generators.clone(),
     curve_2_generators.clone(),
     <Selene as Ciphersuite>::G::random(&mut OsRng),

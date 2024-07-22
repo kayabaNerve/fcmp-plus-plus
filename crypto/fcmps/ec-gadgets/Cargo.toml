@@ -1,11 +1,11 @@
 [package]
-name = "generalized-bulletproofs-circuit-abstraction"
+name = "generalized-bulletproofs-ec-gadgets"
 version = "0.1.0"
-description = "An abstraction for arithmetic circuits over Generalized Bulletproofs"
+description = "Gadgets for working with an embedded Elliptic Curve in a Generalized Bulletproofs circuit"
 license = "MIT"
-repository = "https://github.com/kayabaNerve/fcmp-plus-plus/tree/develop/crypto/fcmps/circuit-abstraction"
+repository = "https://github.com/kayabaNerve/fcmp-plus-plus/tree/develop/crypto/fcmps/ec-gadgets"
 authors = ["Luke Parker <lukeparker5132@gmail.com>"]
-keywords = ["bulletproofs", "circuit"]
+keywords = ["bulletproofs", "circuit", "divisors"]
 edition = "2021"
 
 [package.metadata.docs.rs]
@@ -15,6 +15,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 zeroize = { version = "^1.5", default-features = false, features = ["zeroize_derive"] }
 
+generic-array = { version = "1", default-features = false, features = ["alloc"] }
+
 ciphersuite = { path = "../../ciphersuite", version = "0.4", default-features = false, features = ["std"] }
 
 generalized-bulletproofs = { path = "../../generalized-bulletproofs" }
+generalized-bulletproofs-circuit-abstraction = { path = "../circuit-abstraction" }

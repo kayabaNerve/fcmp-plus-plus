@@ -514,6 +514,8 @@ dependencies = [
  "ec-divisors",
  "generalized-bulletproofs",
  "generalized-bulletproofs-circuit-abstraction",
+ "generalized-bulletproofs-ec-gadgets",
+ "generic-array 1.1.0",
  "helioselene",
  "multiexp",
  "rand_core",
@@ -577,6 +579,17 @@ version = "0.1.0"
 dependencies = [
  "ciphersuite",
  "generalized-bulletproofs",
+ "zeroize",
+]
+
+[[package]]
+name = "generalized-bulletproofs-ec-gadgets"
+version = "0.1.0"
+dependencies = [
+ "ciphersuite",
+ "generalized-bulletproofs",
+ "generalized-bulletproofs-circuit-abstraction",
+ "generic-array 1.1.0",
  "zeroize",
 ]
 

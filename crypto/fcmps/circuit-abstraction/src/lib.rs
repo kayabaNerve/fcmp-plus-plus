@@ -15,7 +15,7 @@ use generalized_bulletproofs::{
   transcript::{Transcript as ProverTranscript, VerifierTranscript, Commitments},
   arithmetic_circuit_proof::{AcError, ArithmeticCircuitStatement, ArithmeticCircuitWitness},
 };
-pub(crate) use generalized_bulletproofs::arithmetic_circuit_proof::{Variable, LinComb};
+pub use generalized_bulletproofs::arithmetic_circuit_proof::{Variable, LinComb};
 
 mod gadgets;
 
@@ -87,7 +87,7 @@ impl<C: Ciphersuite> Circuit<C> {
   ///
   /// Yields WL aL + WR aR + WO aO + WCG CG + WCH CH + WV V + c.
   ///
-  /// Panics if the linear combination references non-existent terms.
+  /// May panic if the linear combination references non-existent terms.
   ///
   /// Returns None if not a prover.
   pub fn eval(&self, lincomb: &LinComb<C::F>) -> Option<C::F> {
@@ -122,7 +122,8 @@ impl<C: Ciphersuite> Circuit<C> {
   /// Multiply two values, optionally constrained, returning the constrainable left/right/out
   /// terms.
   ///
-  /// Panics if the witness isn't provided when proving/is provided when verifying.
+  /// May panic if any linear combinations reference non-existent terms or if the witness isn't
+  /// provided when proving/is provided when verifying.
   pub fn mul(
     &mut self,
     a: Option<LinComb<C::F>>,
@@ -153,7 +154,7 @@ impl<C: Ciphersuite> Circuit<C> {
 
   /// Constrain a linear combination to be equal to 0.
   ///
-  /// Panics if the linear combination references non-existent terms.
+  /// May panic if the linear combination references non-existent terms.
   pub fn constrain_equal_to_zero(&mut self, lincomb: LinComb<C::F>) {
     self.constraints.push(lincomb);
   }

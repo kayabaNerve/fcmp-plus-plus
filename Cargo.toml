@@ -24,6 +24,7 @@ members = [
   "crypto/divisors",
   "crypto/generalized-bulletproofs",
   "crypto/fcmps/circuit-abstraction",
+  "crypto/fcmps/ec-gadgets",
   "crypto/fcmps",
 
   # "coins/monero/generators",

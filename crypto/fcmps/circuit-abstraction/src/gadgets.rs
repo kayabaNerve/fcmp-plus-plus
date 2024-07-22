@@ -13,8 +13,9 @@ impl<C: Ciphersuite> Circuit<C> {
   /// A linear combination may optionally be passed as a constraint for the value being inverted.
   /// A reference to the inverted value and its inverse is returned.
   ///
-  /// Panics if the witness isn't provided when proving/is provided when verifying, or if the
-  /// witness is 0 (and accordingly doesn't have an inverse).
+  /// May panic if any linear combinations reference non-existent terms, the witness isn't provided
+  /// when proving/is provided when verifying, or if the witness is 0 (and accordingly doesn't have
+  /// an inverse).
   pub fn inverse(
     &mut self,
     lincomb: Option<LinComb<C::F>>,
@@ -28,6 +29,8 @@ impl<C: Ciphersuite> Circuit<C> {
   }
 
   /// Constrain two linear combinations as inequal.
+  ///
+  /// May panic if any linear combinations reference non-existent terms.
   pub fn inequality(&mut self, a: LinComb<C::F>, b: &LinComb<C::F>, witness: Option<(C::F, C::F)>) {
     let l_constraint = a - b;
     // The existence of a multiplicative inverse means a-b != 0, which means a != b
