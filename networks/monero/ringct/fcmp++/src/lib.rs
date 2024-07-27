@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 
+use std_shims::sync::OnceLock;
+
 use rand_core::{RngCore, CryptoRng};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -17,9 +19,12 @@ use ciphersuite::{
 };
 
 use generalized_schnorr::GeneralizedSchnorr;
+use generalized_bulletproofs::Generators;
 use generalized_bulletproofs_ec_gadgets::*;
 use fcmps::*;
 
+use monero_io::write_varint;
+use monero_primitives::keccak256;
 use monero_generators::{H, T, FCMP_U, FCMP_V, hash_to_point};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -58,6 +63,60 @@ impl FcmpCurves for Curves {
   type C1Parameters = SeleneParams;
   type C2 = Helios;
   type C2Parameters = HeliosParams;
+}
+
+fn hash_to_point_on_curve<C: Ciphersuite>(buf: &[u8]) -> C::G {
+  let mut buf = keccak256(buf);
+  let mut repr = <C::G as GroupEncoding>::Repr::default();
+  loop {
+    repr.as_mut().copy_from_slice(&buf);
+    if let Ok(point) = C::read_G(&mut repr.as_ref()) {
+      return point;
+    }
+    buf = keccak256(buf);
+  }
+}
+
+static HELIOS_GENERATORS_CELL: OnceLock<Generators<Helios>> = OnceLock::new();
+#[allow(non_snake_case)]
+pub fn HELIOS_GENERATORS() -> &'static Generators<Helios> {
+  HELIOS_GENERATORS_CELL.get_or_init(|| {
+    let g = hash_to_point_on_curve::<Helios>(b"Monero Helios G");
+    let h = hash_to_point_on_curve::<Helios>(b"Monero Helios H");
+    let mut g_bold = Vec::with_capacity(512);
+    let mut h_bold = Vec::with_capacity(512);
+    for i in 0u32 .. 512 {
+      let mut g_buf = b"Monero Helios G ".to_vec();
+      write_varint(&i, &mut g_buf).unwrap();
+      g_bold.push(hash_to_point_on_curve::<Helios>(&g_buf));
+
+      let mut h_buf = b"Monero Helios H ".to_vec();
+      write_varint(&i, &mut h_buf).unwrap();
+      h_bold.push(hash_to_point_on_curve::<Helios>(&h_buf));
+    }
+    Generators::new(g, h, g_bold, h_bold).unwrap()
+  })
+}
+
+static SELENE_GENERATORS_CELL: OnceLock<Generators<Selene>> = OnceLock::new();
+#[allow(non_snake_case)]
+pub fn SELENE_GENERATORS() -> &'static Generators<Selene> {
+  SELENE_GENERATORS_CELL.get_or_init(|| {
+    let g = hash_to_point_on_curve::<Selene>(b"Monero Selene G");
+    let h = hash_to_point_on_curve::<Selene>(b"Monero Selene H");
+    let mut g_bold = Vec::with_capacity(512);
+    let mut h_bold = Vec::with_capacity(512);
+    for i in 0u32 .. 512 {
+      let mut g_buf = b"Monero Selene G ".to_vec();
+      write_varint(&i, &mut g_buf).unwrap();
+      g_bold.push(hash_to_point_on_curve::<Selene>(&g_buf));
+
+      let mut h_buf = b"Monero Selene H ".to_vec();
+      write_varint(&i, &mut h_buf).unwrap();
+      h_bold.push(hash_to_point_on_curve::<Selene>(&h_buf));
+    }
+    Generators::new(g, h, g_bold, h_bold).unwrap()
+  })
 }
 
 #[derive(Clone, PartialEq, Eq, Zeroize)]

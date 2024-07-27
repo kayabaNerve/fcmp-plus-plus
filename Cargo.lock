@@ -937,8 +937,11 @@ dependencies = [
  "generalized-schnorr",
  "generic-array 1.1.0",
  "monero-generators",
+ "monero-io",
+ "monero-primitives",
  "multiexp",
  "rand_core",
+ "std-shims",
  "zeroize",
 ]
 
@@ -962,6 +965,19 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "std-shims",
+]
+
+[[package]]
+name = "monero-primitives"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "hex",
+ "monero-generators",
+ "monero-io",
+ "sha3",
+ "std-shims",
+ "zeroize",
 ]
 
 [[package]]

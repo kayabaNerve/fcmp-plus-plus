@@ -13,6 +13,8 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+std-shims = { path = "../../../../common/std-shims", version = "^0.1.1", default-features = false }
+
 rand_core = "0.6"
 zeroize = "1"
 
@@ -29,4 +31,6 @@ generalized-bulletproofs = { path = "../../../../crypto/generalized-bulletproofs
 generalized-bulletproofs-ec-gadgets = { path = "../../../../crypto/fcmps/ec-gadgets" }
 fcmps = { package = "full-chain-membership-proofs", path = "../../../../crypto/fcmps" }
 
+monero-io = { path = "../../io" }
 monero-generators = { path = "../../generators" }
+monero-primitives = { path = "../../primitives" }
