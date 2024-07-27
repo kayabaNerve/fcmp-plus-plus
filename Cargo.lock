@@ -587,10 +587,8 @@ name = "generalized-bulletproofs-ec-gadgets"
 version = "0.1.0"
 dependencies = [
  "ciphersuite",
- "generalized-bulletproofs",
  "generalized-bulletproofs-circuit-abstraction",
  "generic-array 1.1.0",
- "zeroize",
 ]
 
 [[package]]
