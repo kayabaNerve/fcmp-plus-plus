@@ -3,22 +3,62 @@
 use rand_core::{RngCore, CryptoRng};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+use generic_array::typenum::{Sum, Diff, Quot, U, U1, U2};
+
 use transcript::{Transcript, RecommendedTranscript};
 
 use dalek_ff_group::EdwardsPoint;
 use ciphersuite::{
-  group::{ff::Field, Group, GroupEncoding},
+  group::{
+    ff::{Field, PrimeField},
+    Group, GroupEncoding,
+  },
   Ciphersuite, Ed25519, Helios, Selene,
 };
 
 use generalized_schnorr::GeneralizedSchnorr;
-pub use fcmps;
-use fcmps::{TreeRoot, FcmpParams, Fcmp};
+use generalized_bulletproofs_ec_gadgets::*;
+use fcmps::*;
 
 use monero_generators::{H, T, FCMP_U, FCMP_V, hash_to_point};
 
-// TODO
-pub const FCMP_LEN: usize = 0;
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Ed25519Params;
+impl DiscreteLogParameters for Ed25519Params {
+  type ScalarBits = U<{ <<Ed25519 as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
+  type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
+  type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SeleneParams;
+impl DiscreteLogParameters for SeleneParams {
+  type ScalarBits = U<{ <<Selene as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
+  type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
+  type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct HeliosParams;
+impl DiscreteLogParameters for HeliosParams {
+  type ScalarBits = U<{ <<Helios as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
+  type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
+  type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Curves;
+impl FcmpCurves for Curves {
+  type OC = Ed25519;
+  type OcParameters = Ed25519Params;
+  type C1 = Selene;
+  type C1Parameters = SeleneParams;
+  type C2 = Helios;
+  type C2Parameters = HeliosParams;
+}
 
 #[derive(Clone, PartialEq, Eq, Zeroize)]
 pub struct Output {
@@ -71,9 +111,9 @@ impl RerandomizedOutput {
     let r_j = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
     let r_c = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
 
-    let O_tilde = output.O + (T() * r_o);
-    let I_tilde = output.I + (FCMP_U() * r_i);
-    let R = (FCMP_V() * r_i) + (T() * r_j);
+    let O_tilde = output.O + (EdwardsPoint(T()) * r_o);
+    let I_tilde = output.I + (EdwardsPoint(FCMP_U()) * r_i);
+    let R = (EdwardsPoint(FCMP_V()) * r_i) + (EdwardsPoint(T()) * r_j);
     let C_tilde = output.C + (<Ed25519 as Ciphersuite>::generator() * r_c);
 
     RerandomizedOutput { input: Input { O_tilde, I_tilde, R, C_tilde }, r_o, r_i, r_j, r_c }
@@ -107,7 +147,7 @@ impl OpenedInputTuple {
   ) -> Option<OpenedInputTuple> {
     // Verify the opening is consistent.
     let mut y_tilde = rerandomized_output.r_o + y;
-    if (<Ed25519 as Ciphersuite>::generator() * x) + (T() * y_tilde) !=
+    if (<Ed25519 as Ciphersuite>::generator() * x) + (EdwardsPoint(T()) * y_tilde) !=
       rerandomized_output.input.O_tilde
     {
       y_tilde.zeroize();
@@ -146,9 +186,9 @@ impl SpendAuthAndLinkability {
     opening: OpenedInputTuple,
   ) -> (<Ed25519 as Ciphersuite>::G, SpendAuthAndLinkability) {
     let G = <Ed25519 as Ciphersuite>::G::generator();
-    let T = T();
-    let U = FCMP_U();
-    let V = FCMP_V();
+    let T = EdwardsPoint(T());
+    let U = EdwardsPoint(FCMP_U());
+    let V = EdwardsPoint(FCMP_V());
 
     let L = (opening.input.I_tilde * opening.x) - (U * opening.r_i);
 
@@ -223,14 +263,14 @@ impl SpendAuthAndLinkability {
 #[derive(Clone, Debug, Zeroize)]
 pub struct FcmpPlusPlus {
   input: Input,
-  fcmp: Fcmp<Selene, Helios>,
+  fcmp: Fcmp<Curves>,
   spend_auth_and_linkability: SpendAuthAndLinkability,
 }
 
 impl FcmpPlusPlus {
   pub fn new(
     input: Input,
-    fcmp: Fcmp<Selene, Helios>,
+    fcmp: Fcmp<Curves>,
     spend_auth_and_linkability: SpendAuthAndLinkability,
   ) -> FcmpPlusPlus {
     FcmpPlusPlus { input, fcmp, spend_auth_and_linkability }
@@ -243,8 +283,8 @@ impl FcmpPlusPlus {
     verifier_ed: &mut multiexp::BatchVerifier<(), <Ed25519 as Ciphersuite>::G>,
     verifier_1: &mut generalized_bulletproofs::BatchVerifier<Selene>,
     verifier_2: &mut generalized_bulletproofs::BatchVerifier<Helios>,
-    params: &FcmpParams<RecommendedTranscript, Selene, Helios>,
-    tree: TreeRoot<Selene, Helios>,
+    params: &FcmpParams<Curves>,
+    tree: TreeRoot<<Curves as FcmpCurves>::C1, <Curves as FcmpCurves>::C2>,
     layer_lens: &[usize],
     signable_tx_hash: [u8; 32],
     key_image: <Ed25519 as Ciphersuite>::G,
@@ -257,18 +297,10 @@ impl FcmpPlusPlus {
       key_image,
     );
 
-    let mut fcmp_transcript = RecommendedTranscript::new(b"FCMP++ Membership");
+    // TODO: Return false, don't panic
     let fcmp_input =
-      fcmps::Input::new(self.input.O_tilde, self.input.I_tilde, self.input.R, self.input.C_tilde);
-    self.fcmp.verify::<_, _, Ed25519>(
-      rng,
-      &mut fcmp_transcript,
-      verifier_1,
-      verifier_2,
-      params,
-      tree,
-      layer_lens,
-      fcmp_input,
-    );
+      fcmps::Input::new(self.input.O_tilde, self.input.I_tilde, self.input.R, self.input.C_tilde)
+        .unwrap();
+    self.fcmp.verify(rng, verifier_1, verifier_2, params, tree, layer_lens, fcmp_input);
   }
 }

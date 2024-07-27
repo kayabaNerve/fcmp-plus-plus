@@ -925,6 +925,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "monero-fcmp-plus-plus"
+version = "0.1.0"
+dependencies = [
+ "ciphersuite",
+ "dalek-ff-group",
+ "flexible-transcript",
+ "full-chain-membership-proofs",
+ "generalized-bulletproofs",
+ "generalized-bulletproofs-ec-gadgets",
+ "generalized-schnorr",
+ "generic-array 1.1.0",
+ "monero-generators",
+ "multiexp",
+ "rand_core",
+ "zeroize",
+]
+
+[[package]]
 name = "monero-generators"
 version = "0.4.0"
 dependencies = [

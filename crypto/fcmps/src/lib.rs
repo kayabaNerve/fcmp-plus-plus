@@ -31,6 +31,7 @@ mod gadgets;
 pub(crate) use gadgets::*;
 mod circuit;
 pub(crate) use circuit::*;
+pub use circuit::FcmpCurves;
 
 pub mod tree;
 

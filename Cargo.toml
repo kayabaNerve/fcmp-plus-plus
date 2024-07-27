@@ -29,6 +29,7 @@ members = [
 
   "networks/monero/io",
   "networks/monero/generators",
+  "networks/monero/ringct/fcmp++",
 
   "tests/no-std",
 ]

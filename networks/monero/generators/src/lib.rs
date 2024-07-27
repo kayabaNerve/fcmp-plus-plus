@@ -50,6 +50,27 @@ pub fn H_pow_2() -> &'static [EdwardsPoint; 64] {
   })
 }
 
+static T_CELL: OnceLock<EdwardsPoint> = OnceLock::new();
+/// Monero's output key randomness generator `T`.
+#[allow(non_snake_case)]
+pub fn T() -> EdwardsPoint {
+  *T_CELL.get_or_init(|| hash_to_point(keccak256(b"Monero Generator T")))
+}
+
+static U_CELL: OnceLock<EdwardsPoint> = OnceLock::new();
+/// FCMP++s's key image blinding generator `U`.
+#[allow(non_snake_case)]
+pub fn FCMP_U() -> EdwardsPoint {
+  *U_CELL.get_or_init(|| hash_to_point(keccak256(b"Monero FCMP++ Generator U")))
+}
+
+static V_CELL: OnceLock<EdwardsPoint> = OnceLock::new();
+/// Monero's randomness commitment generator `V`.
+#[allow(non_snake_case)]
+pub fn FCMP_V() -> EdwardsPoint {
+  *V_CELL.get_or_init(|| hash_to_point(keccak256(b"Monero FCMP++ Generator V")))
+}
+
 /// The maximum amount of commitments provable for within a single range proof.
 pub const MAX_COMMITMENTS: usize = 16;
 /// The amount of bits a value within a commitment may use.

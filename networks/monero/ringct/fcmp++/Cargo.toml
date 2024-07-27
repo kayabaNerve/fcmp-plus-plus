@@ -1,0 +1,32 @@
+[package]
+name = "monero-fcmp-plus-plus"
+version = "0.1.0"
+description = "Implementation of FCMP++s for Monero"
+license = "MIT"
+repository = "https://github.com/kayabaNerve/fcmp-plus-plus/tree/develop/networks/monero/ringct/fcmp++"
+authors = ["Luke Parker <lukeparker5132@gmail.com>"]
+keywords = ["monero", "ciphersuite", "ff", "group"]
+edition = "2021"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+rand_core = "0.6"
+zeroize = "1"
+
+generic-array = { version = "1", default-features = false, features = ["alloc"] }
+
+transcript = { package = "flexible-transcript", path = "../../../../crypto/transcript", features = ["recommended"] }
+
+multiexp = { path = "../../../../crypto/multiexp" }
+dalek-ff-group = { path = "../../../../crypto/dalek-ff-group" }
+ciphersuite = { path = "../../../../crypto/ciphersuite", features = ["ed25519", "helioselene"] }
+
+generalized-schnorr = { path = "../../../../crypto/generalized-schnorr" }
+generalized-bulletproofs = { path = "../../../../crypto/generalized-bulletproofs" }
+generalized-bulletproofs-ec-gadgets = { path = "../../../../crypto/fcmps/ec-gadgets" }
+fcmps = { package = "full-chain-membership-proofs", path = "../../../../crypto/fcmps" }
+
+monero-generators = { path = "../../generators" }
