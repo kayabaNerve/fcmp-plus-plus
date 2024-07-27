@@ -925,6 +925,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "monero-generators"
+version = "0.4.0"
+dependencies = [
+ "curve25519-dalek",
+ "dalek-ff-group",
+ "group",
+ "hex",
+ "monero-io",
+ "sha3",
+ "std-shims",
+ "subtle",
+]
+
+[[package]]
+name = "monero-io"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "std-shims",
+]
+
+[[package]]
 name = "multiexp"
 version = "0.4.0"
 dependencies = [

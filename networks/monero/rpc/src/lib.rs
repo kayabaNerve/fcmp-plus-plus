@@ -702,7 +702,7 @@ pub trait Rpc: Sync + Clone + Debug {
       let mut has_status = false;
 
       if read_bytes::<_, { EPEE_HEADER.len() }>(&mut indexes)? != EPEE_HEADER {
-        Err(io::Error::other("invalid header"))?;
+        Err(io::Error::new(io::ErrorKind::Other, "invalid header"))?;
       }
 
       let read_object = |reader: &mut &[u8]| -> io::Result<Vec<u64>> {
@@ -737,11 +737,11 @@ pub trait Rpc: Sync + Clone + Debug {
               // claim this to be a complete deserialization function
               // To ensure it works for this specific use case, it's best to ensure it's limited
               // to this specific use case (ensuring we have less variables to deal with)
-              _ => Err(io::Error::other(format!("unrecognized field in get_o_indexes: {name:?}")))?,
+              _ => Err(io::Error::new(io::ErrorKind::Other, format!("unrecognized field in get_o_indexes: {name:?}")))?,
             };
             if (expected_type != kind) || (expected_array_flag != has_array_flag) {
               let fmt_array_bool = |array_bool| if array_bool { "array" } else { "not array" };
-              Err(io::Error::other(format!(
+              Err(io::Error::new(io::ErrorKind::Other, format!(
                 "field {name:?} was {kind} ({}), expected {expected_type} ({})",
                 fmt_array_bool(has_array_flag),
                 fmt_array_bool(expected_array_flag)
@@ -777,7 +777,7 @@ pub trait Rpc: Sync + Clone + Debug {
               let len = read_epee_vi(reader)?;
               read_raw_vec(
                 read_byte,
-                len.try_into().map_err(|_| io::Error::other("u64 length exceeded usize"))?,
+                len.try_into().map_err(|_| io::Error::new(io::ErrorKind::Other, "u64 length exceeded usize"))?,
                 reader,
               )
             },
@@ -786,12 +786,12 @@ pub trait Rpc: Sync + Clone + Debug {
             /*
             // object, errors here as it shouldn't be used on this call
             12 => {
-              |_: &mut &[u8]| Err(io::Error::other("node used object in reply to get_o_indexes"))
+              |_: &mut &[u8]| Err(io::Error::new(io::ErrorKind::Other, "node used object in reply to get_o_indexes"))
             }
             // array, so far unused
-            13 => |_: &mut &[u8]| Err(io::Error::other("node used the unused array type")),
+            13 => |_: &mut &[u8]| Err(io::Error::new(io::ErrorKind::Other, "node used the unused array type")),
             */
-            _ => |_: &mut &[u8]| Err(io::Error::other("node used an invalid type")),
+            _ => |_: &mut &[u8]| Err(io::Error::new(io::ErrorKind::Other, "node used an invalid type")),
           };
 
           let mut bytes_res = vec![];
@@ -810,21 +810,21 @@ pub trait Rpc: Sync + Clone + Debug {
             b"status" => {
               if bytes_res
                 .first()
-                .ok_or_else(|| io::Error::other("status was a 0-length array"))?
+                .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "status was a 0-length array"))?
                 .as_slice() !=
                 b"OK"
               {
-                Err(io::Error::other("response wasn't OK"))?;
+                Err(io::Error::new(io::ErrorKind::Other, "response wasn't OK"))?;
               }
               has_status = true;
             }
             b"untrusted" | b"credits" | b"top_hash" => continue,
-            _ => Err(io::Error::other("unrecognized field in get_o_indexes"))?,
+            _ => Err(io::Error::new(io::ErrorKind::Other, "unrecognized field in get_o_indexes"))?,
           }
         }
 
         if !has_status {
-          Err(io::Error::other("response didn't contain a status"))?;
+          Err(io::Error::new(io::ErrorKind::Other, "response didn't contain a status"))?;
         }
 
         // If the Vec was empty, it would've been omitted, hence the unwrap_or

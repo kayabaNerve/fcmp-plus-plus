@@ -199,7 +199,7 @@ impl RctBase {
       return Ok(None);
     }
     let rct_type =
-      RctType::try_from(rct_type).map_err(|()| io::Error::other("invalid RCT type"))?;
+      RctType::try_from(rct_type).map_err(|()| io::Error::new(io::ErrorKind::Other, "invalid RCT type"))?;
 
     match rct_type {
       RctType::AggregateMlsagBorromean | RctType::MlsagBorromean => {}
@@ -213,7 +213,7 @@ impl RctBase {
           // If there are Bulletproofs, there must be a matching amount of outputs, implicitly
           // banning 0 outputs
           // Since HF 12 (CLSAG being 13), a 2-output minimum has also been enforced
-          Err(io::Error::other("RCT with Bulletproofs(+) had 0 outputs"))?;
+          Err(io::Error::new(io::ErrorKind::Other, "RCT with Bulletproofs(+) had 0 outputs"))?;
         }
       }
     }
@@ -355,7 +355,7 @@ impl RctPrunable {
             read_varint(r)?
           }) != 1
           {
-            Err(io::Error::other("n bulletproofs instead of one"))?;
+            Err(io::Error::new(io::ErrorKind::Other, "n bulletproofs instead of one"))?;
           }
           Bulletproof::read(r)?
         };
@@ -372,7 +372,7 @@ impl RctPrunable {
       RctType::ClsagBulletproof | RctType::ClsagBulletproofPlus => RctPrunable::Clsag {
         bulletproof: {
           if read_varint::<_, u64>(r)? != 1 {
-            Err(io::Error::other("n bulletproofs instead of one"))?;
+            Err(io::Error::new(io::ErrorKind::Other, "n bulletproofs instead of one"))?;
           }
           (if rct_type == RctType::ClsagBulletproof {
             Bulletproof::read

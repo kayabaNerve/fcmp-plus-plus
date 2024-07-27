@@ -75,7 +75,7 @@ impl Input {
           key_image: read_torsion_free_point(r)?,
         }
       }
-      _ => Err(io::Error::other("Tried to deserialize unknown/unused input type"))?,
+      _ => Err(io::Error::new(io::ErrorKind::Other, "Tried to deserialize unknown/unused input type"))?,
     })
   }
 }
@@ -115,7 +115,7 @@ impl Output {
     let amount = read_varint(r)?;
     let amount = if rct {
       if amount != 0 {
-        Err(io::Error::other("RCT TX output wasn't 0"))?;
+        Err(io::Error::new(io::ErrorKind::Other, "RCT TX output wasn't 0"))?;
       }
       None
     } else {
@@ -125,7 +125,7 @@ impl Output {
     let view_tag = match read_byte(r)? {
       2 => false,
       3 => true,
-      _ => Err(io::Error::other("Tried to deserialize unknown/unused output type"))?,
+      _ => Err(io::Error::new(io::ErrorKind::Other, "Tried to deserialize unknown/unused output type"))?,
     };
 
     Ok(Output {
@@ -243,7 +243,7 @@ impl TransactionPrefix {
 
     let inputs = read_vec(|r| Input::read(r), r)?;
     if inputs.is_empty() {
-      Err(io::Error::other("transaction had no inputs"))?;
+      Err(io::Error::new(io::ErrorKind::Other, "transaction had no inputs"))?;
     }
     let is_miner_tx = matches!(inputs[0], Input::Gen { .. });
 
@@ -286,7 +286,7 @@ mod sealed {
           Input::ToKey { key_offsets, .. } => {
             signatures.push(RingSignature::read(key_offsets.len(), r)?)
           }
-          _ => Err(io::Error::other("reading signatures for a transaction with non-ToKey inputs"))?,
+          _ => Err(io::Error::new(io::ErrorKind::Other, "reading signatures for a transaction with non-ToKey inputs"))?,
         }
       }
       Ok(signatures)
@@ -481,7 +481,7 @@ impl<P: PotentiallyPruned> Transaction<P> {
 
       Ok(Transaction::V2 { prefix, proofs })
     } else {
-      Err(io::Error::other("tried to deserialize unknown version"))
+      Err(io::Error::new(io::ErrorKind::Other, "tried to deserialize unknown version"))
     }
   }
 
