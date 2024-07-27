@@ -27,9 +27,8 @@ members = [
   "crypto/fcmps/ec-gadgets",
   "crypto/fcmps",
 
-  # "coins/monero/generators",
-  # "coins/monero/fcmp++",
-  # "coins/monero",
+  "networks/monero/io",
+  "networks/monero/generators",
 
   "tests/no-std",
 ]
