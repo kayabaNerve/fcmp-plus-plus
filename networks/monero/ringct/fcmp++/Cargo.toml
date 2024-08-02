@@ -12,6 +12,9 @@ edition = "2021"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[package.metadata.cargo-machete]
+ignored = ["ec-divisors"]
+
 [dependencies]
 std-shims = { path = "../../../../common/std-shims", version = "^0.1.1", default-features = false }
 
@@ -28,6 +31,7 @@ ciphersuite = { path = "../../../../crypto/ciphersuite", features = ["ed25519", 
 
 generalized-schnorr = { path = "../../../../crypto/generalized-schnorr" }
 generalized-bulletproofs = { path = "../../../../crypto/generalized-bulletproofs" }
+ec-divisors = { path = "../../../../crypto/divisors", features = ["ed25519"] }
 generalized-bulletproofs-ec-gadgets = { path = "../../../../crypto/fcmps/ec-gadgets" }
 fcmps = { package = "full-chain-membership-proofs", path = "../../../../crypto/fcmps" }
 
