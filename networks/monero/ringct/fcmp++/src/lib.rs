@@ -33,7 +33,7 @@ impl DiscreteLogParameters for Ed25519Params {
   type ScalarBits = U<{ <<Ed25519 as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
   type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
   type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
-  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+  type YxCoefficients = Diff<Quot<Sum<Sum<Self::ScalarBits, U1>, U1>, U2>, U2>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -42,7 +42,7 @@ impl DiscreteLogParameters for SeleneParams {
   type ScalarBits = U<{ <<Selene as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
   type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
   type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
-  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+  type YxCoefficients = Diff<Quot<Sum<Sum<Self::ScalarBits, U1>, U1>, U2>, U2>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -51,7 +51,7 @@ impl DiscreteLogParameters for HeliosParams {
   type ScalarBits = U<{ <<Helios as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
   type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
   type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
-  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+  type YxCoefficients = Diff<Quot<Sum<Sum<Self::ScalarBits, U1>, U1>, U2>, U2>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -75,6 +75,20 @@ fn hash_to_point_on_curve<C: Ciphersuite>(buf: &[u8]) -> C::G {
     }
     buf = keccak256(buf);
   }
+}
+
+static HELIOS_HASH_INIT_CELL: OnceLock<<Helios as Ciphersuite>::G> = OnceLock::new();
+#[allow(non_snake_case)]
+pub fn HELIOS_HASH_INIT() -> <Helios as Ciphersuite>::G {
+  *HELIOS_HASH_INIT_CELL
+    .get_or_init(|| hash_to_point_on_curve::<Helios>(b"Monero Helios Hash Initializer"))
+}
+
+static SELENE_HASH_INIT_CELL: OnceLock<<Selene as Ciphersuite>::G> = OnceLock::new();
+#[allow(non_snake_case)]
+pub fn SELENE_HASH_INIT() -> <Selene as Ciphersuite>::G {
+  *SELENE_HASH_INIT_CELL
+    .get_or_init(|| hash_to_point_on_curve::<Selene>(b"Monero Selene Hash Initializer"))
 }
 
 static HELIOS_GENERATORS_CELL: OnceLock<Generators<Helios>> = OnceLock::new();

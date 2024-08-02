@@ -243,6 +243,6 @@ impl Decoys {
       read_byte(r)?,
       read_vec(|r| Ok([read_point(r)?, read_point(r)?]), r)?,
     )
-    .ok_or_else(|| io::Error::other("invalid Decoys"))
+    .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid Decoys"))
   }
 }
