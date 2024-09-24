@@ -40,7 +40,7 @@ mod tests;
 
 /// The blinds used with an output.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct OutputBlinds<F: PrimeFieldBits> {
+pub struct OutputBlinds<F: Zeroize + PrimeFieldBits> {
   o_blind: F,
   i_blind: F,
   i_blind_blind: F,
@@ -48,15 +48,15 @@ pub struct OutputBlinds<F: PrimeFieldBits> {
 }
 
 /// A blind, prepared for usage within the circuit.
-#[derive(Clone, PartialEq, Eq, Debug)]
-struct PreparedBlind<F: PrimeFieldBits> {
+#[derive(Clone, Debug)]
+struct PreparedBlind<F: Zeroize + PrimeFieldBits> {
   bits: Vec<bool>,
   divisor: Poly<F>,
   x: F,
   y: F,
 }
 
-impl<F: PrimeFieldBits> PreparedBlind<F> {
+impl<F: Zeroize + PrimeFieldBits> PreparedBlind<F> {
   fn new<C1: Ciphersuite>(blinding_generator: C1::G, blind: C1::F) -> Option<Self>
   where
     C1::G: DivisorCurve<FieldElement = F>,
@@ -127,8 +127,8 @@ impl<F: PrimeField> Input<F> {
 }
 
 /// The blinds used for an output, prepared for usage within the circuit.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PreparedBlinds<F: PrimeFieldBits> {
+#[derive(Clone, Debug)]
+pub struct PreparedBlinds<F: Zeroize + PrimeFieldBits> {
   o_blind: PreparedBlind<F>,
   i_blind_u: PreparedBlind<F>,
   i_blind_v: PreparedBlind<F>,
@@ -137,7 +137,7 @@ pub struct PreparedBlinds<F: PrimeFieldBits> {
   pub(crate) input: Input<F>,
 }
 
-impl<F: PrimeFieldBits> OutputBlinds<F> {
+impl<F: Zeroize + PrimeFieldBits> OutputBlinds<F> {
   pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
     let o_blind = F::random(&mut *rng);
     let i_blind = F::random(&mut *rng);
@@ -157,7 +157,7 @@ impl<F: PrimeFieldBits> OutputBlinds<F> {
   ) -> PreparedBlinds<<C::G as DivisorCurve>::FieldElement>
   where
     C::G: DivisorCurve,
-    <C::G as DivisorCurve>::FieldElement: PrimeFieldBits,
+    <C::G as DivisorCurve>::FieldElement: Zeroize + PrimeFieldBits,
   {
     let O_tilde = output.O + (T * self.o_blind);
     let I_tilde = output.I + (U * self.i_blind);
