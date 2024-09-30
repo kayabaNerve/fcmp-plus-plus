@@ -42,7 +42,7 @@ impl FcmpCurves for MoneroCurves {
   type C2Parameters = HeliosParams;
 }
 
-fn random_output() -> Output<Ed25519> {
+fn random_output() -> Output<<Ed25519 as Ciphersuite>::G> {
   let O = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
   let I = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
   let C = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
@@ -206,24 +206,64 @@ fn test() {
 
   let branches = Branches { leaves, curve_2_layers, curve_1_layers };
 
+  let blinded_output_start = std::time::Instant::now();
+  let blinds = BlindedOutput::new(
+    OBlind::new(
+      T,
+      ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+    ),
+    IBlind::new(
+      U,
+      V,
+      ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+    ),
+    IBlindBlind::new(
+      T,
+      ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+    ),
+    CBlind::new(
+      G,
+      ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+    ),
+    output,
+  )
+  .unwrap();
+  dbg!((std::time::Instant::now() - blinded_output_start).as_millis());
+  let input = blinds.input;
+
+  let proof = Fcmp::prove(&mut OsRng, &params, root, output, blinds, branches.clone());
+
+  verify_fn(100, 1, proof.clone(), &params, root, &layer_lens, input);
+  verify_fn(100, 10, proof.clone(), &params, root, &layer_lens, input);
+  verify_fn(100, 100, proof.clone(), &params, root, &layer_lens, input);
+
   let prove_start = std::time::Instant::now();
-  for _ in 0 .. 100 {
-    let blinds = OutputBlinds::new(&mut OsRng);
-    let blinds = blinds.prepare(G, T, U, V, output);
+  for _ in 0 .. 10 {
+    let blinds = BlindedOutput::new(
+      OBlind::new(
+        T,
+        ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+      ),
+      IBlind::new(
+        U,
+        V,
+        ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+      ),
+      IBlindBlind::new(
+        T,
+        ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+      ),
+      CBlind::new(
+        G,
+        ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+      ),
+      output,
+    )
+    .unwrap();
 
     let proof = Fcmp::prove(&mut OsRng, &params, root, output, blinds, branches.clone());
 
     core::hint::black_box(proof);
   }
   dbg!((std::time::Instant::now() - prove_start).as_millis());
-
-  let blinds = OutputBlinds::new(&mut OsRng);
-  let blinds = blinds.prepare(G, T, U, V, output);
-  let input = blinds.input;
-
-  let proof = Fcmp::prove(&mut OsRng, &params, root, output, blinds, branches);
-
-  verify_fn(100, 1, proof.clone(), &params, root, &layer_lens, input);
-  verify_fn(100, 10, proof.clone(), &params, root, &layer_lens, input);
-  verify_fn(100, 100, proof.clone(), &params, root, &layer_lens, input);
 }

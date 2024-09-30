@@ -12,15 +12,15 @@ use blake2::{
 
 use ciphersuite::{
   group::{
-    ff::{Field, PrimeField, PrimeFieldBits},
+    ff::{Field, PrimeField},
     Group, GroupEncoding,
   },
   Ciphersuite,
 };
 
-use ec_divisors::{Poly, DivisorCurve, new_divisor};
+use ec_divisors::{DivisorCurve, ScalarDecomposition};
 use generalized_bulletproofs::{
-  Generators, BatchVerifier, PedersenVectorCommitment,
+  BatchVerifier, PedersenVectorCommitment,
   transcript::{Transcript as ProverTranscript, VerifierTranscript},
 };
 
@@ -30,70 +30,30 @@ mod circuit;
 pub(crate) use circuit::*;
 pub use circuit::FcmpCurves;
 
+mod blinds;
+pub use blinds::*;
+
 mod tape;
 use tape::*;
+
+mod params;
+pub use params::*;
 
 pub mod tree;
 
 #[cfg(test)]
 mod tests;
 
-/// The blinds used with an output.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct OutputBlinds<F: Zeroize + PrimeFieldBits> {
-  o_blind: F,
-  i_blind: F,
-  i_blind_blind: F,
-  c_blind: F,
-}
-
-/// A blind, prepared for usage within the circuit.
-#[derive(Clone, Debug)]
-struct PreparedBlind<F: Zeroize + PrimeFieldBits> {
-  bits: Vec<bool>,
-  divisor: Poly<F>,
-  x: F,
-  y: F,
-}
-
-impl<F: Zeroize + PrimeFieldBits> PreparedBlind<F> {
-  fn new<C1: Ciphersuite>(blinding_generator: C1::G, blind: C1::F) -> Option<Self>
-  where
-    C1::G: DivisorCurve<FieldElement = F>,
-  {
-    let mut bits = blind.to_le_bits().into_iter().collect::<Vec<_>>();
-    bits.truncate(usize::try_from(C1::F::NUM_BITS).unwrap());
-
-    let res_point = blinding_generator * blind;
-
-    let divisor = {
-      let mut gen_pow_2 = blinding_generator;
-      let mut points = vec![];
-      for bit in &bits {
-        if *bit {
-          points.push(gen_pow_2);
-        }
-        gen_pow_2 = gen_pow_2.double();
-      }
-      points.push(-res_point);
-      new_divisor::<C1::G>(&points).unwrap().normalize_x_coefficient()
-    };
-
-    let (x, y) = C1::G::to_xy(res_point)?;
-    Some(Self { bits, divisor, x, y })
-  }
-}
-
 /// A struct representing an output tuple.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Output<OC: Ciphersuite> {
-  O: OC::G,
-  I: OC::G,
-  C: OC::G,
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
+pub struct Output<G: Group> {
+  O: G,
+  I: G,
+  C: G,
 }
 
-impl<OC: Ciphersuite> Output<OC> {
-  pub fn new(O: OC::G, I: OC::G, C: OC::G) -> Option<Self> {
+impl<G: Group> Output<G> {
+  pub fn new(O: G, I: G, C: G) -> Option<Self> {
     if bool::from(O.is_identity() | I.is_identity() | C.is_identity()) {
       None?;
     }
@@ -102,7 +62,7 @@ impl<OC: Ciphersuite> Output<OC> {
 }
 
 /// A struct representing an input tuple.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
 pub struct Input<F: PrimeField> {
   O_tilde: (F, F),
   I_tilde: (F, F),
@@ -126,59 +86,6 @@ impl<F: PrimeField> Input<F> {
   }
 }
 
-/// The blinds used for an output, prepared for usage within the circuit.
-#[derive(Clone, Debug)]
-pub struct PreparedBlinds<F: Zeroize + PrimeFieldBits> {
-  o_blind: PreparedBlind<F>,
-  i_blind_u: PreparedBlind<F>,
-  i_blind_v: PreparedBlind<F>,
-  i_blind_blind: PreparedBlind<F>,
-  c_blind: PreparedBlind<F>,
-  pub(crate) input: Input<F>,
-}
-
-impl<F: Zeroize + PrimeFieldBits> OutputBlinds<F> {
-  pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
-    let o_blind = F::random(&mut *rng);
-    let i_blind = F::random(&mut *rng);
-    let i_blind_blind = F::random(&mut *rng);
-    let c_blind = F::random(&mut *rng);
-
-    OutputBlinds { o_blind, i_blind, i_blind_blind, c_blind }
-  }
-
-  pub fn prepare<C: Ciphersuite<F = F>>(
-    &self,
-    G: C::G,
-    T: C::G,
-    U: C::G,
-    V: C::G,
-    output: Output<C>,
-  ) -> PreparedBlinds<<C::G as DivisorCurve>::FieldElement>
-  where
-    C::G: DivisorCurve,
-    <C::G as DivisorCurve>::FieldElement: Zeroize + PrimeFieldBits,
-  {
-    let O_tilde = output.O + (T * self.o_blind);
-    let I_tilde = output.I + (U * self.i_blind);
-    let R = (V * self.i_blind) + (T * self.i_blind_blind);
-    let C_tilde = output.C + (G * self.c_blind);
-
-    PreparedBlinds {
-      // o_blind, i_blind, c_blind are used in-circuit as their negatives
-      // These unwraps should be safe as select blinds on our end, uniformly from random
-      o_blind: PreparedBlind::new::<C>(T, -self.o_blind).unwrap(),
-      i_blind_u: PreparedBlind::new::<C>(U, -self.i_blind).unwrap(),
-      i_blind_v: PreparedBlind::new::<C>(V, -self.i_blind).unwrap(),
-      i_blind_blind: PreparedBlind::new::<C>(T, self.i_blind_blind).unwrap(),
-      c_blind: PreparedBlind::new::<C>(G, -self.c_blind).unwrap(),
-      // This unwrap should be safe as else it'd require we randomly selected inverses of discrete
-      // logarithms of each other
-      input: Input::new::<C::G>(O_tilde, I_tilde, R, C_tilde).unwrap(),
-    }
-  }
-}
-
 /// A tree root, represented as a point from either curve.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TreeRoot<C1: Ciphersuite, C2: Ciphersuite> {
@@ -186,90 +93,9 @@ pub enum TreeRoot<C1: Ciphersuite, C2: Ciphersuite> {
   C2(C2::G),
 }
 
-/// The parameters for full-chain membership proofs.
-#[derive(Clone, Debug)]
-pub struct FcmpParams<C: FcmpCurves>
-where
-  <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
-  <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
-  <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
-{
-  /// Generators for the first curve.
-  curve_1_generators: Generators<C::C1>,
-  /// Generators for the second curve.
-  curve_2_generators: Generators<C::C2>,
-
-  /// Initialization point for the hash function over the first curve.
-  curve_1_hash_init: <C::C1 as Ciphersuite>::G,
-  /// Initialization point for the hash function over the first curve.
-  curve_2_hash_init: <C::C2 as Ciphersuite>::G,
-
-  G_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
-  T_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
-  U_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
-  V_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
-  H_1_table: GeneratorTable<<C::C2 as Ciphersuite>::F, C::C1Parameters>,
-  H_2_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::C2Parameters>,
-}
-
-impl<C: FcmpCurves> FcmpParams<C>
-where
-  <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
-  <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
-  <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
-{
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    curve_1_generators: Generators<C::C1>,
-    curve_2_generators: Generators<C::C2>,
-    curve_1_hash_init: <C::C1 as Ciphersuite>::G,
-    curve_2_hash_init: <C::C2 as Ciphersuite>::G,
-    G: <<C as FcmpCurves>::OC as Ciphersuite>::G,
-    T: <<C as FcmpCurves>::OC as Ciphersuite>::G,
-    U: <<C as FcmpCurves>::OC as Ciphersuite>::G,
-    V: <<C as FcmpCurves>::OC as Ciphersuite>::G,
-  ) -> Self {
-    let oc_curve_spec =
-      CurveSpec { a: <<C::OC as Ciphersuite>::G>::a(), b: <<C::OC as Ciphersuite>::G>::b() };
-    let (g_x, g_y) = <<C as FcmpCurves>::OC as Ciphersuite>::G::to_xy(G).unwrap();
-    let G_table = GeneratorTable::new(&oc_curve_spec, g_x, g_y);
-    let (t_x, t_y) = <<C as FcmpCurves>::OC as Ciphersuite>::G::to_xy(T).unwrap();
-    let T_table = GeneratorTable::new(&oc_curve_spec, t_x, t_y);
-    let (u_x, u_y) = <<C as FcmpCurves>::OC as Ciphersuite>::G::to_xy(U).unwrap();
-    let U_table = GeneratorTable::new(&oc_curve_spec, u_x, u_y);
-    let (v_x, v_y) = <<C as FcmpCurves>::OC as Ciphersuite>::G::to_xy(V).unwrap();
-    let V_table = GeneratorTable::new(&oc_curve_spec, v_x, v_y);
-
-    let c1_curve_spec =
-      CurveSpec { a: <<C::C1 as Ciphersuite>::G>::a(), b: <<C::C1 as Ciphersuite>::G>::b() };
-    let (h_1_x, h_1_y) =
-      <<C as FcmpCurves>::C1 as Ciphersuite>::G::to_xy(curve_1_generators.h()).unwrap();
-    let H_1_table = GeneratorTable::new(&c1_curve_spec, h_1_x, h_1_y);
-
-    let c2_curve_spec =
-      CurveSpec { a: <<C::C2 as Ciphersuite>::G>::a(), b: <<C::C2 as Ciphersuite>::G>::b() };
-    let (h_2_x, h_2_y) =
-      <<C as FcmpCurves>::C2 as Ciphersuite>::G::to_xy(curve_2_generators.h()).unwrap();
-    let H_2_table = GeneratorTable::new(&c2_curve_spec, h_2_x, h_2_y);
-
-    Self {
-      curve_1_generators,
-      curve_2_generators,
-      curve_1_hash_init,
-      curve_2_hash_init,
-      G_table,
-      T_table,
-      U_table,
-      V_table,
-      H_1_table,
-      H_2_table,
-    }
-  }
-}
-
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Branches<C: FcmpCurves> {
-  leaves: Vec<Output<C::OC>>,
+  leaves: Vec<Output<<C::OC as Ciphersuite>::G>>,
   curve_2_layers: Vec<Vec<<C::C2 as Ciphersuite>::F>>,
   curve_1_layers: Vec<Vec<<C::C1 as Ciphersuite>::F>>,
 }
@@ -326,8 +152,8 @@ where
     rng: &mut R,
     params: &FcmpParams<C>,
     tree: TreeRoot<C::C1, C::C2>,
-    output: Output<C::OC>,
-    output_blinds: PreparedBlinds<<C::C1 as Ciphersuite>::F>,
+    output: Output<<C::OC as Ciphersuite>::G>,
+    output_blinds: BlindedOutput<<C::OC as Ciphersuite>::G>,
     branches: Branches<C>,
   ) -> Self
   where
@@ -369,13 +195,16 @@ where
     }
 
     // Decide blinds for each branch
+    // TODO: Move this out of prove so it can be done async
     let mut branches_1_blinds = vec![];
     let mut branches_1_blinds_prepared = vec![];
     for _ in 0 .. c1_branches.len() {
       let blind = <C::C1 as Ciphersuite>::F::random(&mut *rng);
       branches_1_blinds.push(blind);
-      branches_1_blinds_prepared
-        .push(PreparedBlind::<_>::new::<C::C1>(params.curve_1_generators.h(), -blind).unwrap());
+      branches_1_blinds_prepared.push(BranchBlind::<<C::C1 as Ciphersuite>::G>::new(
+        params.curve_1_generators.h(),
+        ScalarDecomposition::new(-blind).unwrap(),
+      ));
     }
 
     let mut branches_2_blinds = vec![];
@@ -383,21 +212,25 @@ where
     for _ in 0 .. c2_branches.len() {
       let blind = <C::C2 as Ciphersuite>::F::random(&mut *rng);
       branches_2_blinds.push(blind);
-      branches_2_blinds_prepared
-        .push(PreparedBlind::<_>::new::<C::C2>(params.curve_2_generators.h(), -blind).unwrap());
+      branches_2_blinds_prepared.push(BranchBlind::<<C::C2 as Ciphersuite>::G>::new(
+        params.curve_2_generators.h(),
+        ScalarDecomposition::new(-blind).unwrap(),
+      ));
     }
 
     // Accumulate the opening for the leaves
-    let append_claimed_point_1 = |c1_tape: &mut VectorCommitmentTape<<C::C1 as Ciphersuite>::F>,
-                                  blind: PreparedBlind<<C::C1 as Ciphersuite>::F>,
-                                  padding| {
-      c1_tape.append_claimed_point::<C::OcParameters>(
-        Some(blind.bits),
-        Some(blind.divisor),
-        Some((blind.x, blind.y)),
-        Some(padding),
-      )
-    };
+    let append_claimed_point_1 =
+      |c1_tape: &mut VectorCommitmentTape<<C::C1 as Ciphersuite>::F>,
+       dlog: &[u64],
+       scalar_mul_and_divisor: ScalarMulAndDivisor<<C::OC as Ciphersuite>::G>,
+       padding| {
+        c1_tape.append_claimed_point::<C::OcParameters>(
+          Some(dlog),
+          Some(scalar_mul_and_divisor.divisor),
+          Some((scalar_mul_and_divisor.x, scalar_mul_and_divisor.y)),
+          Some(padding),
+        )
+      };
 
     // Since this is presumed over Ed25519, which has a 253-bit discrete logarithm, we have two
     // items avilable in padding. We use this padding for all the other points we must commit to
@@ -405,23 +238,40 @@ where
     let (o_blind_claim, O) = {
       let (x, y) = <C::OC as Ciphersuite>::G::to_xy(output.O).unwrap();
 
-      append_claimed_point_1(&mut c1_tape, output_blinds.o_blind.clone(), vec![x, y])
+      append_claimed_point_1(
+        &mut c1_tape,
+        output_blinds.o_blind.0.scalar.decomposition(),
+        output_blinds.o_blind.0.scalar_mul_and_divisor.clone(),
+        vec![x, y],
+      )
     };
     // For i_blind_u, we use the padding for I
     let (i_blind_u_claim, I) = {
       let (x, y) = <C::OC as Ciphersuite>::G::to_xy(output.I).unwrap();
-      append_claimed_point_1(&mut c1_tape, output_blinds.i_blind_u, vec![x, y])
+      append_claimed_point_1(
+        &mut c1_tape,
+        output_blinds.i_blind.scalar.decomposition(),
+        output_blinds.i_blind.u.clone(),
+        vec![x, y],
+      )
     };
 
     // Commit to the divisor for `i_blind V`, which doesn't commit to the point `i_blind V`
-    // (annd that still has to be done)
-    let (i_blind_v_divisor, _extra) = c1_tape
-      .append_divisor(Some(output_blinds.i_blind_v.divisor), Some(<C::C1 as Ciphersuite>::F::ZERO));
+    // (and that still has to be done)
+    let (i_blind_v_divisor, _extra) = c1_tape.append_divisor(
+      Some(output_blinds.i_blind.v.divisor.clone()),
+      Some(<C::C1 as Ciphersuite>::F::ZERO),
+    );
 
     // For i_blind_blind, we use the padding for (i_blind V)
     let (i_blind_blind_claim, i_blind_V) = {
-      let (x, y) = (output_blinds.i_blind_v.x, output_blinds.i_blind_v.y);
-      append_claimed_point_1(&mut c1_tape, output_blinds.i_blind_blind, vec![x, y])
+      let (x, y) = (output_blinds.i_blind.v.x, output_blinds.i_blind.v.y);
+      append_claimed_point_1(
+        &mut c1_tape,
+        output_blinds.i_blind_blind.0.scalar.decomposition(),
+        output_blinds.i_blind_blind.0.scalar_mul_and_divisor.clone(),
+        vec![x, y],
+      )
     };
 
     let i_blind_v_claim = PointWithDlog {
@@ -434,7 +284,12 @@ where
     // For c_blind, we use the padding for C
     let (c_blind_claim, C) = {
       let (x, y) = <C::OC as Ciphersuite>::G::to_xy(output.C).unwrap();
-      append_claimed_point_1(&mut c1_tape, output_blinds.c_blind, vec![x, y])
+      append_claimed_point_1(
+        &mut c1_tape,
+        output_blinds.c_blind.0.scalar.decomposition(),
+        output_blinds.c_blind.0.scalar_mul_and_divisor.clone(),
+        vec![x, y],
+      )
     };
 
     // We now have committed to O, I, C, and all interpolated points
@@ -445,9 +300,9 @@ where
       commitment_blind_claims_1.push(
         c1_tape
           .append_claimed_point::<C::C2Parameters>(
-            Some(blind.bits),
-            Some(blind.divisor),
-            Some((blind.x, blind.y)),
+            Some(blind.0.scalar.decomposition()),
+            Some(blind.0.scalar_mul_and_divisor.divisor),
+            Some((blind.0.scalar_mul_and_divisor.x, blind.0.scalar_mul_and_divisor.y)),
             Some(vec![]),
           )
           .0,
@@ -460,9 +315,9 @@ where
       commitment_blind_claims_2.push(
         c2_tape
           .append_claimed_point::<C::C1Parameters>(
-            Some(blind.bits),
-            Some(blind.divisor),
-            Some((blind.x, blind.y)),
+            Some(blind.0.scalar.decomposition()),
+            Some(blind.0.scalar_mul_and_divisor.divisor),
+            Some((blind.0.scalar_mul_and_divisor.x, blind.0.scalar_mul_and_divisor.y)),
             Some(vec![]),
           )
           .0,
@@ -736,7 +591,7 @@ where
     let (i_blind_u_claim, I) = append_claimed_point_1(&mut c1_tape);
 
     // Commit to the divisor for `i_blind V`, which doesn't commit to the point `i_blind V`
-    // (annd that still has to be done)
+    // (and that still has to be done)
     let (i_blind_v_divisor, _extra) = c1_tape.append_divisor(None, None);
 
     // For i_blind_blind, we use the padding for (i_blind V)

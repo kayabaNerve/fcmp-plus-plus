@@ -18,7 +18,7 @@ pub use poly::Poly;
 mod tests;
 
 /// A curve usable with this library.
-pub trait DivisorCurve: Group + ConstantTimeEq + ConditionallySelectable {
+pub trait DivisorCurve: Group + ConstantTimeEq + ConditionallySelectable + Zeroize {
   /// An element of the field this curve is defined over.
   type FieldElement: Zeroize + PrimeField + ConditionallySelectable;
 
@@ -271,8 +271,14 @@ pub struct ScalarDecomposition<F: Zeroize + PrimeFieldBits> {
 }
 
 impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
-  /// Decompose a scalar.
-  pub fn new(scalar: F) -> Self {
+  /// Decompose a non-zero scalar.
+  ///
+  /// This function is constant time if the scalar is non-zero.
+  pub fn new(scalar: F) -> Option<Self> {
+    if bool::from(scalar.is_zero()) {
+      None?;
+    }
+
     /*
       We need the sum of the coefficients to equal F::NUM_BITS. The scalar's bits will be less than
       F::NUM_BITS. Accordingly, we need to increment the sum of the coefficients without
@@ -400,7 +406,12 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
     }
     debug_assert!(bool::from(decomposition.iter().sum::<u64>().ct_eq(&num_bits)));
 
-    ScalarDecomposition { scalar, decomposition }
+    Some(ScalarDecomposition { scalar, decomposition })
+  }
+
+  /// The scalar.
+  pub fn scalar(&self) -> &F {
+    &self.scalar
   }
 
   /// The decomposition of the scalar.
@@ -413,8 +424,6 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
   /// The divisor will interpolate $-(s \cdot G)$ with $d_i$ instances of $2^i \cdot G$.
   ///
   /// This function executes in constant time with regards to the scalar.
-  ///
-  /// This function MAY panic if this scalar is zero.
   pub fn scalar_mul_divisor<C: Zeroize + DivisorCurve<Scalar = F>>(
     &self,
     mut generator: C,
@@ -460,7 +469,7 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
       generator = generator.double();
     }
 
-    // Create a divisor out of all points except the last point which is solely scratch
+    // Create a divisor out of the points
     let res = new_divisor(&divisor_points).unwrap();
     divisor_points.zeroize();
     res

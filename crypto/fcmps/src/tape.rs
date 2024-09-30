@@ -13,7 +13,7 @@ use crate::{
   gadgets::{DiscreteLogParameters, Divisor, PointWithDlog},
 };
 
-/// The variables used for Vector Commitments.
+/// The variables used for elements in Vector Commitments.
 pub(crate) struct VectorCommitmentTape<F: Zeroize + PrimeFieldBits> {
   pub(crate) commitment_len: usize,
   pub(crate) current_j_offset: usize,
@@ -87,15 +87,15 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     branch
   }
 
-  /// Append a discrete logarithm of up to 255 bits, allowing usage of the extra slot for an
-  /// arbitrary variable.
+  /// Append a discrete logarithm of up to 255 coefficients, allowing usage of the extra slot for
+  /// an arbitrary variable.
   ///
   /// If the discrete logarithm is less than 255 bits, additional extra elements may be provided
   /// (`padding`), yet these are only accessible on certain curves. This function panics if more
   /// elements are provided in `padding` than free spaces remaining.
   pub(crate) fn append_dlog<Parameters: DiscreteLogParameters>(
     &mut self,
-    dlog: Option<Vec<bool>>,
+    dlog: Option<&[u64]>,
     padding: Option<Vec<F>>,
     extra: Option<F>,
   ) -> (GenericArray<Variable, Parameters::ScalarBits>, Vec<Variable>, Variable) {
@@ -103,12 +103,11 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     let dlog_bits = Parameters::ScalarBits::USIZE;
 
     let witness = dlog.map(|dlog| {
-      let mut bit_witness = vec![];
+      let mut witness = vec![];
       assert_eq!(dlog.len(), dlog_bits);
-      for i in 0 .. dlog_bits {
-        bit_witness.push(if *dlog.get(i).unwrap_or(&false) { F::ONE } else { F::ZERO });
+      for coeff in dlog {
+        witness.push(F::from(*coeff));
       }
-      let mut witness = bit_witness;
 
       let padding = padding.unwrap();
       assert!(padding.len() <= (255 - dlog_bits));
@@ -189,7 +188,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
 
   pub(crate) fn append_claimed_point<Parameters: DiscreteLogParameters>(
     &mut self,
-    dlog: Option<Vec<bool>>,
+    dlog: Option<&[u64]>,
     divisor: Option<Poly<F>>,
     point: Option<(F, F)>,
     padding: Option<Vec<F>>,
