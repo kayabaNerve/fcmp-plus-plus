@@ -439,33 +439,15 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
     divisor_points[0] = -generator * self.scalar;
 
     // Write the decomposition
-    let mut write_to: u32 = 1;
+    let mut write_above: u64 = 0;
     for coefficient in &self.decomposition {
-      let mut coefficient = *coefficient;
-      // Iterate over the maximum amount of iters for this value to be constant time regardless of
-      // any branch prediction algorithms
-      for _ in 0 .. <C::Scalar as PrimeField>::NUM_BITS {
-        // Write the generator to the slot we're supposed to
-        /*
-          Without this loop, we'd increment this dependent on the distribution within the
-          decomposition. If the distribution is bottom-heavy, we won't access the tail of
-          `divisor_points` for a while, risking it being ejected out of the cache (causing a cache
-          miss which may not occur with a top-heavy distribution which quickly moves to the tail).
-
-          This is O(log2(NUM_BITS) ** 3) though, as this the third loop, which is horrific.
-        */
-        for i in 1 ..= <C::Scalar as PrimeField>::NUM_BITS {
-          divisor_points[i as usize] =
-            <_>::conditional_select(&divisor_points[i as usize], &generator, i.ct_eq(&write_to));
-        }
-        // If the coefficient isn't zero, increment write_to (so we don't overwrite this generator
-        // when it should be there)
-        let coefficient_not_zero = !coefficient.ct_eq(&0);
-        write_to = <_>::conditional_select(&write_to, &(write_to + 1), coefficient_not_zero);
-        // Subtract one from the coefficient, if it's not zero and won't underflow
-        coefficient =
-          <_>::conditional_select(&coefficient, &coefficient.wrapping_sub(1), coefficient_not_zero);
+      // Write the generator to every slot except the slots we have already written to.
+      for i in 1 ..= (<C::Scalar as PrimeField>::NUM_BITS as u64) {
+        divisor_points[i as usize].conditional_assign(&generator, i.ct_gt(&write_above));
       }
+
+      // Increase the next write start by the coefficient.
+      write_above += coefficient;
       generator = generator.double();
     }
 
