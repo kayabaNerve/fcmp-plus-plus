@@ -4,6 +4,7 @@ use generic_array::typenum::{Sum, Diff, Quot, U, U1, U2};
 
 use multiexp::multiexp_vartime;
 use ciphersuite::{group::Group, Ciphersuite, Ed25519, Selene, Helios};
+use ec_divisors::ScalarDecomposition;
 
 use crate::*;
 
@@ -229,9 +230,37 @@ fn test() {
   )
   .unwrap();
   dbg!((std::time::Instant::now() - blinded_output_start).as_millis());
+
+  let branch_blinds_start = std::time::Instant::now();
+  let mut branches_1_blinds = vec![];
+  for _ in 0 .. branches.curve_1_layers.len() {
+    branches_1_blinds.push(BranchBlind::<<Selene as Ciphersuite>::G>::new(
+      params.curve_1_generators.h(),
+      ScalarDecomposition::new(<Selene as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+    ));
+  }
+
+  let mut branches_2_blinds = vec![];
+  for _ in 0 .. branches.curve_2_layers.len() {
+    branches_2_blinds.push(BranchBlind::<<Helios as Ciphersuite>::G>::new(
+      params.curve_2_generators.h(),
+      ScalarDecomposition::new(<Helios as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+    ));
+  }
+  dbg!((std::time::Instant::now() - branch_blinds_start).as_millis());
+
   let input = blinds.input;
 
-  let proof = Fcmp::prove(&mut OsRng, &params, root, output, blinds, branches.clone());
+  let proof = Fcmp::prove(
+    &mut OsRng,
+    &params,
+    root,
+    output,
+    blinds,
+    branches.clone(),
+    branches_1_blinds,
+    branches_2_blinds,
+  );
 
   verify_fn(100, 1, proof.clone(), &params, root, &layer_lens, input);
   verify_fn(100, 10, proof.clone(), &params, root, &layer_lens, input);
@@ -261,7 +290,32 @@ fn test() {
     )
     .unwrap();
 
-    let proof = Fcmp::prove(&mut OsRng, &params, root, output, blinds, branches.clone());
+    let mut branches_1_blinds = vec![];
+    for _ in 0 .. (1 + branches.curve_1_layers.len()) {
+      branches_1_blinds.push(BranchBlind::<<Selene as Ciphersuite>::G>::new(
+        params.curve_1_generators.h(),
+        ScalarDecomposition::new(<Selene as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+      ));
+    }
+
+    let mut branches_2_blinds = vec![];
+    for _ in 0 .. branches.curve_2_layers.len() {
+      branches_2_blinds.push(BranchBlind::<<Helios as Ciphersuite>::G>::new(
+        params.curve_2_generators.h(),
+        ScalarDecomposition::new(<Helios as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
+      ));
+    }
+
+    let proof = Fcmp::prove(
+      &mut OsRng,
+      &params,
+      root,
+      output,
+      blinds,
+      branches.clone(),
+      branches_1_blinds,
+      branches_2_blinds,
+    );
 
     core::hint::black_box(proof);
   }

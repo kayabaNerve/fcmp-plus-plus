@@ -210,7 +210,7 @@ pub trait SignMachine<S>: Send + Sync + Sized {
   fn cache(self) -> CachedPreprocess;
 
   /// Create a sign machine from a cached preprocess.
-
+  ///
   /// After this, the preprocess must be deleted so it's never reused. Any reuse will presumably
   /// cause the signer to leak their secret share.
   fn from_cache(

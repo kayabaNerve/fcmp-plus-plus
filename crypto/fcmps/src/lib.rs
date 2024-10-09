@@ -18,7 +18,7 @@ use ciphersuite::{
   Ciphersuite,
 };
 
-use ec_divisors::{DivisorCurve, ScalarDecomposition};
+use ec_divisors::DivisorCurve;
 use generalized_bulletproofs::{
   BatchVerifier, PedersenVectorCommitment,
   transcript::{Transcript as ProverTranscript, VerifierTranscript},
@@ -148,6 +148,14 @@ where
     res.finalize().into()
   }
 
+  /// Prove a FCMP.
+  ///
+  /// This function MAY panic upon an invalid witness.
+  ///
+  /// There should be as many blinds in `branches_1_blinds` as `1 + branches.curve_1_layers.len()`.
+  /// There should be as many blinds in `branches_2_blinds` as `branches.curve_2_layers.len()`.
+  // TODO: We don't need a `BranchBlind` for the root as we don't open it in circuit.
+  #[allow(clippy::too_many_arguments)]
   pub fn prove<R: RngCore + CryptoRng>(
     rng: &mut R,
     params: &FcmpParams<C>,
@@ -155,6 +163,8 @@ where
     output: Output<<C::OC as Ciphersuite>::G>,
     output_blinds: BlindedOutput<<C::OC as Ciphersuite>::G>,
     branches: Branches<C>,
+    branches_1_blinds: Vec<BranchBlind<<C::C1 as Ciphersuite>::G>>,
+    branches_2_blinds: Vec<BranchBlind<<C::C2 as Ciphersuite>::G>>,
   ) -> Self
   where
     <C::C1 as Ciphersuite>::G: GroupEncoding<Repr = [u8; 32]>,
@@ -162,6 +172,9 @@ where
     <C::C1 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
     <C::C2 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
   {
+    assert_eq!(branches_1_blinds.len(), 1 + branches.curve_1_layers.len());
+    assert_eq!(branches_2_blinds.len(), branches.curve_2_layers.len());
+
     // Flatten the leaves for the branch
     let mut flattened_leaves = vec![];
     for leaf in branches.leaves {
@@ -194,30 +207,6 @@ where
       c2_branches.push(branch);
     }
 
-    // Decide blinds for each branch
-    // TODO: Move this out of prove so it can be done async
-    let mut branches_1_blinds = vec![];
-    let mut branches_1_blinds_prepared = vec![];
-    for _ in 0 .. c1_branches.len() {
-      let blind = <C::C1 as Ciphersuite>::F::random(&mut *rng);
-      branches_1_blinds.push(blind);
-      branches_1_blinds_prepared.push(BranchBlind::<<C::C1 as Ciphersuite>::G>::new(
-        params.curve_1_generators.h(),
-        ScalarDecomposition::new(-blind).unwrap(),
-      ));
-    }
-
-    let mut branches_2_blinds = vec![];
-    let mut branches_2_blinds_prepared = vec![];
-    for _ in 0 .. c2_branches.len() {
-      let blind = <C::C2 as Ciphersuite>::F::random(&mut *rng);
-      branches_2_blinds.push(blind);
-      branches_2_blinds_prepared.push(BranchBlind::<<C::C2 as Ciphersuite>::G>::new(
-        params.curve_2_generators.h(),
-        ScalarDecomposition::new(-blind).unwrap(),
-      ));
-    }
-
     // Accumulate the opening for the leaves
     let append_claimed_point_1 =
       |c1_tape: &mut VectorCommitmentTape<<C::C1 as Ciphersuite>::F>,
@@ -226,7 +215,7 @@ where
        padding| {
         c1_tape.append_claimed_point::<C::OcParameters>(
           Some(dlog),
-          Some(scalar_mul_and_divisor.divisor),
+          Some(scalar_mul_and_divisor.divisor.clone()),
           Some((scalar_mul_and_divisor.x, scalar_mul_and_divisor.y)),
           Some(padding),
         )
@@ -296,12 +285,12 @@ where
 
     // The first circuit's tape opens the blinds from the second curve
     let mut commitment_blind_claims_1 = vec![];
-    for blind in branches_2_blinds_prepared {
+    for blind in &branches_2_blinds {
       commitment_blind_claims_1.push(
         c1_tape
           .append_claimed_point::<C::C2Parameters>(
             Some(blind.0.scalar.decomposition()),
-            Some(blind.0.scalar_mul_and_divisor.divisor),
+            Some(blind.0.scalar_mul_and_divisor.divisor.clone()),
             Some((blind.0.scalar_mul_and_divisor.x, blind.0.scalar_mul_and_divisor.y)),
             Some(vec![]),
           )
@@ -311,12 +300,12 @@ where
 
     // The second circuit's tape opens the blinds from the first curve
     let mut commitment_blind_claims_2 = vec![];
-    for blind in branches_1_blinds_prepared {
+    for blind in &branches_1_blinds {
       commitment_blind_claims_2.push(
         c2_tape
           .append_claimed_point::<C::C1Parameters>(
             Some(blind.0.scalar.decomposition()),
-            Some(blind.0.scalar_mul_and_divisor.divisor),
+            Some(blind.0.scalar_mul_and_divisor.divisor.clone()),
             Some((blind.0.scalar_mul_and_divisor.x, blind.0.scalar_mul_and_divisor.y)),
             Some(vec![]),
           )
@@ -334,23 +323,27 @@ where
     let mut root_blind_C2 = None;
     let root_blind_R: [u8; 32];
     if branches_1_blinds.len() > branches_2_blinds.len() {
-      root_blind_C1 = Some(*branches_1_blinds.last().unwrap());
+      root_blind_C1 = Some(-*branches_1_blinds.last().unwrap().0.scalar.scalar());
       let root_blind_r = Zeroizing::new(<C::C1 as Ciphersuite>::F::random(&mut *rng));
       root_blind_R = (params.curve_1_generators.h() * *root_blind_r).to_bytes();
       root_blind_r_C1 = Some(root_blind_r);
     } else {
-      root_blind_C2 = Some(*branches_2_blinds.last().unwrap());
+      root_blind_C2 = Some(-*branches_2_blinds.last().unwrap().0.scalar.scalar());
       let root_blind_r = Zeroizing::new(<C::C2 as Ciphersuite>::F::random(&mut *rng));
       root_blind_R = (params.curve_2_generators.h() * *root_blind_r).to_bytes();
       root_blind_r_C2 = Some(root_blind_r);
     }
 
-    let mut pvc_blinds_1 = branches_1_blinds;
+    let mut pvc_blinds_1 = Zeroizing::new(
+      branches_1_blinds.into_iter().map(|blind| -*blind.0.scalar.scalar()).collect::<Vec<_>>(),
+    );
     while pvc_blinds_1.len() < c1_tape.commitments.len() {
       pvc_blinds_1.push(<C::C1 as Ciphersuite>::F::random(&mut *rng));
     }
 
-    let mut pvc_blinds_2 = branches_2_blinds;
+    let mut pvc_blinds_2 = Zeroizing::new(
+      branches_2_blinds.into_iter().map(|blind| -*blind.0.scalar.scalar()).collect::<Vec<_>>(),
+    );
     while pvc_blinds_2.len() < c2_tape.commitments.len() {
       pvc_blinds_2.push(<C::C2 as Ciphersuite>::F::random(&mut *rng));
     }
@@ -381,7 +374,7 @@ where
       c1_tape
         .commitments
         .into_iter()
-        .zip(&pvc_blinds_1)
+        .zip(pvc_blinds_1.iter())
         .map(|((g_values, h_values), mask)| PedersenVectorCommitment {
           g_values: g_values.into(),
           h_values: h_values.into(),
@@ -393,7 +386,7 @@ where
       c2_tape
         .commitments
         .into_iter()
-        .zip(&pvc_blinds_2)
+        .zip(pvc_blinds_2.iter())
         .map(|((g_values, h_values), mask)| PedersenVectorCommitment {
           g_values: g_values.into(),
           h_values: h_values.into(),
@@ -449,7 +442,7 @@ where
     }
 
     let mut c1_dlog_challenge = None;
-    if commitment_blind_claims_1.first().is_some() {
+    if !commitment_blind_claims_1.is_empty() {
       c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
         &mut transcript,
         &CurveSpec {
@@ -464,7 +457,7 @@ where
     // - 1, as the leaves are the first branch
     assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
     assert!(commitments_2.C().len() > c1_branches.len());
-    let commitment_iter = commitments_2.C().iter().cloned().zip(pvc_blinds_2.clone());
+    let commitment_iter = commitments_2.C().iter().cloned().zip(pvc_blinds_2.iter().cloned());
     let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
     // The following two to_xy calls have negligible probability of failing as they'd require
     // randomly selected blinds be the discrete logarithm of commitments, or one of our own
@@ -490,7 +483,7 @@ where
     }
 
     let mut c2_dlog_challenge = None;
-    if commitment_blind_claims_2.first().is_some() {
+    if !commitment_blind_claims_2.is_empty() {
       c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
         &mut transcript,
         &CurveSpec {
@@ -504,7 +497,7 @@ where
     assert_eq!(commitments_1.C().len(), pvc_blinds_1.len());
     assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
     assert!(commitments_1.C().len() > c2_branches.len());
-    let commitment_iter = commitments_1.C().iter().cloned().zip(pvc_blinds_1.clone());
+    let commitment_iter = commitments_1.C().iter().cloned().zip(pvc_blinds_1.iter().cloned());
     let branch_iter = c2_branches.into_iter().zip(commitment_blind_claims_2);
     for ((mut prior_commitment, prior_blind), (branch, prior_blind_opening)) in
       commitment_iter.into_iter().zip(branch_iter)
@@ -725,7 +718,7 @@ where
     );
 
     let mut c1_dlog_challenge = None;
-    if commitment_blind_claims_1.first().is_some() {
+    if !commitment_blind_claims_1.is_empty() {
       c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
         &mut transcript,
         &CurveSpec {
@@ -760,7 +753,7 @@ where
     }
 
     let mut c2_dlog_challenge = None;
-    if commitment_blind_claims_2.first().is_some() {
+    if !commitment_blind_claims_2.is_empty() {
       c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
         &mut transcript,
         &CurveSpec {
