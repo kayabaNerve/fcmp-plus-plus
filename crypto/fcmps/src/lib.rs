@@ -100,6 +100,53 @@ pub struct Branches<C: FcmpCurves> {
   curve_1_layers: Vec<Vec<<C::C1 as Ciphersuite>::F>>,
 }
 
+impl<C: FcmpCurves> Branches<C> {
+  pub fn necessary_c1_blinds(&self) -> usize {
+    1 + self.curve_1_layers.len()
+  }
+  pub fn necessary_c2_blinds(&self) -> usize {
+    self.curve_2_layers.len()
+  }
+}
+
+#[derive(Clone)]
+pub struct InputProofData<C: FcmpCurves>
+where
+  <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
+  <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
+  <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
+{
+  blinded_output: BlindedOutput<<C::OC as Ciphersuite>::G>,
+  branches: Branches<C>,
+  branches_1_blinds: Vec<BranchBlind<<C::C1 as Ciphersuite>::G>>,
+  branches_2_blinds: Vec<BranchBlind<<C::C2 as Ciphersuite>::G>>,
+}
+
+impl<C: FcmpCurves> InputProofData<C>
+where
+  <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
+  <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
+  <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
+{
+  /// Create a structure for all the prover data for an input.
+  ///
+  /// This function MAY panic upon an invalid witness.
+  ///
+  /// There should be as many blinds in `branches_1_blinds` as `Branches::necessary_c1_blinds`.
+  /// There should be as many blinds in `branches_2_blinds` as `Branches::necessary_c2_blinds`.
+  pub fn new(
+    blinded_output: BlindedOutput<<C::OC as Ciphersuite>::G>,
+    branches: Branches<C>,
+    branches_1_blinds: Vec<BranchBlind<<C::C1 as Ciphersuite>::G>>,
+    branches_2_blinds: Vec<BranchBlind<<C::C2 as Ciphersuite>::G>>,
+  ) -> Self {
+    assert_eq!(branches.necessary_c1_blinds(), branches_1_blinds.len());
+    assert_eq!(branches.necessary_c2_blinds(), branches_2_blinds.len());
+
+    InputProofData { blinded_output, branches, branches_1_blinds, branches_2_blinds }
+  }
+}
+
 /// The full-chain membership proof.
 #[derive(Clone, Debug, Zeroize)]
 pub struct Fcmp<C: FcmpCurves> {
@@ -151,20 +198,12 @@ where
   /// Prove a FCMP.
   ///
   /// This function MAY panic upon an invalid witness.
-  ///
-  /// There should be as many blinds in `branches_1_blinds` as `1 + branches.curve_1_layers.len()`.
-  /// There should be as many blinds in `branches_2_blinds` as `branches.curve_2_layers.len()`.
-  // TODO: We don't need a `BranchBlind` for the root as we don't open it in circuit.
   #[allow(clippy::too_many_arguments)]
   pub fn prove<R: RngCore + CryptoRng>(
     rng: &mut R,
     params: &FcmpParams<C>,
     tree: TreeRoot<C::C1, C::C2>,
-    output: Output<<C::OC as Ciphersuite>::G>,
-    output_blinds: BlindedOutput<<C::OC as Ciphersuite>::G>,
-    branches: Branches<C>,
-    branches_1_blinds: Vec<BranchBlind<<C::C1 as Ciphersuite>::G>>,
-    branches_2_blinds: Vec<BranchBlind<<C::C2 as Ciphersuite>::G>>,
+    input: InputProofData<C>,
   ) -> Self
   where
     <C::C1 as Ciphersuite>::G: GroupEncoding<Repr = [u8; 32]>,
@@ -172,12 +211,9 @@ where
     <C::C1 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
     <C::C2 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
   {
-    assert_eq!(branches_1_blinds.len(), 1 + branches.curve_1_layers.len());
-    assert_eq!(branches_2_blinds.len(), branches.curve_2_layers.len());
-
     // Flatten the leaves for the branch
     let mut flattened_leaves = vec![];
-    for leaf in branches.leaves {
+    for leaf in input.branches.leaves {
       // leaf is of type Output which checks its members to not be the identity
       flattened_leaves.extend(&[
         <C::OC as Ciphersuite>::G::to_xy(leaf.O).unwrap().0,
@@ -194,7 +230,7 @@ where
       let branch = c1_tape.append_branch::<C::C1>(flattened_leaves.len(), Some(flattened_leaves));
       c1_branches.push(branch);
     }
-    for branch in branches.curve_1_layers {
+    for branch in input.branches.curve_1_layers {
       let branch = c1_tape.append_branch::<C::C1>(branch.len(), Some(branch));
       c1_branches.push(branch);
     }
@@ -202,7 +238,7 @@ where
     let mut c2_tape =
       VectorCommitmentTape { commitment_len: 128, current_j_offset: 0, commitments: vec![] };
     let mut c2_branches = vec![];
-    for branch in branches.curve_2_layers {
+    for branch in input.branches.curve_2_layers {
       let branch = c2_tape.append_branch::<C::C2>(branch.len(), Some(branch));
       c2_branches.push(branch);
     }
@@ -225,22 +261,22 @@ where
     // items avilable in padding. We use this padding for all the other points we must commit to
     // For o_blind, we use the padding for O
     let (o_blind_claim, O) = {
-      let (x, y) = <C::OC as Ciphersuite>::G::to_xy(output.O).unwrap();
+      let (x, y) = <C::OC as Ciphersuite>::G::to_xy(input.blinded_output.output.O).unwrap();
 
       append_claimed_point_1(
         &mut c1_tape,
-        output_blinds.o_blind.0.scalar.decomposition(),
-        output_blinds.o_blind.0.scalar_mul_and_divisor.clone(),
+        input.blinded_output.o_blind.0.scalar.decomposition(),
+        input.blinded_output.o_blind.0.scalar_mul_and_divisor.clone(),
         vec![x, y],
       )
     };
     // For i_blind_u, we use the padding for I
     let (i_blind_u_claim, I) = {
-      let (x, y) = <C::OC as Ciphersuite>::G::to_xy(output.I).unwrap();
+      let (x, y) = <C::OC as Ciphersuite>::G::to_xy(input.blinded_output.output.I).unwrap();
       append_claimed_point_1(
         &mut c1_tape,
-        output_blinds.i_blind.scalar.decomposition(),
-        output_blinds.i_blind.u.clone(),
+        input.blinded_output.i_blind.scalar.decomposition(),
+        input.blinded_output.i_blind.u.clone(),
         vec![x, y],
       )
     };
@@ -248,17 +284,17 @@ where
     // Commit to the divisor for `i_blind V`, which doesn't commit to the point `i_blind V`
     // (and that still has to be done)
     let (i_blind_v_divisor, _extra) = c1_tape.append_divisor(
-      Some(output_blinds.i_blind.v.divisor.clone()),
+      Some(input.blinded_output.i_blind.v.divisor.clone()),
       Some(<C::C1 as Ciphersuite>::F::ZERO),
     );
 
     // For i_blind_blind, we use the padding for (i_blind V)
     let (i_blind_blind_claim, i_blind_V) = {
-      let (x, y) = (output_blinds.i_blind.v.x, output_blinds.i_blind.v.y);
+      let (x, y) = (input.blinded_output.i_blind.v.x, input.blinded_output.i_blind.v.y);
       append_claimed_point_1(
         &mut c1_tape,
-        output_blinds.i_blind_blind.0.scalar.decomposition(),
-        output_blinds.i_blind_blind.0.scalar_mul_and_divisor.clone(),
+        input.blinded_output.i_blind_blind.0.scalar.decomposition(),
+        input.blinded_output.i_blind_blind.0.scalar_mul_and_divisor.clone(),
         vec![x, y],
       )
     };
@@ -272,11 +308,11 @@ where
 
     // For c_blind, we use the padding for C
     let (c_blind_claim, C) = {
-      let (x, y) = <C::OC as Ciphersuite>::G::to_xy(output.C).unwrap();
+      let (x, y) = <C::OC as Ciphersuite>::G::to_xy(input.blinded_output.output.C).unwrap();
       append_claimed_point_1(
         &mut c1_tape,
-        output_blinds.c_blind.0.scalar.decomposition(),
-        output_blinds.c_blind.0.scalar_mul_and_divisor.clone(),
+        input.blinded_output.c_blind.0.scalar.decomposition(),
+        input.blinded_output.c_blind.0.scalar_mul_and_divisor.clone(),
         vec![x, y],
       )
     };
@@ -285,7 +321,7 @@ where
 
     // The first circuit's tape opens the blinds from the second curve
     let mut commitment_blind_claims_1 = vec![];
-    for blind in &branches_2_blinds {
+    for blind in &input.branches_2_blinds {
       commitment_blind_claims_1.push(
         c1_tape
           .append_claimed_point::<C::C2Parameters>(
@@ -300,7 +336,7 @@ where
 
     // The second circuit's tape opens the blinds from the first curve
     let mut commitment_blind_claims_2 = vec![];
-    for blind in &branches_1_blinds {
+    for blind in &input.branches_1_blinds {
       commitment_blind_claims_2.push(
         c2_tape
           .append_claimed_point::<C::C1Parameters>(
@@ -322,27 +358,35 @@ where
     let mut root_blind_C1 = None;
     let mut root_blind_C2 = None;
     let root_blind_R: [u8; 32];
-    if branches_1_blinds.len() > branches_2_blinds.len() {
-      root_blind_C1 = Some(-*branches_1_blinds.last().unwrap().0.scalar.scalar());
+    if input.branches_1_blinds.len() > input.branches_2_blinds.len() {
+      root_blind_C1 = Some(-*input.branches_1_blinds.last().unwrap().0.scalar.scalar());
       let root_blind_r = Zeroizing::new(<C::C1 as Ciphersuite>::F::random(&mut *rng));
       root_blind_R = (params.curve_1_generators.h() * *root_blind_r).to_bytes();
       root_blind_r_C1 = Some(root_blind_r);
     } else {
-      root_blind_C2 = Some(-*branches_2_blinds.last().unwrap().0.scalar.scalar());
+      root_blind_C2 = Some(-*input.branches_2_blinds.last().unwrap().0.scalar.scalar());
       let root_blind_r = Zeroizing::new(<C::C2 as Ciphersuite>::F::random(&mut *rng));
       root_blind_R = (params.curve_2_generators.h() * *root_blind_r).to_bytes();
       root_blind_r_C2 = Some(root_blind_r);
     }
 
     let mut pvc_blinds_1 = Zeroizing::new(
-      branches_1_blinds.into_iter().map(|blind| -*blind.0.scalar.scalar()).collect::<Vec<_>>(),
+      input
+        .branches_1_blinds
+        .into_iter()
+        .map(|blind| -*blind.0.scalar.scalar())
+        .collect::<Vec<_>>(),
     );
     while pvc_blinds_1.len() < c1_tape.commitments.len() {
       pvc_blinds_1.push(<C::C1 as Ciphersuite>::F::random(&mut *rng));
     }
 
     let mut pvc_blinds_2 = Zeroizing::new(
-      branches_2_blinds.into_iter().map(|blind| -*blind.0.scalar.scalar()).collect::<Vec<_>>(),
+      input
+        .branches_2_blinds
+        .into_iter()
+        .map(|blind| -*blind.0.scalar.scalar())
+        .collect::<Vec<_>>(),
     );
     while pvc_blinds_2.len() < c2_tape.commitments.len() {
       pvc_blinds_2.push(<C::C2 as Ciphersuite>::F::random(&mut *rng));
@@ -352,7 +396,7 @@ where
     let commitments_2 = c2_tape.commit(&params.curve_2_generators, &pvc_blinds_2);
 
     let mut transcript =
-      ProverTranscript::new(Self::transcript(tree, output_blinds.input, &root_blind_R));
+      ProverTranscript::new(Self::transcript(tree, input.blinded_output.input, &root_blind_R));
     let commitments_1 = transcript.write_commitments(commitments_1, vec![]);
     let commitments_2 = transcript.write_commitments(commitments_2, vec![]);
 
@@ -407,19 +451,19 @@ where
       &params.V_table,
       &params.G_table,
       //
-      output_blinds.input.O_tilde,
+      input.blinded_output.input.O_tilde,
       o_blind_claim,
       (O[0], O[1]),
       //
-      output_blinds.input.I_tilde,
+      input.blinded_output.input.I_tilde,
       i_blind_u_claim,
       (I[0], I[1]),
       //
-      output_blinds.input.R,
+      input.blinded_output.input.R,
       i_blind_v_claim,
       i_blind_blind_claim,
       //
-      output_blinds.input.C_tilde,
+      input.blinded_output.input.C_tilde,
       c_blind_claim,
       (C[0], C[1]),
       //

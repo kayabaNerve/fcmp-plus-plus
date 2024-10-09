@@ -140,6 +140,7 @@ pub struct BlindedOutput<G: DivisorCurve>
 where
   G::Scalar: Zeroize + PrimeFieldBits,
 {
+  pub(crate) output: Output<G>,
   pub(crate) o_blind: OBlind<G>,
   pub(crate) i_blind: IBlind<G>,
   pub(crate) i_blind_blind: IBlindBlind<G>,
@@ -173,6 +174,7 @@ where
     let R = *i_blind_blind.0.scalar_mul_and_divisor.point - i_blind.v.point.deref();
 
     Some(Self {
+      output,
       o_blind,
       i_blind,
       i_blind_blind,

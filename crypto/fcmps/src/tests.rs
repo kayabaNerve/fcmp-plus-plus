@@ -208,7 +208,7 @@ fn test() {
   let branches = Branches { leaves, curve_2_layers, curve_1_layers };
 
   let blinded_output_start = std::time::Instant::now();
-  let blinds = BlindedOutput::new(
+  let blinded_output = BlindedOutput::new(
     OBlind::new(
       T,
       ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
@@ -233,7 +233,7 @@ fn test() {
 
   let branch_blinds_start = std::time::Instant::now();
   let mut branches_1_blinds = vec![];
-  for _ in 0 .. branches.curve_1_layers.len() {
+  for _ in 0 .. (1 + branches.curve_1_layers.len()) {
     branches_1_blinds.push(BranchBlind::<<Selene as Ciphersuite>::G>::new(
       params.curve_1_generators.h(),
       ScalarDecomposition::new(<Selene as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
@@ -249,17 +249,13 @@ fn test() {
   }
   dbg!((std::time::Instant::now() - branch_blinds_start).as_millis());
 
-  let input = blinds.input;
+  let input = blinded_output.input;
 
   let proof = Fcmp::prove(
     &mut OsRng,
     &params,
     root,
-    output,
-    blinds,
-    branches.clone(),
-    branches_1_blinds,
-    branches_2_blinds,
+    InputProofData::new(blinded_output, branches.clone(), branches_1_blinds, branches_2_blinds),
   );
 
   verify_fn(100, 1, proof.clone(), &params, root, &layer_lens, input);
@@ -268,7 +264,7 @@ fn test() {
 
   let prove_start = std::time::Instant::now();
   for _ in 0 .. 10 {
-    let blinds = BlindedOutput::new(
+    let blinded_output = BlindedOutput::new(
       OBlind::new(
         T,
         ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
@@ -291,7 +287,7 @@ fn test() {
     .unwrap();
 
     let mut branches_1_blinds = vec![];
-    for _ in 0 .. (1 + branches.curve_1_layers.len()) {
+    for _ in 0 .. branches.necessary_c1_blinds() {
       branches_1_blinds.push(BranchBlind::<<Selene as Ciphersuite>::G>::new(
         params.curve_1_generators.h(),
         ScalarDecomposition::new(<Selene as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
@@ -299,7 +295,7 @@ fn test() {
     }
 
     let mut branches_2_blinds = vec![];
-    for _ in 0 .. branches.curve_2_layers.len() {
+    for _ in 0 .. branches.necessary_c2_blinds() {
       branches_2_blinds.push(BranchBlind::<<Helios as Ciphersuite>::G>::new(
         params.curve_2_generators.h(),
         ScalarDecomposition::new(<Helios as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
@@ -310,11 +306,7 @@ fn test() {
       &mut OsRng,
       &params,
       root,
-      output,
-      blinds,
-      branches.clone(),
-      branches_1_blinds,
-      branches_2_blinds,
+      InputProofData::new(blinded_output, branches.clone(), branches_1_blinds, branches_2_blinds),
     );
 
     core::hint::black_box(proof);
