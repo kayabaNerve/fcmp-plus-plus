@@ -98,9 +98,11 @@ impl Transcript {
     C: Vec<C::G>,
     V: Vec<C::G>,
   ) -> Commitments<C> {
+    self.digest.update(u32::try_from(C.len()).unwrap().to_le_bytes());
     for C in &C {
       self.push_point(*C);
     }
+    self.digest.update(u32::try_from(V.len()).unwrap().to_le_bytes());
     for V in &V {
       self.push_point(*V);
     }
@@ -157,10 +159,12 @@ impl<'a> VerifierTranscript<'a> {
     C: usize,
     V: usize,
   ) -> io::Result<Commitments<C>> {
+    self.digest.update(u32::try_from(C).unwrap().to_le_bytes());
     let mut C_vec = Vec::with_capacity(C);
     for _ in 0 .. C {
       C_vec.push(self.read_point::<C>()?);
     }
+    self.digest.update(u32::try_from(V).unwrap().to_le_bytes());
     let mut V_vec = Vec::with_capacity(V);
     for _ in 0 .. V {
       V_vec.push(self.read_point::<C>()?);
