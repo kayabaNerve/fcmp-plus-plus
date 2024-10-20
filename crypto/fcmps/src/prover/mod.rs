@@ -4,6 +4,9 @@ use ec_divisors::DivisorCurve;
 
 use crate::*;
 
+mod blinds;
+pub use blinds::*;
+
 /// The path information for a specific leaf in the tree.
 #[derive(Clone)]
 pub struct Path<C: FcmpCurves>

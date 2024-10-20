@@ -30,9 +30,6 @@ mod circuit;
 pub(crate) use circuit::*;
 pub use circuit::FcmpCurves;
 
-mod blinds;
-pub use blinds::*;
-
 mod prover;
 pub use prover::*;
 
@@ -272,28 +269,7 @@ where
     );
 
     let mut c1_dlog_challenge = None;
-    if !transcripted_blinds.c1.is_empty() {
-      c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
-        &mut transcript,
-        &CurveSpec {
-          a: <<C::C2 as Ciphersuite>::G as DivisorCurve>::a(),
-          b: <<C::C2 as Ciphersuite>::G as DivisorCurve>::b(),
-        },
-        &params.H_2_table,
-      ));
-    }
-
     let mut c2_dlog_challenge = None;
-    if !transcripted_blinds.c2.is_empty() {
-      c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
-        &mut transcript,
-        &CurveSpec {
-          a: <<C::C1 as Ciphersuite>::G as DivisorCurve>::a(),
-          b: <<C::C1 as Ciphersuite>::G as DivisorCurve>::b(),
-        },
-        &params.H_1_table,
-      ));
-    }
 
     let TranscriptedBlinds { c1: transcripted_blinds_c1, c2: transcripted_blinds_c2 } =
       transcripted_blinds;
@@ -355,6 +331,17 @@ where
       for ((mut prior_commitment, prior_blind), branch) in
         commitment_iter.into_iter().zip(branch_iter)
       {
+        if c1_dlog_challenge.is_none() {
+          c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
+            &mut transcript,
+            &CurveSpec {
+              a: <<C::C2 as Ciphersuite>::G as DivisorCurve>::a(),
+              b: <<C::C2 as Ciphersuite>::G as DivisorCurve>::b(),
+            },
+            &params.H_2_table,
+          ));
+        }
+
         let prior_blind_opening = transcripted_blinds_c1.next().unwrap();
         prior_commitment += params.curve_2_hash_init;
         let unblinded_hash = prior_commitment - (params.curve_2_generators.h() * prior_blind);
@@ -385,6 +372,17 @@ where
       for ((mut prior_commitment, prior_blind), branch) in
         commitment_iter.into_iter().zip(branch_iter)
       {
+        if c2_dlog_challenge.is_none() {
+          c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
+            &mut transcript,
+            &CurveSpec {
+              a: <<C::C1 as Ciphersuite>::G as DivisorCurve>::a(),
+              b: <<C::C1 as Ciphersuite>::G as DivisorCurve>::b(),
+            },
+            &params.H_1_table,
+          ));
+        }
+
         let prior_blind_opening = transcripted_blinds_c2.next().unwrap();
         prior_commitment += params.curve_1_hash_init;
         let unblinded_hash = prior_commitment - (params.curve_1_generators.h() * prior_blind);
