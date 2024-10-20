@@ -13,6 +13,8 @@ use crate::{
   gadgets::{DiscreteLogParameters, Divisor, PointWithDlog},
 };
 
+const COMMITMENT_WORD_LEN: usize = 256;
+
 /// The variables used for elements in Vector Commitments.
 pub(crate) struct VectorCommitmentTape<F: Zeroize + PrimeFieldBits> {
   pub(crate) commitment_len: usize,
@@ -23,15 +25,15 @@ pub(crate) struct VectorCommitmentTape<F: Zeroize + PrimeFieldBits> {
 impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
   /// Append a series of variables to the vector commitment tape.
   pub(crate) fn append(&mut self, variables: Option<Vec<F>>) -> Vec<Variable> {
-    // Any chunk of variables should be 256 long.
+    // Any chunk of variables should be the word-length long
     if let Some(variables) = &variables {
-      assert_eq!(variables.len(), 256);
+      assert_eq!(variables.len(), COMMITMENT_WORD_LEN);
     }
 
     #[allow(clippy::unwrap_or_default)]
     let variables = variables
       .map(|mut variables| {
-        let h_bold = variables.split_off(128);
+        let h_bold = variables.split_off(COMMITMENT_WORD_LEN / 2);
         let g_bold = variables;
         (g_bold, h_bold)
       })
@@ -45,12 +47,12 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
       commitment.1.extend(variables.1);
     };
     let i = self.commitments.len() - 1;
-    let j_range = self.current_j_offset .. (self.current_j_offset + 128);
+    let j_range = self.current_j_offset .. (self.current_j_offset + COMMITMENT_WORD_LEN / 2);
     let left = j_range.clone().map(|j| Variable::CG { commitment: i, index: j });
     let right = j_range.map(|j| Variable::CH { commitment: i, index: j });
     let res = left.chain(right).collect();
 
-    self.current_j_offset += 128;
+    self.current_j_offset += COMMITMENT_WORD_LEN / 2;
     if self.current_j_offset == self.commitment_len {
       self.current_j_offset = 0;
     }
@@ -66,13 +68,13 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
   where
     C::G: DivisorCurve<Scalar = F>,
   {
-    let empty = branch.as_ref().map(|_| vec![F::ZERO; 256]);
+    let empty = branch.as_ref().map(|_| vec![F::ZERO; COMMITMENT_WORD_LEN]);
     let branch = branch.map(|mut branch| {
       assert_eq!(branch_len, branch.len());
-      assert!(branch.len() <= 256);
+      assert!(branch.len() <= COMMITMENT_WORD_LEN);
 
       // Pad the branch
-      while branch.len() < 256 {
+      while branch.len() < COMMITMENT_WORD_LEN {
         branch.push(F::ZERO);
       }
       branch
@@ -80,7 +82,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
 
     let mut branch = self.append(branch);
     // Append an empty dummy so this hash doesn't have more variables added
-    if self.commitment_len == 256 {
+    if self.commitment_len == COMMITMENT_WORD_LEN {
       self.append(empty);
     }
     branch.truncate(branch_len);
