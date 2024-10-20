@@ -179,7 +179,7 @@ where
     // This transcripts each input's branches, then the root
     let transcripted_branches = branches.transcript_branches(&mut c1_tape, &mut c2_tape);
     let transcripted_inputs = branches.transcript_inputs(&mut c1_tape);
-    let mut transcripted_blinds = branches.transcript_blinds(&mut c1_tape, &mut c2_tape);
+    let transcripted_blinds = branches.transcript_blinds(&mut c1_tape, &mut c2_tape);
 
     // The blinds we have are for each input's branches
     // We explicitly transcript each input's branches before transcripting anything else, so we
@@ -271,6 +271,35 @@ where
         .collect(),
     );
 
+    let mut c1_dlog_challenge = None;
+    if !transcripted_blinds.c1.is_empty() {
+      c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
+        &mut transcript,
+        &CurveSpec {
+          a: <<C::C2 as Ciphersuite>::G as DivisorCurve>::a(),
+          b: <<C::C2 as Ciphersuite>::G as DivisorCurve>::b(),
+        },
+        &params.H_2_table,
+      ));
+    }
+
+    let mut c2_dlog_challenge = None;
+    if !transcripted_blinds.c2.is_empty() {
+      c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
+        &mut transcript,
+        &CurveSpec {
+          a: <<C::C1 as Ciphersuite>::G as DivisorCurve>::a(),
+          b: <<C::C1 as Ciphersuite>::G as DivisorCurve>::b(),
+        },
+        &params.H_1_table,
+      ));
+    }
+
+    let TranscriptedBlinds { c1: transcripted_blinds_c1, c2: transcripted_blinds_c2 } =
+      transcripted_blinds;
+    let mut transcripted_blinds_c1 = transcripted_blinds_c1.into_iter();
+    let mut transcripted_blinds_c2 = transcripted_blinds_c2.into_iter();
+
     // Perform the layers
     for (i, (input, transcripted_input)) in
       branches.per_input.iter().zip(transcripted_inputs).enumerate()
@@ -314,45 +343,19 @@ where
         .collect(),
       );
 
-      // TODO: OnceCell would be more ergonomic for these
-      let mut c1_dlog_challenge = None;
-      if !transcripted_blinds.c1.is_empty() {
-        c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
-          &mut transcript,
-          &CurveSpec {
-            a: <<C::C2 as Ciphersuite>::G as DivisorCurve>::a(),
-            b: <<C::C2 as Ciphersuite>::G as DivisorCurve>::b(),
-          },
-          &params.H_2_table,
-        ));
-      }
-
-      let mut c2_dlog_challenge = None;
-      if !transcripted_blinds.c2.is_empty() {
-        c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
-          &mut transcript,
-          &CurveSpec {
-            a: <<C::C1 as Ciphersuite>::G as DivisorCurve>::a(),
-            b: <<C::C1 as Ciphersuite>::G as DivisorCurve>::b(),
-          },
-          &params.H_1_table,
-        ));
-      }
-
-      assert_eq!(commitments_2.C().len(), pvc_blinds_2.len());
       let commitment_iter = commitments_2.C().iter().cloned().zip(pvc_blinds_2.iter().cloned());
-      let mut c1_branches = transcripted_branches.per_input[i].c1.clone();
+      let mut c1_branches = transcripted_branches.per_input[i].c1[1 ..].to_vec();
       if matches!(&branches.root, RootBranch::C1(_)) {
         c1_branches.push(transcripted_branches.root.clone());
       }
-      let branch_iter = c1_branches.into_iter().skip(1);
+      let branch_iter = c1_branches.into_iter();
       // The following two to_xy calls have negligible probability of failing as they'd require
       // randomly selected blinds be the discrete logarithm of commitments, or one of our own
       // commitments be identity
       for ((mut prior_commitment, prior_blind), branch) in
         commitment_iter.into_iter().zip(branch_iter)
       {
-        let prior_blind_opening = transcripted_blinds.c1.remove(0);
+        let prior_blind_opening = transcripted_blinds_c1.next().unwrap();
         prior_commitment += params.curve_2_hash_init;
         let unblinded_hash = prior_commitment - (params.curve_2_generators.h() * prior_blind);
         let (hash_x, hash_y, _) = c1_circuit.mul(
@@ -373,7 +376,6 @@ where
         );
       }
 
-      assert_eq!(commitments_1.C().len(), pvc_blinds_1.len());
       let commitment_iter = commitments_1.C().iter().cloned().zip(pvc_blinds_1.iter().cloned());
       let mut c2_branches = transcripted_branches.per_input[i].c2.clone();
       if matches!(&branches.root, RootBranch::C2(_)) {
@@ -383,7 +385,7 @@ where
       for ((mut prior_commitment, prior_blind), branch) in
         commitment_iter.into_iter().zip(branch_iter)
       {
-        let prior_blind_opening = transcripted_blinds.c2.remove(0);
+        let prior_blind_opening = transcripted_blinds_c2.next().unwrap();
         prior_commitment += params.curve_1_hash_init;
         let unblinded_hash = prior_commitment - (params.curve_1_generators.h() * prior_blind);
         // unwrap should be safe as no hash we built should be identity
@@ -412,6 +414,8 @@ where
       // dbg!(c1_circuit.muls());
       // dbg!(c2_circuit.muls());
     }
+    debug_assert!(transcripted_blinds_c1.next().is_none());
+    debug_assert!(transcripted_blinds_c2.next().is_none());
 
     // TODO: unwrap -> Result
     let (c1_statement, c1_witness) =
@@ -436,10 +440,6 @@ where
     layer_lens: &[usize],
     input: Input<<C::C1 as Ciphersuite>::F>,
   ) {
-    // TODO: Check the length of the VCs for this proof
-
-    // Append the leaves and the rest of the branches to the tape
-
     let mut c1_tape =
       VectorCommitmentTape { commitment_len: 256, current_j_offset: 0, commitments: vec![] };
     let mut c1_branches = Vec::with_capacity((layer_lens.len() / 2) + (layer_lens.len() % 2));
@@ -447,6 +447,7 @@ where
       VectorCommitmentTape { commitment_len: 128, current_j_offset: 0, commitments: vec![] };
     let mut c2_branches = Vec::with_capacity(layer_lens.len() / 2);
 
+    // Append the leaves and the branches to the tape
     for (i, layer_len) in layer_lens.iter().enumerate() {
       if (i % 2) == 0 {
         let branch = c1_tape.append_branch::<C::C1>(*layer_len, None);
@@ -457,7 +458,7 @@ where
       }
     }
 
-    // Accumulate the opening for the leaves
+    // Accumulate the (partial) opening for the input tuple
     let append_claimed_point_1 = |c1_tape: &mut VectorCommitmentTape<<C::C1 as Ciphersuite>::F>| {
       c1_tape.append_claimed_point::<C::OcParameters>(None, None, None, None)
     };
