@@ -136,19 +136,17 @@ where
 
 /// All of the blinds used for an output, prepared for usage within the circuit.
 #[derive(Clone, Zeroize)]
-pub struct BlindedOutput<G: DivisorCurve>
+pub struct OutputBlinds<G: DivisorCurve>
 where
   G::Scalar: Zeroize + PrimeFieldBits,
 {
-  pub(crate) output: Output<G>,
   pub(crate) o_blind: OBlind<G>,
   pub(crate) i_blind: IBlind<G>,
   pub(crate) i_blind_blind: IBlindBlind<G>,
   pub(crate) c_blind: CBlind<G>,
-  pub(crate) input: Input<G::FieldElement>,
 }
 
-impl<G: DivisorCurve> BlindedOutput<G>
+impl<G: DivisorCurve> OutputBlinds<G>
 where
   G::Scalar: Zeroize + PrimeFieldBits,
 {
@@ -162,25 +160,24 @@ where
     i_blind: IBlind<G>,
     i_blind_blind: IBlindBlind<G>,
     c_blind: CBlind<G>,
-    output: Output<G>,
-  ) -> Option<Self> {
-    // We add the proven results of the blinds to the input tuple to recalculate the output tuple
+  ) -> Self {
+    Self { o_blind, i_blind, i_blind_blind, c_blind }
+  }
+
+  /// Blind an output.
+  // TODO: Re-introduce BlindedOutput so this can consume these blinds?
+  pub fn blind(&self, output: &Output<G>) -> Option<Input<<G as DivisorCurve>::FieldElement>> {
+    // We add the proven results of the blinds to the input tuple to recalculate the output
+    // tuple
     // In order for `input_tuple_value + blind_value = output_tuple_value`,
     // `input_tuple_value = output_tuple_value - blind_value`
-    let O_tilde = output.O - o_blind.0.scalar_mul_and_divisor.point.deref();
-    let I_tilde = output.I - i_blind.u.point.deref();
-    let C_tilde = output.C - c_blind.0.scalar_mul_and_divisor.point.deref();
-    // I's blind's blind is not inverted, yet I's blind was prior inverted and remains inverted
-    let R = *i_blind_blind.0.scalar_mul_and_divisor.point - i_blind.v.point.deref();
-
-    Some(Self {
-      output,
-      o_blind,
-      i_blind,
-      i_blind_blind,
-      c_blind,
-      input: Input::new::<G>(O_tilde, I_tilde, R, C_tilde)?,
-    })
+    let O_tilde = output.O - self.o_blind.0.scalar_mul_and_divisor.point.deref();
+    let I_tilde = output.I - self.i_blind.u.point.deref();
+    let C_tilde = output.C - self.c_blind.0.scalar_mul_and_divisor.point.deref();
+    // I's blind's blind is not inverted, yet I's blind was prior inverted and remains
+    // inverted
+    let R = *self.i_blind_blind.0.scalar_mul_and_divisor.point - self.i_blind.v.point.deref();
+    Input::new(O_tilde, I_tilde, R, C_tilde)
   }
 }
 
