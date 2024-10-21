@@ -320,7 +320,10 @@ where
       );
 
       let commitment_iter = commitments_2.C().iter().cloned().zip(pvc_blinds_2.iter().cloned());
-      let mut c1_branches = transcripted_branches.per_input[i].c1[1 ..].to_vec();
+      // We want to skip c1[0] as we hashed into it in the first layer
+      // We use `skip`, not `[1 ..]`, as there may not be a branch to skip
+      let mut c1_branches =
+        transcripted_branches.per_input[i].c1.iter().skip(1).cloned().collect::<Vec<_>>();
       if matches!(&branches.root, RootBranch::C1(_)) {
         c1_branches.push(transcripted_branches.root.clone());
       }
@@ -407,8 +410,8 @@ where
       }
 
       // Escape to the raw weights to form a GBP with
-      assert!(c1_circuit.muls() <= 256);
-      assert!(c2_circuit.muls() <= 128);
+      assert!(c1_circuit.muls() <= (branches.per_input.len() * 256));
+      assert!(c2_circuit.muls() <= (branches.per_input.len() * 128));
       // dbg!(c1_circuit.muls());
       // dbg!(c2_circuit.muls());
     }
@@ -416,12 +419,20 @@ where
     debug_assert!(transcripted_blinds_c2.next().is_none());
 
     // TODO: unwrap -> Result
-    let (c1_statement, c1_witness) =
-      c1_circuit.statement(params.curve_1_generators.reduce(256).unwrap(), commitments_1).unwrap();
+    let (c1_statement, c1_witness) = c1_circuit
+      .statement(
+        params.curve_1_generators.reduce(branches.per_input.len() * 256).unwrap(),
+        commitments_1,
+      )
+      .unwrap();
     c1_statement.clone().prove(rng, &mut transcript, c1_witness.unwrap()).unwrap();
 
-    let (c2_statement, c2_witness) =
-      c2_circuit.statement(params.curve_2_generators.reduce(128).unwrap(), commitments_2).unwrap();
+    let (c2_statement, c2_witness) = c2_circuit
+      .statement(
+        params.curve_2_generators.reduce(branches.per_input.len() * 128).unwrap(),
+        commitments_2,
+      )
+      .unwrap();
     c2_statement.prove(rng, &mut transcript, c2_witness.unwrap()).unwrap();
 
     Fcmp { _curves: PhantomData, proof: transcript.complete(), root_blind_pok }
@@ -614,7 +625,6 @@ where
 
     // - 1, as the leaves are the first branch
     assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
-    assert!(proof_2_vcs.C().len() > c1_branches.len());
     let commitment_iter = proof_2_vcs.C().iter().cloned();
     let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
     for (prior_commitment, (branch, prior_blind_opening)) in
@@ -648,7 +658,6 @@ where
     }
 
     assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
-    assert!(proof_1_vcs.C().len() > c2_branches.len());
     let commitment_iter = proof_1_vcs.C().iter().cloned();
     let branch_iter = c2_branches.into_iter().zip(commitment_blind_claims_2);
     for (prior_commitment, (branch, prior_blind_opening)) in
