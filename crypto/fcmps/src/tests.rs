@@ -6,7 +6,7 @@ use multiexp::multiexp_vartime;
 use ciphersuite::{group::Group, Ciphersuite, Ed25519, Selene, Helios};
 use ec_divisors::ScalarDecomposition;
 
-use crate::*;
+use crate::{*, tree::hash_grow};
 
 const LAYER_ONE_LEN: usize = 38;
 const LAYER_TWO_LEN: usize = 18;
@@ -48,7 +48,9 @@ impl FcmpCurves for MoneroCurves {
 }
 
 #[allow(clippy::type_complexity)]
-fn random_params() -> (
+fn random_params(
+  input_limit: usize,
+) -> (
   <Ed25519 as Ciphersuite>::G,
   <Ed25519 as Ciphersuite>::G,
   <Ed25519 as Ciphersuite>::G,
@@ -61,8 +63,8 @@ fn random_params() -> (
   let V = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
 
   let params = FcmpParams::<MoneroCurves>::new(
-    generalized_bulletproofs::tests::generators::<Selene>(256),
-    generalized_bulletproofs::tests::generators::<Helios>(128),
+    generalized_bulletproofs::tests::generators::<Selene>(input_limit * 256),
+    generalized_bulletproofs::tests::generators::<Helios>(input_limit * 128),
     // Hash init generators
     <Selene as Ciphersuite>::G::random(&mut OsRng),
     <Helios as Ciphersuite>::G::random(&mut OsRng),
@@ -91,7 +93,7 @@ fn random_path(
 
   let mut layer_lens = vec![3 * LAYER_ONE_LEN];
   let mut leaves = vec![];
-  for _ in 0 .. LAYER_ONE_LEN {
+  while leaves.len() < LAYER_ONE_LEN {
     leaves.push(random_output());
   }
 
@@ -115,13 +117,17 @@ fn random_path(
     }
     params.curve_1_hash_init + multiexp_vartime(&multiexp)
   });
-  let mut helios_hash;
+  let mut helios_hash = None;
 
   let mut curve_2_layers = vec![];
   let mut curve_1_layers = vec![];
   loop {
+    if layers == 1 {
+      break;
+    }
+
     let mut curve_2_layer = vec![];
-    for _ in 0 .. LAYER_TWO_LEN {
+    while curve_2_layer.len() < LAYER_TWO_LEN {
       curve_2_layer.push(<Selene as Ciphersuite>::G::random(&mut OsRng));
     }
     let layer_len = curve_2_layer.len();
@@ -148,7 +154,7 @@ fn random_path(
     }
 
     let mut curve_1_layer = vec![];
-    for _ in 0 .. LAYER_ONE_LEN {
+    while curve_1_layer.len() < LAYER_ONE_LEN {
       curve_1_layer.push(<Helios as Ciphersuite>::G::random(&mut OsRng));
     }
     let layer_len = curve_1_layer.len();
@@ -182,6 +188,177 @@ fn random_path(
   };
 
   (Path { output, leaves, curve_2_layers, curve_1_layers }, layer_lens, root)
+}
+
+fn random_paths(
+  params: &FcmpParams<MoneroCurves>,
+  layers: usize,
+  paths: usize,
+) -> (Vec<Path<MoneroCurves>>, Vec<usize>, TreeRoot<Selene, Helios>) {
+  assert!(paths >= 1);
+  assert!(paths <= LAYER_ONE_LEN.min(LAYER_TWO_LEN));
+
+  let mut res = vec![];
+  let mut layer_lens = None;
+  for _ in 0 .. paths {
+    let (path, these_layer_lens, _root) = random_path(params, layers);
+    res.push(path);
+    if let Some(layer_lens) = &layer_lens {
+      assert_eq!(&these_layer_lens, layer_lens);
+    } else {
+      layer_lens = Some(these_layer_lens);
+    }
+  }
+  let layer_lens = layer_lens.unwrap();
+
+  // Pop each path's top layer
+  // Then push a new top layer which is unified for all paths
+  // 1st layer has a C1 root (so the top layer is the leaves)
+  // 2nd layer has a C2 root (so the top layer is C1)
+  // 3rd layer has a C1 root (so the top layer is C2)
+  let root = if layers == 1 {
+    assert_eq!(*layer_lens.last().unwrap(), res[0].leaves.len());
+
+    let mut outputs = vec![];
+    for path in &res {
+      outputs.push(path.output);
+    }
+    while outputs.len() < LAYER_ONE_LEN {
+      outputs.push(random_output());
+    }
+    let mut shuffled_outputs = vec![];
+    while !outputs.is_empty() {
+      let i = usize::try_from(OsRng.next_u64() % u64::try_from(outputs.len()).unwrap()).unwrap();
+      shuffled_outputs.push(outputs.swap_remove(i));
+    }
+
+    for path in &mut res {
+      path.leaves = shuffled_outputs.clone();
+    }
+
+    let mut new_leaves_layer = vec![];
+    for output in shuffled_outputs {
+      new_leaves_layer.push(<Ed25519 as Ciphersuite>::G::to_xy(output.O).unwrap().0);
+      new_leaves_layer.push(<Ed25519 as Ciphersuite>::G::to_xy(output.I).unwrap().0);
+      new_leaves_layer.push(<Ed25519 as Ciphersuite>::G::to_xy(output.C).unwrap().0);
+    }
+
+    TreeRoot::C1(
+      hash_grow(
+        &params.curve_1_generators,
+        params.curve_1_hash_init,
+        0,
+        <Selene as Ciphersuite>::F::ZERO,
+        &new_leaves_layer,
+      )
+      .unwrap(),
+    )
+  } else if (layers % 2) == 0 {
+    assert_eq!(*layer_lens.last().unwrap(), res[0].curve_2_layers.last().unwrap().len());
+
+    let mut branch = vec![];
+    for path in &res {
+      branch.push(
+        <Selene as Ciphersuite>::G::to_xy(if let Some(branch) = path.curve_1_layers.last() {
+          hash_grow(
+            &params.curve_1_generators,
+            params.curve_1_hash_init,
+            0,
+            <Selene as Ciphersuite>::F::ZERO,
+            branch,
+          )
+          .unwrap()
+        } else {
+          let mut leaves_layer = vec![];
+          for output in &path.leaves {
+            leaves_layer.push(<Ed25519 as Ciphersuite>::G::to_xy(output.O).unwrap().0);
+            leaves_layer.push(<Ed25519 as Ciphersuite>::G::to_xy(output.I).unwrap().0);
+            leaves_layer.push(<Ed25519 as Ciphersuite>::G::to_xy(output.C).unwrap().0);
+          }
+
+          hash_grow(
+            &params.curve_1_generators,
+            params.curve_1_hash_init,
+            0,
+            <Selene as Ciphersuite>::F::ZERO,
+            &leaves_layer,
+          )
+          .unwrap()
+        })
+        .unwrap()
+        .0,
+      );
+    }
+    while branch.len() < LAYER_TWO_LEN {
+      branch.push(<Helios as Ciphersuite>::F::random(&mut OsRng));
+    }
+    let mut shuffled_branch = vec![];
+    while !branch.is_empty() {
+      let i = usize::try_from(OsRng.next_u64() % u64::try_from(branch.len()).unwrap()).unwrap();
+      shuffled_branch.push(branch.swap_remove(i));
+    }
+
+    for path in &mut res {
+      *path.curve_2_layers.last_mut().unwrap() = shuffled_branch.clone();
+    }
+
+    TreeRoot::C2(
+      hash_grow(
+        &params.curve_2_generators,
+        params.curve_2_hash_init,
+        0,
+        <Helios as Ciphersuite>::F::ZERO,
+        &shuffled_branch,
+      )
+      .unwrap(),
+    )
+  } else {
+    assert_eq!(*layer_lens.last().unwrap(), res[0].curve_1_layers.last().unwrap().len());
+
+    let mut branch = vec![];
+    for path in &res {
+      branch.push(
+        <Helios as Ciphersuite>::G::to_xy({
+          let branch = path.curve_2_layers.last().unwrap();
+          hash_grow(
+            &params.curve_2_generators,
+            params.curve_2_hash_init,
+            0,
+            <Helios as Ciphersuite>::F::ZERO,
+            branch,
+          )
+          .unwrap()
+        })
+        .unwrap()
+        .0,
+      );
+    }
+    while branch.len() < LAYER_ONE_LEN {
+      branch.push(<Selene as Ciphersuite>::F::random(&mut OsRng));
+    }
+    let mut shuffled_branch = vec![];
+    while !branch.is_empty() {
+      let i = usize::try_from(OsRng.next_u64() % u64::try_from(branch.len()).unwrap()).unwrap();
+      shuffled_branch.push(branch.swap_remove(i));
+    }
+
+    for path in &mut res {
+      *path.curve_1_layers.last_mut().unwrap() = shuffled_branch.clone();
+    }
+
+    TreeRoot::C1(
+      hash_grow(
+        &params.curve_1_generators,
+        params.curve_1_hash_init,
+        0,
+        <Selene as Ciphersuite>::F::ZERO,
+        &shuffled_branch,
+      )
+      .unwrap(),
+    )
+  };
+
+  (res, layer_lens, root)
 }
 
 fn random_output_blinds(
@@ -279,25 +456,58 @@ fn verify_fn(
 }
 
 #[test]
-fn test_one_input() {
-  let (G, T, U, V, params) = random_params();
-
-  let (path, layer_lens, root) = random_path(&params, TARGET_LAYERS);
-  let output = path.output;
-
-  let branches = Branches::new(vec![path]).unwrap();
+fn test_single_input() {
+  let (G, T, U, V, params) = random_params(1);
 
   let output_blinds = random_output_blinds(G, T, U, V);
-  let input = output_blinds.blind(&output).unwrap();
 
-  let proof = Fcmp::prove(
-    &mut OsRng,
-    &params,
-    root,
-    blind_branches(&params, branches.clone(), vec![output_blinds]),
-  );
+  for layers in 1 ..= TARGET_LAYERS {
+    println!("Testing a proof with 1 input and {layers} layers");
 
-  verify_fn(1, 1, proof.clone(), &params, root, &layer_lens, input);
+    let (path, layer_lens, root) = random_path(&params, layers);
+    let output = path.output;
+
+    let branches = Branches::new(vec![path]).unwrap();
+
+    let input = output_blinds.blind(&output).unwrap();
+
+    let proof = Fcmp::prove(
+      &mut OsRng,
+      &params,
+      root,
+      blind_branches(&params, branches, vec![output_blinds.clone()]),
+    );
+
+    verify_fn(1, 1, proof.clone(), &params, root, &layer_lens, input);
+  }
+}
+
+#[test]
+fn test_multiple_inputs() {
+  let (G, T, U, V, params) = random_params(8);
+
+  for layers in 1 ..= TARGET_LAYERS {
+    for paths in 2 ..= 8 {
+      println!("Testing a proof with {paths} inputs and {layers} layers");
+
+      let (paths, layer_lens, root) = random_paths(&params, TARGET_LAYERS, paths);
+
+      let mut output_blinds = vec![];
+      for _ in 0 .. paths.len() {
+        output_blinds.push(random_output_blinds(G, T, U, V));
+      }
+      //let input = output_blinds.blind(&output).unwrap();
+
+      let branches = Branches::new(paths).unwrap();
+
+      let proof =
+        Fcmp::prove(&mut OsRng, &params, root, blind_branches(&params, branches, output_blinds));
+
+      // verify_fn(1, 1, proof.clone(), &params, root, &layer_lens, input);
+    }
+  }
+
+  // TODO: Batch verify all of these proofs
 }
 
 #[test]
@@ -305,7 +515,7 @@ fn prove_benchmark() {
   const RUNS: usize = 10;
   let inputs = 1; // TODO: Test with a variety of inputs
 
-  let (G, T, U, V, params) = random_params();
+  let (G, T, U, V, params) = random_params(inputs);
   let (path, _layer_lens, root) = random_path(&params, TARGET_LAYERS);
 
   let mut set_size = 1u64;
@@ -333,15 +543,15 @@ fn prove_benchmark() {
     core::hint::black_box(proof);
   }
   println!(
-    "Proving for {RUNS} {inputs}-input FCMPs with a set size of {} took {}ms",
+    "Proving for {RUNS} {inputs}-input FCMPs with a set size of {} took an average of {}ms each",
     set_size,
-    (std::time::Instant::now() - prove_start).as_millis()
+    (std::time::Instant::now() - prove_start).as_millis() / u128::try_from(RUNS).unwrap()
   );
 }
 
 #[test]
 fn verify_benchmark() {
-  let (G, T, U, V, params) = random_params();
+  let (G, T, U, V, params) = random_params(1);
 
   let (path, layer_lens, root) = random_path(&params, TARGET_LAYERS);
   let output = path.output;
