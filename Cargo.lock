@@ -404,6 +404,7 @@ dependencies = [
 name = "ec-divisors"
 version = "0.1.0"
 dependencies = [
+ "curve25519-dalek",
  "dalek-ff-group",
  "ff",
  "group",
@@ -591,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "generalized-schnorr"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake2",
  "ciphersuite",

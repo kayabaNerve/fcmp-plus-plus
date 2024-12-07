@@ -7,6 +7,7 @@ use pasta_curves::{Ep, Eq};
 use crate::{DivisorCurve, Poly, new_divisor};
 
 mod poly;
+mod torsion_check;
 
 // Equation 4 in the security proofs
 fn check_divisor<C: DivisorCurve>(points: Vec<C>) {

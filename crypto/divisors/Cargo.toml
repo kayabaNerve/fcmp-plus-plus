@@ -21,6 +21,7 @@ ff = { version = "0.13", default-features = false, features = ["std", "bits"] }
 group = { version = "0.13", default-features = false }
 
 hex = { version = "0.4", optional = true }
+curve25519-dalek = "4"
 dalek-ff-group = { path = "../dalek-ff-group", features = ["std"], optional = true }
 pasta_curves = { version = "0.5", git = "https://github.com/kayabaNerve/pasta_curves.git", default-features = false, features = ["bits", "alloc"], optional = true }
 
