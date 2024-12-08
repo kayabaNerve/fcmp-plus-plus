@@ -56,6 +56,7 @@ fn torsion_check_vartime(point: [u8; 32]) -> TorsionCheck {
   let sqrt_m1 = (-FieldElement::ONE).sqrt().unwrap();
   let neg_sqrt_2b = -Bp.double().sqrt().unwrap();
   // This is used to halve elements. A dedicated halving function is likely better
+  // shr 1 and if lsb == 1, add half 1 before performing a reduction (much cheaper than a mul)
   let inv_two = FieldElement::from(2u64).invert().unwrap();
 
   // Decompress the point
@@ -119,18 +120,7 @@ fn torsion_check_vartime(point: [u8; 32]) -> TorsionCheck {
     (e, u, w)
   };
 
-  /*
-  let wei_to_ed = |e: FieldElement, u: FieldElement, w: FieldElement| {
-    let edwards_x = w.invert().unwrap().double();
-    let edwards_y_intermediary = u * a_minus_D.invert().unwrap();
-    let edwards_y = (edwards_y_intermediary - FieldElement::ONE) *
-      (edwards_y_intermediary + FieldElement::ONE).invert().unwrap();
-    (edwards_x, edwards_y)
-  };
-  */
-
   let (mut e, u, w) = ed_to_wei(edwards_x, edwards_y);
-  // assert_eq!(wei_to_ed(e, u, w), (edwards_x, edwards_y), "ed mapping wrong");
 
   let iso = |u: FieldElement, w: FieldElement| {
     (u * FieldElement::from(4u64).invert().unwrap(), w * inv_two)
@@ -170,7 +160,7 @@ fn torsion_check_vartime(point: [u8; 32]) -> TorsionCheck {
       tt *= sqrt_m1;
     }
     if !cc {
-      w = w * tt;
+      w *= tt;
       w_res = neg_sqrt_2b * e.square();
       *e *= tt;
     }
@@ -180,23 +170,9 @@ fn torsion_check_vartime(point: [u8; 32]) -> TorsionCheck {
   let inv_psi2 = |e: FieldElement, u: FieldElement, w: FieldElement| {
     let w_res = Option::<FieldElement>::from(u.sqrt())?;
     let u_res = (u - (Ap * e.square()) - (w_res * w)) * inv_two;
-    /*
-    //assert_eq!(u * w.square(), u.square() + (u * Ap * e.square()) + (Bp * e.square().square()));
-    if bool::from(u_res.sqrt().is_none()) {
-      w_res = -w_res;
-      u_res = Bp * u_res.invert().unwrap();
-    }
-    */
-    //assert_eq!(psi2(u_res, w_res), (u, w));
     Some((u_res, w_res))
   };
 
-  assert_eq!(
-    u * w.square(),
-    u.square() + ((A * u) * e.square()) + (B * e.square().square()),
-    "loop invariant broken"
-  );
-
   let (u, w) = inv_iso(u, w);
   let Some((u, w)) = inv_psi2(e, u, w) else { return TorsionCheck::Torsioned };
   let (u, w) = inv_psi1(&mut e, u, w);
@@ -217,9 +193,11 @@ fn torsion_check_vartime(point: [u8; 32]) -> TorsionCheck {
     "loop invariant broken"
   );
 
-  let (u, w) = inv_iso(u, w);
+  let (u, _) = inv_iso(u, w);
   // This can be optimized to checking if u is square via its legendre symbol
-  let Some(_) = inv_psi2(e, u, w) else { return TorsionCheck::Torsioned };
+  if bool::from(u.sqrt().is_none()) {
+    return TorsionCheck::Torsioned;
+  }
 
   TorsionCheck::TorsionFree
 }
