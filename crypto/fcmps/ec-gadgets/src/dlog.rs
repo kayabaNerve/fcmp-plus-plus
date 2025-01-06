@@ -21,7 +21,7 @@ pub trait DiscreteLogParameters {
   /// by two.
   type XCoefficients: ArrayLength;
 
-  /// The amount of x**i coefficients in a divisor, minus one.
+  /// The amount of x**i coefficients in a divisor, minus one. This MUST be at least two.
   type XCoefficientsMinusOne: ArrayLength;
 
   /// The amount of y x**i coefficients in a divisor.
@@ -169,7 +169,7 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> ChallengePoint<F, Paramet
       yx[i] = last * x;
     }
 
-    let x_sq = x.square();
+    let x_sq = x_pows[1];
     let three_x_sq = x_sq.double() + x_sq;
     let three_x_sq_plus_a = three_x_sq + curve.a;
     let two_y = y.double();
@@ -192,6 +192,8 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> ChallengePoint<F, Paramet
 }
 
 // `DivisorChallenge` from the section `Discrete Log Proof`
+//
+// This function executes in variable time to `Parameters`.
 fn divisor_challenge_eval<C: Ciphersuite, Parameters: DiscreteLogParameters>(
   circuit: &mut Circuit<C>,
   divisor: &Divisor<Parameters>,
@@ -220,14 +222,33 @@ fn divisor_challenge_eval<C: Ciphersuite, Parameters: DiscreteLogParameters>(
     // Handle the new y coefficient
     p_0_n_2 = p_0_n_2.term(challenge.y, divisor.yx[0]);
 
+    let short_vartime_mul = |mut coeff: u64, mut scalar: C::F| {
+      let mut res = C::F::ZERO;
+      while coeff != 0 {
+        // Accumulate this bit
+        let lsb = coeff & 1;
+        if lsb == 1 {
+          res += scalar;
+        }
+
+        // Shift the coefficient down by one
+        coeff >>= 1;
+        // Double the scalar if we aren't about to exit the loop body
+        if coeff != 0 {
+          scalar = scalar.double();
+        }
+      }
+      res
+    };
+
     // Handle the new yx coefficients
     for (j, yx) in divisor.yx.iter().enumerate().skip(1) {
       // For the power which was shifted down, we multiply this coefficient
       // 3 x**2 -> 2 * 3 x**1
-      let original_power_of_x = C::F::from(u64::try_from(j + 1).unwrap());
-      // `j - 1` so `j = 1` indexes yx[0] as yx[0] is the y x**1
-      // (yx omits y x**0)
-      let this_weight = original_power_of_x * challenge.yx[j - 1];
+      let original_power_of_x = u64::try_from(j + 1).unwrap();
+      // `j - 1` so `j = 1` indexes yx[0] as yx[0] is the y x**1 coefficient (yx omits y x**0)
+      // `short_vartime_mul` is fine as `original_power_of_x` is constant to `Parameters`
+      let this_weight = short_vartime_mul(original_power_of_x, challenge.yx[j - 1]);
       p_0_n_2 = p_0_n_2.term(this_weight, *yx);
     }
 
@@ -235,9 +256,10 @@ fn divisor_challenge_eval<C: Ciphersuite, Parameters: DiscreteLogParameters>(
     // We don't skip the first one as `x_from_power_of_2` already omits x**1
     for (i, x) in divisor.x_from_power_of_2.iter().enumerate() {
       // i + 2 as the paper expects i to start from 1 and be + 1, yet we start from 0
-      let original_power_of_x = C::F::from(u64::try_from(i + 2).unwrap());
+      let original_power_of_x = u64::try_from(i + 2).unwrap();
       // Still x[i] as x[0] is x**1
-      let this_weight = original_power_of_x * challenge.x[i];
+      // `short_vartime_mul` is fine as `original_power_of_x` is constant to `Parameters`
+      let this_weight = short_vartime_mul(original_power_of_x, challenge.x[i]);
 
       p_0_n_2 = p_0_n_2.term(this_weight, *x);
     }
