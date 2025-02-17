@@ -179,6 +179,14 @@ where
     let R = *self.i_blind_blind.0.scalar_mul_and_divisor.point - self.i_blind.v.point.deref();
     Input::new(O_tilde, I_tilde, R, C_tilde)
   }
+
+  /// Update the existing c_blind
+  ///
+  /// This allows recalculating a c_blind at tx construction time when making sure
+  /// sum of inputs == sum of outputs.
+  pub fn set_c_blind(&mut self, c_blind: CBlind<G>) {
+    self.c_blind = c_blind;
+  }
 }
 
 /// A blind for a branch.

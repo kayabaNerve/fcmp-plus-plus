@@ -105,6 +105,17 @@ impl RerandomizedOutput {
     -self.r_c
   }
 
+  /// The scalar used to re-randomize the amount commitment
+  pub fn r_c(&self) -> <Ed25519 as Ciphersuite>::F {
+    self.r_c
+  }
+
+  /// Allow changing r_c and C_tilde (the pseudo out) to balance the tx
+  pub fn set_r_c(&mut self, C: <Ed25519 as Ciphersuite>::G, r_c: <Ed25519 as Ciphersuite>::F) {
+    self.r_c = r_c;
+    self.input.C_tilde = C + (<Ed25519 as Ciphersuite>::generator() * r_c);
+  }
+
   /// The input tuple produced by this output and set of rerandomizations.
   pub fn input(&self) -> Input {
     self.input
