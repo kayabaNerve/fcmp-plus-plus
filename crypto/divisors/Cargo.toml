@@ -26,6 +26,8 @@ hex = { version = "0.4", default-features = false, optional = true }
 dalek-ff-group = { path = "../dalek-ff-group", default-features = false, optional = true }
 pasta_curves = { version = "0.5", git = "https://github.com/kayabaNerve/pasta_curves.git", default-features = false, features = ["bits", "alloc"], optional = true }
 
+monero-io = { path = "../../networks/monero/io", default-features = false }
+
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
 

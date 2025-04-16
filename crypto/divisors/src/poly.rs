@@ -1,10 +1,23 @@
 use core::ops::{Add, Neg, Sub, Mul, Rem};
-use std_shims::{vec, vec::Vec};
+use std_shims::{vec, vec::Vec, io};
 
 use subtle::{Choice, ConstantTimeEq, ConstantTimeGreater, ConditionallySelectable};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use monero_io::{write_vec, read_vec};
+
 use group::ff::PrimeField;
+
+// Helper function to read a scalar
+pub(crate) fn read_scalar<F: PrimeField>(r: &mut impl io::Read) -> io::Result<F> {
+  let mut repr = F::Repr::default();
+  r.read_exact(repr.as_mut())?;
+  let scalar = F::from_repr(repr);
+  if scalar.is_none().into() {
+    Err(io::Error::new(io::ErrorKind::Other, "invalid scalar"))?;
+  }
+  Ok(scalar.unwrap())
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct CoefficientIndex {
@@ -114,6 +127,29 @@ impl<F: From<u64> + Zeroize + PrimeField> Poly<F> {
       x_coefficients: vec![],
       zero_coefficient: F::ZERO,
     }
+  }
+
+  /// Write the Polynomial
+  pub fn write<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
+    write_vec(|coeff, w| w.write_all(coeff.to_repr().as_ref()), &self.y_coefficients, w)?;
+    write_vec(
+      |coeff_vec, w| write_vec(|coeff, w| w.write_all(coeff.to_repr().as_ref()), &coeff_vec, w),
+      &self.yx_coefficients,
+      w,
+    )?;
+    write_vec(|coeff, w| w.write_all(coeff.to_repr().as_ref()), &self.x_coefficients, w)?;
+    w.write_all(self.zero_coefficient.to_repr().as_ref())
+  }
+
+  /// Read a Polynomial
+  pub fn read(reader: &mut impl io::Read) -> io::Result<Self> {
+    let y_coefficients = read_vec(|reader| read_scalar(reader), reader)?;
+    let yx_coefficients =
+      read_vec(|reader| read_vec(|reader| read_scalar(reader), reader), reader)?;
+    let x_coefficients = read_vec(|reader| read_scalar(reader), reader)?;
+    let zero_coefficient = read_scalar(reader)?;
+
+    Ok(Self { y_coefficients, yx_coefficients, x_coefficients, zero_coefficient })
   }
 }
 

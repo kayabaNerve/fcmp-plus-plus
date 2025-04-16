@@ -341,6 +341,7 @@ dependencies = [
  "ff",
  "group",
  "hex",
+ "monero-io",
  "pasta_curves 0.5.1 (git+https://github.com/kayabaNerve/pasta_curves.git)",
  "rand_core",
  "std-shims",

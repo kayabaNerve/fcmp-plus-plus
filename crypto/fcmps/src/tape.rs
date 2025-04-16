@@ -103,7 +103,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
   /// elements are provided in `padding` than free spaces remaining.
   pub(crate) fn append_dlog<Parameters: DiscreteLogParameters>(
     &mut self,
-    dlog: Option<&[u64]>,
+    dlog: Option<&[u8]>,
     padding: Option<Vec<F>>,
     extra: Option<F>,
   ) -> (GenericArray<Variable, Parameters::ScalarBits>, Vec<Variable>, Variable) {
@@ -114,7 +114,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
       let mut witness = vec![];
       assert_eq!(dlog.len(), dlog_bits);
       for coeff in dlog {
-        witness.push(F::from(*coeff));
+        witness.push(F::from(u64::from(*coeff)));
       }
 
       let padding = padding.unwrap();
@@ -214,7 +214,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
 
   pub(crate) fn append_claimed_point<Parameters: DiscreteLogParameters>(
     &mut self,
-    dlog: Option<&[u64]>,
+    dlog: Option<&[u8]>,
     divisor: Option<Poly<F>>,
     point: Option<(F, F)>,
     padding: Option<Vec<F>>,

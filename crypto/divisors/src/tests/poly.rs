@@ -146,3 +146,21 @@ fn test_differentation() {
     }
   );
 }
+
+#[test]
+fn test_read_write() {
+  let random = || F::random(&mut OsRng);
+
+  let input = Poly {
+    y_coefficients: vec![random()],
+    yx_coefficients: vec![vec![random()]],
+    x_coefficients: vec![random(), random(), random()],
+    zero_coefficient: random(),
+  };
+
+  let mut buf = vec![];
+  input.write(&mut buf).unwrap();
+
+  let input2 = Poly::read(&mut buf.as_slice()).unwrap();
+  assert_eq!(input, input2);
+}

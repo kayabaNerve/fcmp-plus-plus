@@ -329,7 +329,7 @@ where
       // Accumulate the opening for the leaves
       let append_claimed_point =
         |c1_tape: &mut VectorCommitmentTape<<C::C1 as Ciphersuite>::F>,
-         dlog: &[u64],
+         dlog: &[u8],
          scalar_mul_and_divisor: ScalarMulAndDivisor<<C::OC as Ciphersuite>::G>,
          padding| {
           c1_tape.append_claimed_point::<C::OcParameters>(

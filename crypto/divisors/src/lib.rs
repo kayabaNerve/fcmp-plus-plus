@@ -4,7 +4,7 @@
 #![deny(missing_docs)]
 #![allow(non_snake_case)]
 
-use std_shims::{vec, vec::Vec};
+use std_shims::{vec, vec::Vec, io};
 
 use subtle::{Choice, ConstantTimeEq, ConstantTimeGreater, ConditionallySelectable};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -16,6 +16,7 @@ use group::{
 
 mod poly;
 pub use poly::Poly;
+use poly::read_scalar;
 
 #[cfg(test)]
 mod tests;
@@ -272,7 +273,7 @@ pub fn new_divisor<C: DivisorCurve>(points: &[C]) -> Option<Poly<C::FieldElement
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct ScalarDecomposition<F: Zeroize + PrimeFieldBits> {
   scalar: F,
-  decomposition: Vec<u64>,
+  decomposition: Vec<u8>,
 }
 
 impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
@@ -298,9 +299,9 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
 
     // Obtain the bits of the scalar
     let num_bits_usize = usize::try_from(num_bits).unwrap();
-    let mut decomposition = vec![0; num_bits_usize];
+    let mut decomposition = vec![0u8; num_bits_usize];
     for (i, bit) in scalar.to_le_bits().into_iter().take(num_bits_usize).enumerate() {
-      let bit = u64::from(u8::from(bit));
+      let bit = u8::from(bit);
       decomposition[i] = bit;
     }
 
@@ -314,7 +315,7 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
       let mut decomposition_of_modulus = vec![0; num_bits_usize];
       // Decompose negative one
       for (i, bit) in (-F::ONE).to_le_bits().into_iter().take(num_bits_usize).enumerate() {
-        let bit = u64::from(u8::from(bit));
+        let bit = u8::from(bit);
         decomposition_of_modulus[i] = bit;
       }
       // Increment it by one
@@ -334,7 +335,7 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
     // Calculcate the sum of the coefficients
     let mut sum_of_coefficients: u64 = 0;
     for decomposition in &decomposition {
-      sum_of_coefficients += *decomposition;
+      sum_of_coefficients += u64::from(*decomposition);
     }
 
     /*
@@ -411,7 +412,7 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
         done |= should_act;
       }
     }
-    debug_assert!(bool::from(decomposition.iter().sum::<u64>().ct_eq(&num_bits)));
+    debug_assert!(bool::from(decomposition.iter().map(|&x| x as u64).sum::<u64>().ct_eq(&num_bits)));
 
     Some(ScalarDecomposition { scalar, decomposition })
   }
@@ -422,7 +423,7 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
   }
 
   /// The decomposition of the scalar.
-  pub fn decomposition(&self) -> &[u64] {
+  pub fn decomposition(&self) -> &[u8] {
     &self.decomposition
   }
 
@@ -456,7 +457,7 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
       }
 
       // Increase the next write start by the coefficient.
-      write_above += coefficient;
+      write_above += u64::from(*coefficient);
       generator = generator.double();
     }
 
@@ -464,6 +465,26 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
     let res = new_divisor(&divisor_points).unwrap();
     divisor_points.zeroize();
     res
+  }
+
+  /// Write the ScalarDecomposition
+  pub fn write<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
+    w.write_all(self.scalar.to_repr().as_ref())?;
+    w.write_all(&self.decomposition)
+  }
+
+  /// Read a ScalarDecomposition
+  pub fn read(reader: &mut impl io::Read) -> io::Result<Self> {
+    let scalar = read_scalar(reader)?;
+
+    let num_bits_usize = usize::try_from(F::NUM_BITS).unwrap();
+    let mut decomposition = vec![0u8; num_bits_usize];
+    reader.read_exact(decomposition.as_mut())?;
+
+    Ok(Self {
+      scalar,
+      decomposition
+    })
   }
 }
 
