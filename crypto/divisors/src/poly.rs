@@ -133,7 +133,7 @@ impl<F: From<u64> + Zeroize + PrimeField> Poly<F> {
   pub fn write<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
     write_vec(|coeff, w| w.write_all(coeff.to_repr().as_ref()), &self.y_coefficients, w)?;
     write_vec(
-      |coeff_vec, w| write_vec(|coeff, w| w.write_all(coeff.to_repr().as_ref()), &coeff_vec, w),
+      |coeff_vec, w| write_vec(|coeff, w| w.write_all(coeff.to_repr().as_ref()), coeff_vec, w),
       &self.yx_coefficients,
       w,
     )?;

@@ -412,7 +412,9 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
         done |= should_act;
       }
     }
-    debug_assert!(bool::from(decomposition.iter().map(|&x| x as u64).sum::<u64>().ct_eq(&num_bits)));
+    debug_assert!(bool::from(
+      decomposition.iter().map(|&x| x as u64).sum::<u64>().ct_eq(&num_bits)
+    ));
 
     Some(ScalarDecomposition { scalar, decomposition })
   }
@@ -481,10 +483,7 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
     let mut decomposition = vec![0u8; num_bits_usize];
     reader.read_exact(decomposition.as_mut())?;
 
-    Ok(Self {
-      scalar,
-      decomposition
-    })
+    Ok(Self { scalar, decomposition })
   }
 }
 

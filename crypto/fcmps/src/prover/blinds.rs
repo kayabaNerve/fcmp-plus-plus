@@ -2,7 +2,10 @@ use core::ops::Deref;
 
 use zeroize::{Zeroize, Zeroizing};
 
-use ciphersuite::group::{ff::{PrimeFieldBits, PrimeField}, prime::PrimeGroup};
+use ciphersuite::group::{
+  ff::{PrimeFieldBits, PrimeField},
+  prime::PrimeGroup,
+};
 
 use ec_divisors::{Poly, DivisorCurve, ScalarDecomposition};
 
