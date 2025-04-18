@@ -51,8 +51,8 @@ fn test() {
     let C = <Ed25519 as Ciphersuite>::G::to_xy(output.C()).unwrap();
 
     let tree = TreeRoot::<Selene, Helios>::C1(
-      SELENE_HASH_INIT()
-        + multiexp_vartime(
+      SELENE_HASH_INIT() +
+        multiexp_vartime(
           &([O.0, O.1, I.0, I.1, C.0, C.1]
             .into_iter()
             .zip(SELENE_GENERATORS().g_bold_slice().iter().cloned())
