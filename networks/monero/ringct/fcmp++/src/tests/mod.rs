@@ -46,17 +46,17 @@ fn test() {
   let (tree, fcmp) = {
     let leaves = vec![output];
 
+    let O = <Ed25519 as Ciphersuite>::G::to_xy(output.O()).unwrap();
+    let I = <Ed25519 as Ciphersuite>::G::to_xy(output.I()).unwrap();
+    let C = <Ed25519 as Ciphersuite>::G::to_xy(output.C()).unwrap();
+
     let tree = TreeRoot::<Selene, Helios>::C1(
-      SELENE_HASH_INIT() +
-        multiexp_vartime(
-          &([
-            <Ed25519 as Ciphersuite>::G::to_xy(output.O()).unwrap().0,
-            <Ed25519 as Ciphersuite>::G::to_xy(output.I()).unwrap().0,
-            <Ed25519 as Ciphersuite>::G::to_xy(output.C()).unwrap().0,
-          ]
-          .into_iter()
-          .zip(SELENE_GENERATORS().g_bold_slice().iter().cloned())
-          .collect::<Vec<_>>()),
+      SELENE_HASH_INIT()
+        + multiexp_vartime(
+          &([O.0, O.1, I.0, I.1, C.0, C.1]
+            .into_iter()
+            .zip(SELENE_GENERATORS().g_bold_slice().iter().cloned())
+            .collect::<Vec<_>>()),
         ),
     );
 
