@@ -629,7 +629,7 @@ fn test_malleated_proofs() {
         while buf[i] == existing_byte {
           buf[i] = u8::try_from(OsRng.next_u64() & u64::from(u8::MAX)).unwrap();
         }
-        let membership_proof_len = Fcmp::proof_size(paths.len(), layers);
+        let membership_proof_len = Fcmp::<MoneroCurves>::proof_size(paths.len(), layers);
         if let Ok(proof) = Fcmp::read(&mut buf.as_slice(), membership_proof_len) {
           let mut verifier_1 = generalized_bulletproofs::Generators::batch_verifier();
           let mut verifier_2 = generalized_bulletproofs::Generators::batch_verifier();
