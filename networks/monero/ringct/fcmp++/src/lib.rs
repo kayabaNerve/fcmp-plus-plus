@@ -103,15 +103,22 @@ pub fn SELENE_HASH_INIT() -> <Selene as Ciphersuite>::G {
     .get_or_init(|| hash_to_point_on_curve::<Selene>(b"Monero Selene Hash Initializer"))
 }
 
+const MAX_INPUTS: u32 = 128;
+// MAX_INPUTS must be a power of 2
+const _: () = assert!(MAX_INPUTS > 0 && ((MAX_INPUTS & (MAX_INPUTS - 1)) == 0));
+const MAX_POW_2_INPUTS: u32 = MAX_INPUTS.ilog2();
+const GENERATORS_POW_2_BASE: u32 = 7;
+
 static HELIOS_GENERATORS_CELL: OnceLock<Generators<Helios>> = OnceLock::new();
 /// The generators for Helios.
 pub fn HELIOS_GENERATORS() -> &'static Generators<Helios> {
   HELIOS_GENERATORS_CELL.get_or_init(|| {
     let g = hash_to_point_on_curve::<Helios>(b"Monero Helios G");
     let h = hash_to_point_on_curve::<Helios>(b"Monero Helios H");
-    let mut g_bold = Vec::with_capacity(2048);
-    let mut h_bold = Vec::with_capacity(2048);
-    for i in 0u32 .. 2048 {
+    static N_HELIOS_GENERATORS: u32 = 2u32.pow(GENERATORS_POW_2_BASE + MAX_POW_2_INPUTS);
+    let mut g_bold = Vec::with_capacity(N_HELIOS_GENERATORS.try_into().unwrap());
+    let mut h_bold = Vec::with_capacity(N_HELIOS_GENERATORS.try_into().unwrap());
+    for i in 0u32 .. N_HELIOS_GENERATORS {
       let mut g_buf = b"Monero Helios G ".to_vec();
       write_varint(&i, &mut g_buf).unwrap();
       g_bold.push(hash_to_point_on_curve::<Helios>(&g_buf));
@@ -130,9 +137,10 @@ pub fn SELENE_GENERATORS() -> &'static Generators<Selene> {
   SELENE_GENERATORS_CELL.get_or_init(|| {
     let g = hash_to_point_on_curve::<Selene>(b"Monero Selene G");
     let h = hash_to_point_on_curve::<Selene>(b"Monero Selene H");
-    let mut g_bold = Vec::with_capacity(4096);
-    let mut h_bold = Vec::with_capacity(4096);
-    for i in 0u32 .. 4096 {
+    static N_SELENE_GENERATORS: u32 = 2u32.pow(GENERATORS_POW_2_BASE + 1 + MAX_POW_2_INPUTS);
+    let mut g_bold = Vec::with_capacity(N_SELENE_GENERATORS.try_into().unwrap());
+    let mut h_bold = Vec::with_capacity(N_SELENE_GENERATORS.try_into().unwrap());
+    for i in 0u32 .. N_SELENE_GENERATORS {
       let mut g_buf = b"Monero Selene G ".to_vec();
       write_varint(&i, &mut g_buf).unwrap();
       g_bold.push(hash_to_point_on_curve::<Selene>(&g_buf));
