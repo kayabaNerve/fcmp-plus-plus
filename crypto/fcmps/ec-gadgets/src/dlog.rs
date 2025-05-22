@@ -205,7 +205,7 @@ fn divisor_challenge_eval<C: Ciphersuite, Parameters: DiscreteLogParameters>(
   let p_0_n_1 = {
     let mut p_0_n_1 = LinComb::empty().term(challenge.p_0_n_0, divisor.y);
     for (j, var) in divisor.yx.iter().enumerate() {
-      // This does not raise by `j + 1` as x_p_0_n_0 omits x**0
+      // This does not index by `j + 1` as x_p_0_n_0 omits x**0
       p_0_n_1 = p_0_n_1.term(challenge.x_p_0_n_0[j], *var);
     }
     p_0_n_1

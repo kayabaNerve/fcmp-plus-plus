@@ -722,8 +722,6 @@ where
 
     debug_assert!(c1_circuit.muls() <= c1_padded_pow_2);
     debug_assert!(c2_circuit.muls() <= c2_padded_pow_2);
-    // dbg!(c1_circuit.muls());
-    // dbg!(c2_circuit.muls());
 
     let (c1_statement, c1_witness) = c1_circuit.statement(
       params.curve_1_generators.reduce(c1_padded_pow_2).ok_or(FcmpError::NotEnoughGenerators)?,
@@ -974,8 +972,6 @@ where
     // Escape to the raw weights to form a GBP with
     debug_assert!(c1_circuit.muls() <= c1_padded_pow_2);
     debug_assert!(c2_circuit.muls() <= c2_padded_pow_2);
-    // dbg!(c1_circuit.muls());
-    // dbg!(c2_circuit.muls());
 
     let (c1_statement, _witness) = c1_circuit.statement(
       params.curve_1_generators.reduce(c1_padded_pow_2).ok_or(FcmpError::NotEnoughGenerators)?,

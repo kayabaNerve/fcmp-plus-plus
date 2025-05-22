@@ -149,10 +149,6 @@ where
   G::Scalar: Zeroize + PrimeFieldBits,
 {
   /// Construct a new blinded output.
-  ///
-  /// Returns `None` if any the points in the resulting `Input` would be identity. This should
-  /// only happen with negligible probability unless the blinds are explicitly crafted for this
-  /// purpose.
   pub fn new(
     o_blind: OBlind<G>,
     i_blind: IBlind<G>,
