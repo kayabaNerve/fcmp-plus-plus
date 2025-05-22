@@ -355,26 +355,27 @@ impl<C: Ciphersuite> EcDlogGadgets<C> for Circuit<C> {
     let sign_of_points = transcript.challenge_bytes();
     let sign_of_point_0 = (sign_of_points[0] & 1) == 1;
     let sign_of_point_1 = ((sign_of_points[0] >> 1) & 1) == 1;
-    let (c0_x, c0_y) = loop {
-      let c0_x = transcript.challenge::<C>();
-      let Some(c0_y) =
-        Option::<C::F>::from(((c0_x.square() * c0_x) + (curve.a * c0_x) + curve.b).sqrt())
-      else {
-        continue;
-      };
-      // Takes the even y coordinate as to not be dependent on whatever root the above sqrt
-      // happens to returns
-      break (c0_x, if bool::from(c0_y.is_odd()) != sign_of_point_0 { -c0_y } else { c0_y });
-    };
-    let (c1_x, c1_y) = loop {
-      let c1_x = transcript.challenge::<C>();
-      let Some(c1_y) =
-        Option::<C::F>::from(((c1_x.square() * c1_x) + (curve.a * c1_x) + curve.b).sqrt())
-      else {
-        continue;
-      };
-      break (c1_x, if bool::from(c1_y.is_odd()) != sign_of_point_1 { -c1_y } else { c1_y });
-    };
+
+    fn sample_embedded_curve_point<T: Transcript, C: Ciphersuite>(
+      transcript: &mut T,
+      curve: &CurveSpec<C::F>,
+      odd_y_coordinate: bool,
+    ) -> (C::F, C::F) {
+      loop {
+        let c_x = transcript.challenge::<C>();
+        let Some(c_y) =
+          Option::<C::F>::from(((c_x.square() * c_x) + (curve.a * c_x) + curve.b).sqrt())
+        else {
+          continue;
+        };
+        // Takes a specific y coordinate as to not be dependent on whatever root the above sqrt
+        // happens to returns
+        return (c_x, if bool::from(c_y.is_odd()) != odd_y_coordinate { -c_y } else { c_y });
+      }
+    }
+
+    let (c0_x, c0_y) = sample_embedded_curve_point::<T, C>(transcript, curve, sign_of_point_0);
+    let (c1_x, c1_y) = sample_embedded_curve_point::<T, C>(transcript, curve, sign_of_point_1);
 
     // mmadd-1998-cmo
     fn incomplete_add<F: PrimeField>(x1: F, y1: F, x2: F, y2: F) -> Option<(F, F)> {
