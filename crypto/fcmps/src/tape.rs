@@ -22,6 +22,7 @@ pub(crate) struct VectorCommitmentTape<F: Zeroize + PrimeFieldBits> {
   pub(crate) commitment_len: usize,
   pub(crate) current_j_offset: usize,
   pub(crate) commitments: Vec<Vec<F>>,
+  pub(crate) branch_lengths: Vec<usize>,
 }
 
 impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
@@ -60,6 +61,9 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
   ) -> Vec<Variable> {
     // Make sure we're at the start of a commitment as this needs its own dedicated commitment
     assert_eq!(self.current_j_offset, 0);
+    // Make sure we haven't pushed any non-branches yet
+    assert_eq!(self.branch_lengths.len(), self.commitments.len());
+    self.branch_lengths.push(branch_len);
     assert!(branch_len != 0);
     assert!(branch_len <= self.commitment_len);
     let words_in_branch = (branch_len + (COMMITMENT_WORD_LEN - 1)) / COMMITMENT_WORD_LEN;
@@ -236,10 +240,14 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     assert_eq!(self.commitments.len(), blinds.len());
 
     let mut res = vec![];
-    for (values, blind) in self.commitments.iter().zip(blinds) {
+    for (i, (values, blind)) in self.commitments.iter().zip(blinds).enumerate() {
       let g_generators = generators.g_bold_slice()[.. values.len()].iter().cloned();
-      let mut commitment =
-        g_generators.enumerate().map(|(i, g)| (values[i], g)).collect::<Vec<_>>();
+      let commitment = g_generators.enumerate().map(|(i, g)| (values[i], g));
+      let mut commitment = if let Some(branch_length) = self.branch_lengths.get(i) {
+        commitment.take(*branch_length).collect::<Vec<_>>()
+      } else {
+        commitment.collect::<Vec<_>>()
+      };
       commitment.push((*blind, generators.h()));
       res.push(multiexp(&commitment));
     }
