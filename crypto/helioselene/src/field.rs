@@ -1,45 +1,679 @@
-use zeroize::{DefaultIsZeroes, Zeroize};
-
-use crypto_bigint::{
-  U256, U512,
-  modular::constant_mod::{ResidueParams, Residue},
+use core::{
+  iter::{Product, Sum},
+  ops::*,
 };
 
-const MODULUS_STR: &str = "7fffffffffffffffffffffffffffffffbf7f782cb7656b586eb6d2727927c79f";
+use subtle::*;
+use zeroize::{DefaultIsZeroes, Zeroize};
 
-impl_modulus!(HelioseleneQ, U256, MODULUS_STR);
-type ResidueType = Residue<HelioseleneQ, { HelioseleneQ::LIMBS }>;
+use rand_core::RngCore;
+
+use crypto_bigint::{Zero, Encoding, Limb, U128, U256};
+
+use group::ff::{Field, FieldBits, PrimeField, PrimeFieldBits};
 
 /// The field novel to Helios/Selene.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 #[repr(C)]
-pub struct HelioseleneField(pub(crate) ResidueType);
+pub struct HelioseleneField(pub(crate) U256);
+
+/// The modulus of the field.
+const MODULUS: U256 =
+  U256::from_be_hex("7fffffffffffffffffffffffffffffffbf7f782cb7656b586eb6d2727927c79f");
+/// The distance between the modulus and 2**255.
+const MODULUS_255_DISTANCE: U128 = U128::from_le_hex("6138d8868d2d4991a7949a48d3878040");
+/// Twice the distance from the modulus to 2**255.
+const TWO_MODULUS_255_DISTANCE: U128 = U128::from_le_hex("c270b00d1b5b92224f293591a60f0181");
+/*
+/// The modulus, minus two, as used for calculating modular inverses.
+const MODULUS_MINUS_TWO: HelioseleneField = HelioseleneField(U256::from_be_hex(
+  "7fffffffffffffffffffffffffffffffbf7f782cb7656b586eb6d2727927c79d",
+));
+*/
+/// The modulus, plus one, divided by four, as used for calculating square roots.
+const MODULUS_PLUS_ONE_DIV_FOUR: HelioseleneField = HelioseleneField(U256::from_le_hex(
+  "e8f1499e9cb4ad1bd65ad92d0bdedfefffffffffffffffffffffffffffffff1f",
+));
+
+impl From<u8> for HelioseleneField {
+  fn from(a: u8) -> HelioseleneField {
+    HelioseleneField(U256::from(a))
+  }
+}
+impl From<u16> for HelioseleneField {
+  fn from(a: u16) -> HelioseleneField {
+    HelioseleneField(U256::from(a))
+  }
+}
+impl From<u32> for HelioseleneField {
+  fn from(a: u32) -> HelioseleneField {
+    HelioseleneField(U256::from(a))
+  }
+}
+impl From<u64> for HelioseleneField {
+  fn from(a: u64) -> HelioseleneField {
+    HelioseleneField(U256::from(a))
+  }
+}
 
 impl DefaultIsZeroes for HelioseleneField {}
 
-pub(crate) const MODULUS: U256 = U256::from_be_hex(MODULUS_STR);
+impl ConstantTimeEq for HelioseleneField {
+  #[inline(always)]
+  fn ct_eq(&self, b: &Self) -> Choice {
+    self.0.ct_eq(&b.0)
+  }
+}
 
-const WIDE_MODULUS: U512 = U512::from_be_hex(concat!(
-  "0000000000000000000000000000000000000000000000000000000000000000",
-  "7fffffffffffffffffffffffffffffffbf7f782cb7656b586eb6d2727927c79f",
-));
+impl ConditionallySelectable for HelioseleneField {
+  #[inline(always)]
+  fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+    Self(<_>::conditional_select(&a.0, &b.0, choice))
+  }
+}
 
-field!(
-  HelioseleneField,
-  ResidueType,
-  MODULUS_STR,
-  MODULUS,
-  WIDE_MODULUS,
-  5,
-  1,
-  "7fffffffffffffffffffffffffffffffbf7f782cb7656b586eb6d2727927c79e",
-  "0000000000000000000000000000000000000000000000000000000000000019",
-);
+/// Subtract a value (`b`) from another value (`a`).
+///
+/// Returns `(result, 0)` if successful, or  `(wrapped value, 255)` otherwise.
+#[inline(always)]
+fn sub_value(a: U256, b: U256) -> (U256, Limb) {
+  a.sbb(&b, Limb::ZERO)
+}
+
+/// Reduce once if appropriate
+#[inline(always)]
+fn red1(a: U256) -> U256 {
+  let (reduced, borrow) = sub_value(a, MODULUS);
+  let mut out = U256::ZERO;
+  for j in 0 .. U256::LIMBS {
+    out.as_limbs_mut()[j] = (borrow & a.as_limbs()[j]) | ((!borrow) & reduced.as_limbs()[j]);
+  }
+  out
+}
+
+/// Reduce any 256-bit value
+#[inline(always)]
+fn red256(mut a: U256) -> HelioseleneField {
+  // If the highest bit is set, subtract out the modulus once
+  let mask = Limb(a.bit_vartime(255) as u8 as _);
+  let mut carry = Limb::ZERO;
+  for j in 0 .. U256::LIMBS {
+    let limb;
+    (limb, carry) = a.as_limbs()[j].sbb(mask.wrapping_mul(MODULUS.as_limbs()[j]), carry);
+    a.as_limbs_mut()[j] = limb;
+  }
+  // The resulting value is either reduced or within one reduction step as `3 * MODULUS > 2**256`
+  HelioseleneField(red1(a))
+}
+
+impl Add for HelioseleneField {
+  type Output = Self;
+  #[inline(always)]
+  fn add(self, b: Self) -> Self::Output {
+    HelioseleneField(red1(self.0.wrapping_add(&b.0)))
+  }
+}
+impl Add<&HelioseleneField> for HelioseleneField {
+  type Output = Self;
+  #[inline(always)]
+  fn add(self, b: &Self) -> Self::Output {
+    self + *b
+  }
+}
+impl AddAssign for HelioseleneField {
+  #[inline(always)]
+  fn add_assign(&mut self, b: Self) {
+    *self = *self + b;
+  }
+}
+impl AddAssign<&HelioseleneField> for HelioseleneField {
+  #[inline(always)]
+  fn add_assign(&mut self, b: &Self) {
+    *self = *self + b;
+  }
+}
+impl Sum for HelioseleneField {
+  fn sum<I: Iterator<Item = HelioseleneField>>(iter: I) -> HelioseleneField {
+    let mut res = HelioseleneField::ZERO;
+    for item in iter {
+      res += item;
+    }
+    res
+  }
+}
+impl<'a> Sum<&'a HelioseleneField> for HelioseleneField {
+  fn sum<I: Iterator<Item = &'a HelioseleneField>>(iter: I) -> HelioseleneField {
+    iter.copied().sum()
+  }
+}
+
+impl Neg for HelioseleneField {
+  type Output = Self;
+  #[inline(always)]
+  fn neg(self) -> Self::Output {
+    <_>::conditional_select(
+      &HelioseleneField(MODULUS.wrapping_sub(&self.0)),
+      &Self::ZERO,
+      self.0.is_zero(),
+    )
+  }
+}
+
+impl Neg for &HelioseleneField {
+  type Output = HelioseleneField;
+  #[inline(always)]
+  fn neg(self) -> Self::Output {
+    -*self
+  }
+}
+
+impl Sub for HelioseleneField {
+  type Output = Self;
+  #[inline(always)]
+  fn sub(self, b: Self) -> Self::Output {
+    let (candidate, underflowed) = sub_value(self.0, b.0);
+    let plus_modulus = candidate.wrapping_add(&MODULUS);
+    let mut out = U256::ZERO;
+    for j in 0 .. U256::LIMBS {
+      out.as_limbs_mut()[j] =
+        ((!underflowed) & candidate.as_limbs()[j]) | (underflowed & plus_modulus.as_limbs()[j]);
+    }
+    Self(out)
+  }
+}
+impl Sub<&HelioseleneField> for HelioseleneField {
+  type Output = Self;
+  #[inline(always)]
+  fn sub(self, b: &Self) -> Self::Output {
+    self - *b
+  }
+}
+impl SubAssign for HelioseleneField {
+  #[inline(always)]
+  fn sub_assign(&mut self, b: Self) {
+    *self = *self - b;
+  }
+}
+impl SubAssign<&HelioseleneField> for HelioseleneField {
+  #[inline(always)]
+  fn sub_assign(&mut self, b: &Self) {
+    *self = *self - b;
+  }
+}
+
+#[inline(always)]
+fn red512(wide: (U256, U256)) -> HelioseleneField {
+  /*
+    The premise of the Crandall reduction is how the modulus is equivalent to
+    2**255 - MODULUS_255_DISTANCE, where MODULUS_255_DISTANCE is short (only two words). This means
+    2**255 is congruent to MODULUS_255_DISTANCE modulo the modulus, and subtraction of 2**255 is
+    congruent to subtracting MODULUS_255_DISTANCE.
+  */
+
+  let mut limbs = [Limb::ZERO; 2 * U256::LIMBS];
+  limbs[.. U256::LIMBS].copy_from_slice(wide.0.as_limbs());
+  limbs[U256::LIMBS ..].copy_from_slice(wide.1.as_limbs());
+
+  /*
+    Perform a 128-bit multiplication with the highest bits, producing a 256-bit value which must
+    be further shifted by 128 bits.
+  */
+  let mut carries = [Limb::ZERO; U256::LIMBS + U128::LIMBS];
+  let mut carry;
+  for i in U128::LIMBS .. U256::LIMBS {
+    (limbs[i], carry) =
+      limbs[i].mac(limbs[U256::LIMBS + i], TWO_MODULUS_255_DISTANCE.as_limbs()[0], Limb::ZERO);
+    for j in 1 .. U128::LIMBS {
+      (limbs[i + j], carry) =
+        limbs[i + j].mac(limbs[U256::LIMBS + i], TWO_MODULUS_255_DISTANCE.as_limbs()[j], carry);
+    }
+    carries[i + U128::LIMBS] = carry;
+  }
+  carry = Limb::ZERO;
+  for j in U256::LIMBS .. (U256::LIMBS + U128::LIMBS) {
+    (limbs[j], carry) = limbs[j].adc(carries[j], carry);
+  }
+
+  /*
+    The 384th bit may be set, despite just multiplying those limbs out. We resolve this by
+    explicitly reducing the 384th bit out with the addition of `(2**256 % MODULUS) << 128`. The
+    resulting carry is guaranteed to be non-zero as
+    ```
+    (2**384 - 1) + # The maximum value present in limbs
+      (((2**128 - 1) * (2 * (2**255 - MODULUS))) << 128) - # Reduce out the maximum highest bits
+      2**384 + # Subtract the 384th bit, if set
+      ((2 * (2**255 - MODULUS)) << 128) < # The corresponding reduction for the 384th bit
+      2**384 # The bound representable by the remaining limbs
+    ```
+  */
+  let three_eighty_four_carry = carry;
+  let mut carry = Limb::ZERO;
+  for j in 0 .. U128::LIMBS {
+    (limbs[U128::LIMBS + j], carry) = limbs[U128::LIMBS + j]
+      .adc(three_eighty_four_carry.wrapping_mul(TWO_MODULUS_255_DISTANCE.as_limbs()[j]), carry);
+  }
+  for j in U128::LIMBS .. U256::LIMBS {
+    (limbs[U128::LIMBS + j], carry) = limbs[U128::LIMBS + j].adc(Limb::ZERO, carry);
+  }
+
+  // Perform the 128-bit multiplication with the next highest bits
+  for i in 0 .. U128::LIMBS {
+    (limbs[i], carry) =
+      limbs[i].mac(limbs[U256::LIMBS + i], TWO_MODULUS_255_DISTANCE.as_limbs()[0], Limb::ZERO);
+    for j in 1 .. U128::LIMBS {
+      (limbs[i + j], carry) =
+        limbs[i + j].mac(limbs[U256::LIMBS + i], TWO_MODULUS_255_DISTANCE.as_limbs()[j], carry);
+    }
+    carries[i + U128::LIMBS] = carry;
+  }
+  carry = Limb::ZERO;
+  for j in U128::LIMBS .. U256::LIMBS {
+    (limbs[j], carry) = limbs[j].adc(carries[j], carry);
+  }
+
+  // As with the 384th bit, we now reduce out the 256th bit if set, which again won't overflow
+  let two_fifty_six_carry = carry;
+  let mut carry = Limb::ZERO;
+  for i in 0 .. U128::LIMBS {
+    (limbs[i], carry) =
+      limbs[i].adc(two_fifty_six_carry.wrapping_mul(TWO_MODULUS_255_DISTANCE.as_limbs()[i]), carry);
+  }
+  for i in U128::LIMBS .. U256::LIMBS {
+    (limbs[i], carry) = limbs[i].adc(Limb::ZERO, carry);
+  }
+
+  let mut res = U256::ZERO;
+  res.as_limbs_mut().copy_from_slice(&limbs[.. U256::LIMBS]);
+  // Convert `res` to a valid scalar
+  red256(res)
+}
+
+impl Mul for HelioseleneField {
+  type Output = Self;
+  #[inline(always)]
+  fn mul(self, b: Self) -> Self::Output {
+    red512(self.0.mul_wide(&b.0))
+  }
+}
+impl Mul<&HelioseleneField> for HelioseleneField {
+  type Output = Self;
+  #[inline(always)]
+  fn mul(self, b: &Self) -> Self::Output {
+    self * *b
+  }
+}
+impl MulAssign for HelioseleneField {
+  #[inline(always)]
+  fn mul_assign(&mut self, b: Self) {
+    *self = *self * b;
+  }
+}
+impl MulAssign<&HelioseleneField> for HelioseleneField {
+  #[inline(always)]
+  fn mul_assign(&mut self, b: &Self) {
+    *self = *self * b;
+  }
+}
+impl Product<HelioseleneField> for HelioseleneField {
+  fn product<I: Iterator<Item = HelioseleneField>>(iter: I) -> HelioseleneField {
+    let mut res = HelioseleneField::ONE;
+    for item in iter {
+      res *= item;
+    }
+    res
+  }
+}
+impl<'a> Product<&'a HelioseleneField> for HelioseleneField {
+  fn product<I: Iterator<Item = &'a HelioseleneField>>(iter: I) -> HelioseleneField {
+    iter.copied().product()
+  }
+}
 
 impl HelioseleneField {
+  /*
+    The pow functions perform notably worse under wasm-cycles when they use an inlined
+    multiplication function, presumably due to the excessive amount of calls to multiply they
+    make. The impact on real architectures is unclear.
+  */
+  pub(crate) fn mul_without_inlining(self, b: &Self) -> Self {
+    self * b
+  }
+  pub(crate) fn square_without_inlining(self) -> Self {
+    self.square()
+  }
+
+  /// Perform an exponentation.
+  pub fn pow(&self, exp: Self) -> Self {
+    let mut table = [Self::ONE; 16];
+    table[1] = *self;
+    table[2] = self.square();
+    table[3] = table[2].mul_without_inlining(self);
+    table[4] = table[2].square();
+    table[5] = table[4].mul_without_inlining(self);
+    table[6] = table[3].square();
+    table[7] = table[6].mul_without_inlining(self);
+    table[8] = table[4].square();
+    table[9] = table[8].mul_without_inlining(self);
+    table[10] = table[5].square();
+    table[11] = table[10].mul_without_inlining(self);
+    table[12] = table[6].square();
+    table[13] = table[12].mul_without_inlining(self);
+    table[14] = table[7].square();
+    table[15] = table[14].mul_without_inlining(self);
+
+    let mut res = Self::ONE;
+    let mut bits = 0;
+    for (i, mut bit) in exp.to_le_bits().iter_mut().rev().enumerate() {
+      bits <<= 1;
+      let mut bit = crate::u8_from_bool(bit.deref_mut());
+      bits |= bit;
+      bit.zeroize();
+
+      if ((i + 1) % 4) == 0 {
+        if i != 3 {
+          for _ in 0 .. 4 {
+            res = res.square();
+          }
+        }
+
+        let mut factor = table[0];
+        for (j, candidate) in table[1 ..].iter().enumerate() {
+          let j = j + 1;
+          factor = Self::conditional_select(&factor, &candidate, usize::from(bits).ct_eq(&j));
+        }
+        res = res.mul_without_inlining(&factor);
+        bits = 0;
+      }
+    }
+    res
+  }
+
   /// Perform a wide reduction, presumably to obtain a non-biased Helioselene field element.
   pub fn wide_reduce(bytes: [u8; 64]) -> HelioseleneField {
-    HelioseleneField(Residue::new(&reduce(U512::from_le_slice(bytes.as_ref()))))
+    red512((U256::from_le_slice(&bytes[.. 32]), U256::from_le_slice(&bytes[32 ..])))
+  }
+}
+
+impl Field for HelioseleneField {
+  const ZERO: Self = Self(U256::ZERO);
+  const ONE: Self = Self(U256::ONE);
+
+  fn random(mut rng: impl RngCore) -> Self {
+    let mut a = [0; 32];
+    rng.fill_bytes(&mut a);
+    let mut b = [0; 32];
+    rng.fill_bytes(&mut b);
+    red512((U256::from_le_slice(&a), U256::from_le_slice(&b)))
+  }
+
+  fn double(&self) -> Self {
+    HelioseleneField(red1(self.0.shl_vartime(1)))
+  }
+
+  #[inline(always)]
+  fn square(&self) -> Self {
+    red512(self.0.square_wide())
+  }
+
+  fn invert(&self) -> CtOption<Self> {
+    let (inv, valid) = self.0.inv_odd_mod_bounded(&MODULUS, 255, 255);
+    CtOption::new(Self(inv), valid.into())
+  }
+
+  fn sqrt(&self) -> CtOption<Self> {
+    let mut table = [Self::ONE; 16];
+    table[1] = *self;
+    table[2] = self.square_without_inlining();
+    table[3] = table[2].mul_without_inlining(self);
+    table[4] = table[2].square_without_inlining();
+    table[5] = table[4].mul_without_inlining(self);
+    table[6] = table[3].square();
+    table[7] = table[6].mul_without_inlining(self);
+    table[8] = table[4].square_without_inlining();
+    table[9] = table[8].mul_without_inlining(self);
+    table[10] = table[5].square_without_inlining();
+    table[11] = table[10].mul_without_inlining(self);
+    table[12] = table[6].square_without_inlining();
+    table[13] = table[12].mul_without_inlining(self);
+    table[14] = table[7].square_without_inlining();
+    table[15] = table[14].mul_without_inlining(self);
+
+    // The first 128 bits are all set, hence this ladder to produce the value
+    let mut res = table[15];
+    let four_zero = res.square_without_inlining();
+    let four_zero_zero = four_zero.square_without_inlining();
+    res = four_zero_zero.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.mul_without_inlining(&table[15]);
+    let old_res = res;
+
+    for _ in 0 .. 8 {
+      res = res.square_without_inlining();
+    }
+    res = res.mul_without_inlining(&old_res);
+    let old_res = res;
+
+    for _ in 0 .. 16 {
+      res = res.square_without_inlining();
+    }
+    res = res.mul_without_inlining(&old_res);
+    let old_res = res;
+
+    for _ in 0 .. 32 {
+      res = res.square_without_inlining();
+    }
+    res = res.mul_without_inlining(&old_res);
+    let old_res = res;
+
+    for _ in 0 .. 64 {
+      res = res.square_without_inlining();
+    }
+    res = res.mul_without_inlining(&old_res);
+
+    // Then the bits have 0111111 twice
+    let six = four_zero_zero.mul_without_inlining(&table[3]);
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.mul_without_inlining(&six);
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.mul_without_inlining(&six);
+
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.mul_without_inlining(&table[2]);
+
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.mul_without_inlining(&table[15]);
+
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.mul_without_inlining(&table[11]);
+
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.square_without_inlining();
+    res = res.mul_without_inlining(&table[11]);
+
+    res = res.square_without_inlining();
+
+    let mut bits = 0;
+    for bit in MODULUS_PLUS_ONE_DIV_FOUR.to_le_bits().iter().take(253).rev().skip(164) {
+      bits <<= 1;
+      let bit = (*bit) as u8;
+      bits |= bit;
+
+      res = res.square_without_inlining();
+
+      if (bits & (1 << 3)) != 0 {
+        res = res.mul_without_inlining(&table[usize::from(bits)]);
+        bits = 0;
+      }
+    }
+
+    // We don't handle the final bit window as it's zero
+
+    CtOption::new(res, res.square().ct_eq(self))
+  }
+
+  fn sqrt_ratio(num: &Self, div: &Self) -> (Choice, Self) {
+    ff::helpers::sqrt_ratio_generic(num, div)
+  }
+}
+
+impl PrimeField for HelioseleneField {
+  type Repr = [u8; 32];
+
+  const MODULUS: &'static str =
+    "0x7fffffffffffffffffffffffffffffffbf7f782cb7656b586eb6d2727927c79f";
+
+  const NUM_BITS: u32 = 255;
+  const CAPACITY: u32 = 254;
+
+  const TWO_INV: Self =
+    Self(U256::from_le_hex("d0e3933c39695b37acb5b25b16bcbfdfffffffffffffffffffffffffffffff3f"));
+
+  const MULTIPLICATIVE_GENERATOR: Self = Self(U256::from_u8(5));
+  const S: u32 = 1;
+
+  const ROOT_OF_UNITY: Self =
+    Self(U256::from_be_hex("7fffffffffffffffffffffffffffffffbf7f782cb7656b586eb6d2727927c79e"));
+  const ROOT_OF_UNITY_INV: Self =
+    Self(U256::from_le_hex("9ec7277972d2b66e586b65b72c787fbfffffffffffffffffffffffffffffff7f"));
+
+  const DELTA: Self = Self(U256::from_u8(25));
+
+  fn from_repr(bytes: Self::Repr) -> CtOption<Self> {
+    let res = U256::from_le_slice(&bytes);
+
+    // Check if a U256 contains a value less than the modulus.
+    #[inline(always)]
+    fn reduced(a: U256) -> Choice {
+      let mut a_limbs = a.as_limbs().iter();
+      let mut b_limbs = MODULUS_255_DISTANCE.as_limbs().iter();
+      let mut last = Limb::ZERO;
+      let mut carry = Limb::ZERO;
+      while let Some(a) = a_limbs.next() {
+        let b = b_limbs.next().unwrap_or(&Limb::ZERO);
+        (last, carry) = a.adc(*b, carry);
+      }
+      ((last & (Limb::ONE << (Limb::BITS - 1))) | carry).ct_eq(&Limb::ZERO)
+    }
+
+    let reduced = reduced(res);
+    CtOption::new(HelioseleneField(res), reduced)
+  }
+
+  fn to_repr(&self) -> Self::Repr {
+    self.0.to_le_bytes()
+  }
+
+  fn is_odd(&self) -> Choice {
+    Choice::from((self.0.as_limbs()[0].0 & 1) as u8)
+  }
+}
+
+impl PrimeFieldBits for HelioseleneField {
+  type ReprBits = [u8; 32];
+
+  fn to_le_bits(&self) -> FieldBits<Self::ReprBits> {
+    self.to_repr().into()
+  }
+
+  fn char_le_bits() -> FieldBits<Self::ReprBits> {
+    MODULUS.to_le_bytes().into()
+  }
+}
+
+// The following tests assume a 64-bit host as it uses crypto-bigint's limbs directly
+#[cfg(test)]
+#[cfg(target_pointer_width = "64")]
+mod tests_assuming_64_bits {
+  use super::*;
+
+  #[inline(always)]
+  fn lo_hi_split<T, S: crypto_bigint::Split<Output = T>>(a: S) -> (T, T) {
+    let (hi, lo) = a.split();
+    (lo, hi)
+  }
+
+  #[inline(always)]
+  fn lo_hi_concat<T, S: crypto_bigint::Concat<Output = T>>(a: &S, b: &S) -> T {
+    S::concat(b, a)
+  }
+
+  #[test]
+  fn test_reduction_of_each_bit() {
+    for b in 0 .. 512usize {
+      let to_reduce = crypto_bigint::U512::ONE << b;
+      let reduced = to_reduce.checked_rem(&lo_hi_concat(&MODULUS, &U256::ZERO)).unwrap();
+
+      if b < 256 {
+        let reduced_apo = red256(lo_hi_split(to_reduce).0);
+        assert_eq!(
+          &reduced.as_limbs()[.. 4],
+          reduced_apo.0.as_limbs(),
+          "failed to reduce the 256-bit 1 << {b}"
+        );
+      }
+
+      let reduced_apo = red512(lo_hi_split(to_reduce));
+      assert_eq!(
+        &reduced.as_limbs()[.. 4],
+        reduced_apo.0.as_limbs(),
+        "failed to reduce the 512-bit 1 << {b}"
+      );
+    }
+  }
+
+  #[test]
+  fn test_wide_reduction() {
+    use crypto_bigint::Random;
+    for _ in 0 .. 1000 {
+      let to_reduce = crypto_bigint::U512::random(&mut rand_core::OsRng);
+      let reduced = to_reduce.checked_rem(&lo_hi_concat(&MODULUS, &U256::ZERO)).unwrap();
+      let reduced_apo = HelioseleneField::wide_reduce(to_reduce.to_le_bytes());
+      assert_eq!(
+        &reduced.as_limbs()[.. 4],
+        reduced_apo.0.as_limbs(),
+        "failed to reduce {:?}",
+        to_reduce.to_words(),
+      );
+    }
+
+    let to_reduce = crypto_bigint::U512::MAX;
+    let reduced = to_reduce.checked_rem(&lo_hi_concat(&MODULUS, &U256::ZERO)).unwrap();
+    let reduced_apo = HelioseleneField::wide_reduce(to_reduce.to_le_bytes());
+    assert_eq!(
+      &reduced.as_limbs()[.. 4],
+      reduced_apo.0.as_limbs(),
+      "failed to reduce {:?}",
+      to_reduce.to_words(),
+    );
   }
 }
 
