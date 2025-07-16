@@ -8,8 +8,6 @@ use rand_core::RngCore;
 use zeroize::Zeroize;
 use subtle::{Choice, CtOption, ConstantTimeEq, ConditionallySelectable, ConditionallyNegatable};
 
-use crypto_bigint::{U256, modular::constant_mod::Residue};
-
 use group::{
   ff::{Field, PrimeField, PrimeFieldBits},
   Group, GroupEncoding,
@@ -17,21 +15,21 @@ use group::{
 };
 
 use dalek_ff_group::FieldElement as Field25519;
-use crate::{backend::u8_from_bool, field::HelioseleneField};
+use crate::{u8_from_bool, field::HelioseleneField};
 
 macro_rules! curve {
   (
     $Scalar: ident,
     $Field: ident,
     $Point: ident,
-    $B: literal,
-    $G_X: literal,
-    $G_Y: literal,
+    $B: expr,
+    $G_X: expr,
+    $G_Y: expr,
   ) => {
-    const G_X: $Field = $Field(Residue::new(&U256::from_be_hex($G_X)));
-    const G_Y: $Field = $Field(Residue::new(&U256::from_be_hex($G_Y)));
+    const G_X: $Field = $G_X;
+    const G_Y: $Field = $G_Y;
 
-    const B: $Field = $Field(Residue::new(&U256::from_be_hex($B)));
+    const B: $Field = $B;
 
     fn recover_y(x: $Field) -> CtOption<$Field> {
       // x**3 + -3x + B
@@ -83,9 +81,7 @@ macro_rules! curve {
       type Output = $Point;
       #[allow(non_snake_case)]
       fn add(self, other: Self) -> Self {
-        // add-2015-rcb
-        let b3 = B + B + B;
-
+        // add-2015-rcb-3
         let X1 = self.x;
         let Y1 = self.y;
         let Z1 = self.z;
@@ -93,7 +89,6 @@ macro_rules! curve {
         let Y2 = other.y;
         let Z2 = other.z;
 
-        let a = -$Field::from(3u64);
         let t0 = X1 * X2;
         let t1 = Y1 * Y2;
         let t2 = Z1 * Z2;
@@ -102,38 +97,42 @@ macro_rules! curve {
         let t3 = t3 * t4;
         let t4 = t0 + t1;
         let t3 = t3 - t4;
-        let t4 = X1 + Z1;
-        let t5 = X2 + Z2;
-        let t4 = t4 * t5;
-        let t5 = t0 + t2;
-        let t4 = t4 - t5;
-        let t5 = Y1 + Z1;
+        let t4 = Y1 + Z1;
         let X3 = Y2 + Z2;
-        let t5 = t5 * X3;
+        let t4 = t4 * X3;
         let X3 = t1 + t2;
-        let t5 = t5 - X3;
-        let Z3 = a * t4;
-        let X3 = b3 * t2;
-        let Z3 = X3 + Z3;
-        let X3 = t1 - Z3;
-        let Z3 = t1 + Z3;
-        let Y3 = X3 * Z3;
+        let t4 = t4 - X3;
+        let X3 = X1 + Z1;
+        let Y3 = X2 + Z2;
+        let X3 = X3 * Y3;
+        let Y3 = t0 + t2;
+        let Y3 = X3 - Y3;
+        let Z3 = B * t2;
+        let X3 = Y3 - Z3;
+        let Z3 = X3 + X3;
+        let X3 = X3 + Z3;
+        let Z3 = t1 - X3;
+        let X3 = t1 + X3;
+        let Y3 = B * Y3;
+        let t1 = t2 + t2;
+        let t2 = t1 + t2;
+        let Y3 = Y3 - t2;
+        let Y3 = Y3 - t0;
+        let t1 = Y3 + Y3;
+        let Y3 = t1 + Y3;
         let t1 = t0 + t0;
-        let t1 = t1 + t0;
-        let t2 = a * t2;
-        let t4 = b3 * t4;
-        let t1 = t1 + t2;
-        let t2 = t0 - t2;
-        let t2 = a * t2;
-        let t4 = t4 + t2;
-        let t0 = t1 * t4;
-        let Y3 = Y3 + t0;
-        let t0 = t5 * t4;
+        let t0 = t1 + t0;
+        let t0 = t0 - t2;
+        let t1 = t4 * Y3;
+        let t2 = t0 * Y3;
+        let Y3 = X3 * Z3;
+        let Y3 = Y3 + t2;
         let X3 = t3 * X3;
-        let X3 = X3 - t0;
-        let t0 = t3 * t1;
-        let Z3 = t5 * Z3;
-        let Z3 = Z3 + t0;
+        let X3 = X3 - t1;
+        let Z3 = t4 * Z3;
+        let t1 = t3 * t0;
+        let Z3 = Z3 + t1;
+
         $Point { x: X3, y: Y3, z: Z3 }
       }
     }
@@ -263,9 +262,20 @@ macro_rules! curve {
         // Precompute the optimal amount that's a multiple of 2
         let mut table = [$Point::identity(); 16];
         table[1] = self;
-        for i in 2 .. 16 {
-          table[i] = table[i - 1] + self;
-        }
+        table[2] = self.double();
+        table[3] = table[2] + self;
+        table[4] = table[2].double();
+        table[5] = table[4] + self;
+        table[6] = table[3].double();
+        table[7] = table[6] + self;
+        table[8] = table[4].double();
+        table[9] = table[8] + self;
+        table[10] = table[5].double();
+        table[11] = table[10] + self;
+        table[12] = table[6].double();
+        table[13] = table[12] + self;
+        table[14] = table[7].double();
+        table[15] = table[14] + self;
 
         let mut res = Self::identity();
         let mut bits = 0;
@@ -390,14 +400,22 @@ macro_rules! curve {
 }
 
 mod helios {
+  use crypto_bigint::{U256, modular::constant_mod::Residue};
+
   use super::*;
   curve!(
     HelioseleneField,
     Field25519,
     HeliosPoint,
-    "22e8c739b0ea70b8be94a76b3ebb7b3b043f6f384113bf3522b49ee1edd73ad4",
-    "0000000000000000000000000000000000000000000000000000000000000003",
-    "537b74d97ac0721cbd92668350205f0759003bddc586a5dcd243e639e3183ef4",
+    Field25519(Residue::new(&U256::from_be_hex(
+      "22e8c739b0ea70b8be94a76b3ebb7b3b043f6f384113bf3522b49ee1edd73ad4"
+    ))),
+    Field25519(Residue::new(&U256::from_be_hex(
+      "0000000000000000000000000000000000000000000000000000000000000003"
+    ))),
+    Field25519(Residue::new(&U256::from_be_hex(
+      "537b74d97ac0721cbd92668350205f0759003bddc586a5dcd243e639e3183ef4"
+    ))),
   );
 
   #[test]
@@ -421,14 +439,21 @@ mod helios {
 pub use helios::HeliosPoint;
 
 mod selene {
+  use crypto_bigint::U256;
+
   use super::*;
+
   curve!(
     Field25519,
     HelioseleneField,
     SelenePoint,
-    "70127713695876c17f51bba595ffe279f3944bdf06ae900e68de0983cb5a4558",
-    "0000000000000000000000000000000000000000000000000000000000000001",
-    "7a19d927b85cca9257c93177455c825f938bb198c8f09b37741e0aa6a1d3fdd2",
+    HelioseleneField(U256::from_be_hex(
+      "70127713695876c17f51bba595ffe279f3944bdf06ae900e68de0983cb5a4558"
+    )),
+    HelioseleneField(U256::ONE),
+    HelioseleneField(U256::from_be_hex(
+      "7a19d927b85cca9257c93177455c825f938bb198c8f09b37741e0aa6a1d3fdd2"
+    )),
   );
 
   #[test]
