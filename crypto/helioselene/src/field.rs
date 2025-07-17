@@ -72,6 +72,22 @@ impl ConditionallySelectable for HelioseleneField {
   }
 }
 
+// Perform an add with carry, bounding the overflow to be zero or one.
+fn add_with_bounded_overflow(a: Limb, b: Limb, c: Limb) -> (Limb, Limb) {
+  let (limb, carry1) = a.0.overflowing_add(b.0);
+  let (limb, carry2) = limb.overflowing_add(c.0);
+  (Limb(limb), Limb((carry1 | carry2) as _))
+}
+
+// Perform a sub with underflow, bounding the underflow to be zero or one.
+//
+// Unlike `sbb`, this returns `0` or `1`, not `0` or `Limb::MAX`.
+fn sub_with_bounded_overflow(a: Limb, b: Limb, c: Limb) -> (Limb, Limb) {
+  let (limb, borrow1) = a.0.overflowing_sub(b.0);
+  let (limb, borrow2) = limb.overflowing_sub(c.0);
+  (Limb(limb), Limb((borrow1 | borrow2) as _))
+}
+
 /// Subtract a value (`b`) from another value (`a`).
 ///
 /// Returns `(result, 0)` if successful, or  `(wrapped value, 255)` otherwise.
@@ -98,9 +114,8 @@ fn red256(mut a: U256) -> HelioseleneField {
   let mask = Limb(a.bit_vartime(255) as u8 as _);
   let mut carry = Limb::ZERO;
   for j in 0 .. U256::LIMBS {
-    let limb;
-    (limb, carry) = a.as_limbs()[j].sbb(mask.wrapping_mul(MODULUS.as_limbs()[j]), carry);
-    a.as_limbs_mut()[j] = limb;
+    (a.as_limbs_mut()[j], carry) =
+      sub_with_bounded_overflow(a.as_limbs()[j], mask.wrapping_mul(MODULUS.as_limbs()[j]), carry);
   }
   // The resulting value is either reduced or within one reduction step as `3 * MODULUS > 2**256`
   HelioseleneField(red1(a))
@@ -231,7 +246,7 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
   }
   carry = Limb::ZERO;
   for j in U256::LIMBS .. (U256::LIMBS + U128::LIMBS) {
-    (limbs[j], carry) = limbs[j].adc(carries[j], carry);
+    (limbs[j], carry) = add_with_bounded_overflow(limbs[j], carries[j], carry);
   }
 
   /*
@@ -249,11 +264,15 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
   let three_eighty_four_carry = carry;
   let mut carry = Limb::ZERO;
   for j in 0 .. U128::LIMBS {
-    (limbs[U128::LIMBS + j], carry) = limbs[U128::LIMBS + j]
-      .adc(three_eighty_four_carry.wrapping_mul(TWO_MODULUS_255_DISTANCE.as_limbs()[j]), carry);
+    (limbs[U128::LIMBS + j], carry) = add_with_bounded_overflow(
+      limbs[U128::LIMBS + j],
+      three_eighty_four_carry.wrapping_mul(TWO_MODULUS_255_DISTANCE.as_limbs()[j]),
+      carry,
+    );
   }
   for j in U128::LIMBS .. U256::LIMBS {
-    (limbs[U128::LIMBS + j], carry) = limbs[U128::LIMBS + j].adc(Limb::ZERO, carry);
+    (limbs[U128::LIMBS + j], carry) =
+      add_with_bounded_overflow(limbs[U128::LIMBS + j], Limb::ZERO, carry);
   }
 
   // Perform the 128-bit multiplication with the next highest bits
@@ -268,18 +287,21 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
   }
   carry = Limb::ZERO;
   for j in U128::LIMBS .. U256::LIMBS {
-    (limbs[j], carry) = limbs[j].adc(carries[j], carry);
+    (limbs[j], carry) = add_with_bounded_overflow(limbs[j], carries[j], carry);
   }
 
   // As with the 384th bit, we now reduce out the 256th bit if set, which again won't overflow
   let two_fifty_six_carry = carry;
   let mut carry = Limb::ZERO;
   for i in 0 .. U128::LIMBS {
-    (limbs[i], carry) =
-      limbs[i].adc(two_fifty_six_carry.wrapping_mul(TWO_MODULUS_255_DISTANCE.as_limbs()[i]), carry);
+    (limbs[i], carry) = add_with_bounded_overflow(
+      limbs[i],
+      two_fifty_six_carry.wrapping_mul(TWO_MODULUS_255_DISTANCE.as_limbs()[i]),
+      carry,
+    );
   }
   for i in U128::LIMBS .. U256::LIMBS {
-    (limbs[i], carry) = limbs[i].adc(Limb::ZERO, carry);
+    (limbs[i], carry) = add_with_bounded_overflow(limbs[i], Limb::ZERO, carry);
   }
 
   let mut res = U256::ZERO;
@@ -415,9 +437,178 @@ impl Field for HelioseleneField {
     red512(self.0.square_wide())
   }
 
+  // Binary GCD Algorithm 1, https://eprint.iacr.org/2020/972
+  #[inline(always)]
   fn invert(&self) -> CtOption<Self> {
-    let (inv, valid) = self.0.inv_odd_mod_bounded(&MODULUS, 255, 255);
-    CtOption::new(Self(inv), valid.into())
+    let mut a = self.0;
+    let mut b = MODULUS;
+    let mut u = U256::ONE;
+    let mut v = U256::ZERO;
+
+    #[inline(always)]
+    fn step(a: &mut U256, b: &mut U256, u: &mut U256, v: &mut U256, limbs: usize) {
+      let a_is_odd = a.as_limbs()[0].0 & 1;
+      let a_is_odd = Limb(a_is_odd).wrapping_neg();
+
+      // Calculate `a - b`, which also yields if `a < b` by if it underflows
+      let mut borrow = Limb::ZERO;
+      let mut a_sub_b = U256::ZERO;
+      for l in 0 .. limbs {
+        (a_sub_b.as_limbs_mut()[l], borrow) =
+          sub_with_bounded_overflow(a.as_limbs()[l], b.as_limbs()[l], borrow);
+      }
+      let a_lt_b = borrow.wrapping_neg();
+
+      let both = a_is_odd & a_lt_b;
+
+      // This selection formula is inherited from subtle
+      #[inline(always)]
+      fn select_word(a: Limb, b: Limb, choice: Limb) -> Limb {
+        a ^ ((a ^ b) & choice)
+      }
+
+      #[inline(always)]
+      fn select(a: &U256, b: &U256, choice: Limb, limbs: usize) -> U256 {
+        let mut res = U256::ZERO;
+        for l in 0 .. limbs {
+          res.as_limbs_mut()[l] = select_word(a.as_limbs()[l], b.as_limbs()[l], choice);
+        }
+        res
+      }
+
+      // Set `b` to `a` (part of the swap defined on line 8 of the algorithm's description)
+      *b = select(&b, &a, both, limbs);
+
+      // Negate `a_sub_b` to obtain `a_diff_b` if `a_lt_b`
+      let a_diff_b = {
+        // Negation is applying the logical NOT to every word while adding 1
+        let mut carry = Limb::ONE & a_lt_b;
+        let mut a_diff_b = U256::ZERO;
+        for l in 0 .. limbs {
+          // (a ^ x) is a logical NOT if `x` is set and a NOP if `x` is 0
+          let limb;
+          let carry_bool;
+          (limb, carry_bool) = (a_sub_b.as_limbs()[l] ^ a_lt_b).0.overflowing_add(carry.0);
+          (a_diff_b.as_limbs_mut()[l], carry) = (Limb(limb), Limb(carry_bool as _));
+        }
+        a_diff_b
+      };
+      // Leave `a` untouched if `a` is even, else set `a` to the difference of `a` and `b`
+      *a = select(&a, &a_diff_b, a_is_odd, limbs);
+
+      /*
+        The following code immediately takes the difference of `u - v`, before negating to
+        obtain `v - u` if necessary. The advantage to this methodology, compared to swapping
+        `u, v` and then peforming the subtraction, is how during the negation any required
+        additions of the modulus can be performed.
+      */
+
+      let u_start = *u;
+
+      // Calculate `v` or `v - u` depending on if `a & 1`
+      let mut borrow = Limb::ZERO;
+      let mut u_sub_v = U256::ZERO;
+      for l in 0 .. U256::LIMBS {
+        (u_sub_v.as_limbs_mut()[l], borrow) =
+          sub_with_bounded_overflow(u.as_limbs()[l], v.as_limbs()[l] & a_is_odd, borrow);
+      }
+      let u_sub_v_neg = borrow.wrapping_neg();
+
+      // Negate in the case `(a & 1) & (a < b)`
+      let should_negate = a_is_odd & a_lt_b;
+      /*
+        Whether the resulting number will be negative, with the exceptional case of if the
+        resulting number is 0, in which case this iteration will terminate with `u = MODULUS`.
+        `u, v` being not in the range `0 .. MODULUS` yet `0 ..= MODULUS` does not affect this
+        algorithm at all, until the very end when we do expect the value to be in-range. The
+        worst case, we calculate `0 - MODULUS -> -MODULUS`, will cause addition of the `MODULUS`
+        (due to the underflow) and a result of `0`.
+
+        One final reduction, outside of this loop, is cheaper than checking if the number is
+        -0 on every loop iteration.
+      */
+      let v_u_sub_u_v_neg = u_sub_v_neg ^ should_negate;
+
+      // Negation is the logical NOT *and* the addition of the constant `1`, so this is the
+      // parity regardless of if we're about to perform a negation
+      let result_is_odd = (u_sub_v.as_limbs()[0] & Limb::ONE).wrapping_neg();
+
+      /*
+        This is a XOR as to allow `add_one_modulus` and `add_two_modulus` to be simultaneously
+        set and achieve the desired result. If it is modified to the modulus directly, then we'd
+        require `add_one_modulus` and `add_two_modulus` be exclusive which may enable the
+        compiler to be intelligent enough to insert a branch.
+
+        This pattern does allow the compiler to, if it realizes `add_two_modulus` is only set
+        when `add_one_modulus` is, create the XOR'd constant and compress to a branch, yet that
+        should be much tricker for an optimization pass.
+      */
+      const MODULUS_XOR_TWO_MODULUS: U256 =
+        U256::from_be_hex("80000000000000000000000000000000c1818875d9afbde8b3db76968b6848a1");
+      /*
+        Add two instances of the modulus if:
+        - We must add one instance due to the current number being negative
+        - Adding one instance will cause the result to be odd
+      */
+      let add_two_modulus = v_u_sub_u_v_neg & (!result_is_odd);
+      // Add one instance if negative/currently odd but not both
+      let add_one_modulus = v_u_sub_u_v_neg | result_is_odd;
+
+      // This is the starting carry for the negation algorithm
+      let mut carry = Limb::ONE & should_negate;
+      for l in 0 .. U128::LIMBS {
+        // The modulus to add in, to correct for underflow/enable halving
+        let modulus_instances = (MODULUS.as_limbs()[l] & add_one_modulus) ^
+          (MODULUS_XOR_TWO_MODULUS.as_limbs()[l] & add_two_modulus);
+
+        /*
+          Instead of adding the 255-bit modulus, it may be more efficient to subtract out the
+          distance from 2**255, which is only 127 bits. This would be quite marginal however on
+          64-bit platforms, where four additions would be replaced with two subtractions and one
+          binary OR.
+        */
+        // The carry is bounded to be `<= 1` and the low 128-bits of the modulus aren't full
+        let (limb, carry_bool) = (u_sub_v.as_limbs()[l] ^ should_negate)
+          .0
+          .overflowing_add(modulus_instances.wrapping_add(carry).0);
+        (u.as_limbs_mut()[l], carry) = (Limb(limb), Limb(carry_bool as _));
+      }
+      // Unroll the later iterations due to the structure of the XOR
+      for l in U128::LIMBS .. U256::LIMBS {
+        let modulus_instances = MODULUS.as_limbs()[l] & add_one_modulus;
+
+        (u.as_limbs_mut()[l], carry) = add_with_bounded_overflow(
+          u_sub_v.as_limbs()[l] ^ should_negate,
+          modulus_instances,
+          carry,
+        );
+      }
+      u.as_limbs_mut()[U256::LIMBS - 1] =
+        u.as_limbs()[U256::LIMBS - 1] | (add_two_modulus << (Limb::BITS - 1));
+
+      // Set `v` to the `u` from the start if `(a & 1) & (a < b)`
+      *v = select(&v, &u_start, both, U256::LIMBS);
+
+      // Divide by 2
+      for l in 0 .. (limbs - 1) {
+        a.as_limbs_mut()[l] = (a.as_limbs()[l] >> 1) | (a.as_limbs()[l + 1] << (Limb::BITS - 1));
+      }
+      a.as_limbs_mut()[limbs - 1] >>= 1;
+
+      *u = u.shr_vartime(1);
+    }
+
+    // Note the limbs still in use so we don't apply operations over unused limbs
+    for limbs in (2 ..= U256::LIMBS).rev() {
+      for _ in 0 .. (2 * Limb::BITS) {
+        step(&mut a, &mut b, &mut u, &mut v, limbs);
+      }
+    }
+    for _ in 0 .. ((2 * Limb::BITS) - 2) {
+      step(&mut a, &mut b, &mut u, &mut v, 1);
+    }
+
+    CtOption::new(Self(red1(v)), !self.is_zero())
   }
 
   fn sqrt(&self) -> CtOption<Self> {
@@ -579,7 +770,7 @@ impl PrimeField for HelioseleneField {
       let mut carry = Limb::ZERO;
       while let Some(a) = a_limbs.next() {
         let b = b_limbs.next().unwrap_or(&Limb::ZERO);
-        (last, carry) = a.adc(*b, carry);
+        (last, carry) = add_with_bounded_overflow(*a, *b, carry);
       }
       ((last & (Limb::ONE << (Limb::BITS - 1))) | carry).ct_eq(&Limb::ZERO)
     }
