@@ -120,13 +120,22 @@ fn red1(a: U256) -> U256 {
 /// Reduce any 256-bit value
 #[inline(always)]
 fn red256(mut a: U256) -> HelioseleneField {
-  // If the highest bit is set, subtract out the modulus once
-  let mask = Limb(a.bit_vartime(255) as u8 as _).wrapping_neg();
+  // If the highest bit is set, we clear it and add the distance to the modulus
+  let high_bit = (a.as_limbs()[U256::LIMBS - 1] >> (Limb::BITS - 1)).wrapping_neg();
   let mut carry = Limb::ZERO;
-  for j in 0 .. U256::LIMBS {
-    (a.as_limbs_mut()[j], carry) =
-      sub_with_bounded_overflow(a.as_limbs()[j], mask & MODULUS.as_limbs()[j], carry);
+  for j in 0 .. U128::LIMBS {
+    (a.as_limbs_mut()[j], carry) = add_with_bounded_overflow(
+      a.as_limbs()[j],
+      high_bit & MODULUS_255_DISTANCE.as_limbs()[j],
+      carry,
+    );
   }
+  for j in U128::LIMBS .. U256::LIMBS {
+    let (limb, carry_bool) = a.as_limbs()[j].0.overflowing_add(carry.0);
+    (a.as_limbs_mut()[j], carry) = (Limb(limb), Limb(carry_bool as _));
+  }
+  a.as_limbs_mut()[U256::LIMBS - 1] = a.as_limbs()[U256::LIMBS - 1] & (Limb::MAX >> 1);
+
   // The resulting value is either reduced or within one reduction step as `3 * MODULUS > 2**256`
   HelioseleneField(red1(a))
 }
@@ -311,7 +320,8 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
     );
   }
   for i in U128::LIMBS .. U256::LIMBS {
-    (limbs[i], carry) = add_with_bounded_overflow(limbs[i], Limb::ZERO, carry);
+    let (limb, carry_bool) = limbs[i].0.overflowing_add(carry.0);
+    (limbs[i], carry) = (Limb(limb), Limb(carry_bool as _));
   }
 
   let mut res = U256::ZERO;
