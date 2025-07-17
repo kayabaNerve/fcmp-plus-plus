@@ -362,36 +362,24 @@ impl<'a> Product<&'a HelioseleneField> for HelioseleneField {
 }
 
 impl HelioseleneField {
-  /*
-    The pow functions perform notably worse under wasm-cycles when they use an inlined
-    multiplication function, presumably due to the excessive amount of calls to multiply they
-    make. The impact on real architectures is unclear.
-  */
-  pub(crate) fn mul_without_inlining(self, b: &Self) -> Self {
-    self * b
-  }
-  pub(crate) fn square_without_inlining(self) -> Self {
-    self.square()
-  }
-
   /// Perform an exponentation.
   pub fn pow(&self, exp: Self) -> Self {
     let mut table = [Self::ONE; 16];
     table[1] = *self;
-    table[2] = self.square_without_inlining();
-    table[3] = table[2].mul_without_inlining(self);
-    table[4] = table[2].square_without_inlining();
-    table[5] = table[4].mul_without_inlining(self);
-    table[6] = table[3].square_without_inlining();
-    table[7] = table[6].mul_without_inlining(self);
-    table[8] = table[4].square_without_inlining();
-    table[9] = table[8].mul_without_inlining(self);
-    table[10] = table[5].square_without_inlining();
-    table[11] = table[10].mul_without_inlining(self);
-    table[12] = table[6].square_without_inlining();
-    table[13] = table[12].mul_without_inlining(self);
-    table[14] = table[7].square_without_inlining();
-    table[15] = table[14].mul_without_inlining(self);
+    table[2] = self.square();
+    table[3] = table[2] * self;
+    table[4] = table[2].square();
+    table[5] = table[4] * self;
+    table[6] = table[3].square();
+    table[7] = table[6] * self;
+    table[8] = table[4].square();
+    table[9] = table[8] * self;
+    table[10] = table[5].square();
+    table[11] = table[10] * self;
+    table[12] = table[6].square();
+    table[13] = table[12] * self;
+    table[14] = table[7].square();
+    table[15] = table[14] * self;
 
     let mut res = Self::ONE;
     let mut bits = 0;
@@ -404,7 +392,7 @@ impl HelioseleneField {
       if ((i + 1) % 4) == 0 {
         if i != 3 {
           for _ in 0 .. 4 {
-            res = res.square_without_inlining();
+            res = res.square();
           }
         }
 
@@ -413,7 +401,7 @@ impl HelioseleneField {
           let j = j + 1;
           factor = Self::conditional_select(&factor, candidate, usize::from(bits).ct_eq(&j));
         }
-        res = res.mul_without_inlining(&factor);
+        res *= factor;
         bits = 0;
       }
     }
@@ -618,121 +606,81 @@ impl Field for HelioseleneField {
   fn sqrt(&self) -> CtOption<Self> {
     let mut table = [Self::ONE; 16];
     table[1] = *self;
-    table[2] = self.square_without_inlining();
-    table[3] = table[2].mul_without_inlining(self);
-    table[4] = table[2].square_without_inlining();
-    table[5] = table[4].mul_without_inlining(self);
-    table[6] = table[3].square_without_inlining();
-    table[7] = table[6].mul_without_inlining(self);
-    table[8] = table[4].square_without_inlining();
-    table[9] = table[8].mul_without_inlining(self);
-    table[10] = table[5].square_without_inlining();
-    table[11] = table[10].mul_without_inlining(self);
-    table[12] = table[6].square_without_inlining();
-    table[13] = table[12].mul_without_inlining(self);
-    table[14] = table[7].square_without_inlining();
-    table[15] = table[14].mul_without_inlining(self);
+    table[2] = self.square();
+    table[3] = table[2] * self;
+    table[4] = table[2].square();
+    table[5] = table[4] * self;
+    table[6] = table[3].square();
+    table[7] = table[6] * self;
+    table[8] = table[4].square();
+    table[9] = table[8] * self;
+    table[10] = table[5].square();
+    table[11] = table[10] * self;
+    table[12] = table[6].square();
+    table[13] = table[12] * self;
+    table[14] = table[7].square();
+    table[15] = table[14] * self;
 
     // The first 128 bits are all set, hence this ladder to produce the value
     let mut res = table[15];
-    let four_zero = res.square_without_inlining();
-    let four_zero_zero = four_zero.square_without_inlining();
-    res = four_zero_zero.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.mul_without_inlining(&table[15]);
+    let four_zero = res.square();
+    let four_zero_zero = four_zero.square();
+    res = four_zero_zero.square();
+    res = res.square();
+    res *= &table[15];
     let old_res = res;
 
     for _ in 0 .. 8 {
-      res = res.square_without_inlining();
+      res = res.square();
     }
-    res = res.mul_without_inlining(&old_res);
+    res *= &old_res;
     let old_res = res;
 
     for _ in 0 .. 16 {
-      res = res.square_without_inlining();
+      res = res.square();
     }
-    res = res.mul_without_inlining(&old_res);
+    res *= old_res;
     let old_res = res;
 
     for _ in 0 .. 32 {
-      res = res.square_without_inlining();
+      res = res.square();
     }
-    res = res.mul_without_inlining(&old_res);
+    res *= old_res;
     let old_res = res;
 
     for _ in 0 .. 64 {
-      res = res.square_without_inlining();
+      res = res.square();
     }
-    res = res.mul_without_inlining(&old_res);
+    res *= old_res;
 
     // Then the bits have 0111111 twice
-    let six = four_zero_zero.mul_without_inlining(&table[3]);
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.mul_without_inlining(&six);
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.mul_without_inlining(&six);
-
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.mul_without_inlining(&table[2]);
-
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.mul_without_inlining(&table[15]);
-
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.mul_without_inlining(&table[11]);
-
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.square_without_inlining();
-    res = res.mul_without_inlining(&table[11]);
-
-    res = res.square_without_inlining();
+    let six = four_zero_zero * table[3];
+    for _ in 0 .. 7 {
+      res = res.square();
+    }
+    res *= six;
+    for _ in 0 .. 7 {
+      res = res.square();
+    }
+    res *= six;
 
     let mut bits = 0;
-    for bit in MODULUS_PLUS_ONE_DIV_FOUR.to_le_bits().iter().take(253).rev().skip(164) {
+    for bit in MODULUS_PLUS_ONE_DIV_FOUR.to_le_bits().iter().take(253).rev().skip(142) {
       bits <<= 1;
       let bit = (*bit) as u8;
       bits |= bit;
 
-      res = res.square_without_inlining();
+      res = res.square();
 
       if (bits & (1 << 3)) != 0 {
-        res = res.mul_without_inlining(&table[usize::from(bits)]);
+        res *= table[usize::from(bits)];
         bits = 0;
       }
     }
 
     // We don't handle the final bit window as it's zero
 
-    CtOption::new(res, res.square_without_inlining().ct_eq(self))
+    CtOption::new(res, res.square().ct_eq(self))
   }
 
   fn sqrt_ratio(num: &Self, div: &Self) -> (Choice, Self) {
