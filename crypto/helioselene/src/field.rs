@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use core::{
   iter::{Product, Sum},
   ops::*,
@@ -407,7 +409,7 @@ impl HelioseleneField {
         let mut factor = table[0];
         for (j, candidate) in table[1 ..].iter().enumerate() {
           let j = j + 1;
-          factor = Self::conditional_select(&factor, &candidate, usize::from(bits).ct_eq(&j));
+          factor = Self::conditional_select(&factor, candidate, usize::from(bits).ct_eq(&j));
         }
         res = res.mul_without_inlining(&factor);
         bits = 0;
@@ -477,7 +479,7 @@ impl Field for HelioseleneField {
       }
 
       // Set `b` to `a` (part of the swap defined on line 8 of the algorithm's description)
-      *b = select(&b, &a, both, limbs);
+      *b = select(b, a, both, limbs);
 
       // Negate `a_sub_b` to obtain `a_diff_b` if `a_lt_b`
       let a_diff_b = {
@@ -494,7 +496,7 @@ impl Field for HelioseleneField {
         a_diff_b
       };
       // Leave `a` untouched if `a` is even, else set `a` to the difference of `a` and `b`
-      *a = select(&a, &a_diff_b, a_is_odd, limbs);
+      *a = select(a, &a_diff_b, a_is_odd, limbs);
 
       /*
         The following code immediately takes the difference of `u - v`, before negating to
@@ -587,7 +589,7 @@ impl Field for HelioseleneField {
         u.as_limbs()[U256::LIMBS - 1] | (add_two_modulus << (Limb::BITS - 1));
 
       // Set `v` to the `u` from the start if `(a & 1) & (a < b)`
-      *v = select(&v, &u_start, both, U256::LIMBS);
+      *v = select(v, &u_start, both, U256::LIMBS);
 
       // Divide by 2
       for l in 0 .. (limbs - 1) {
@@ -764,11 +766,10 @@ impl PrimeField for HelioseleneField {
     // Check if a U256 contains a value less than the modulus.
     #[inline(always)]
     fn reduced(a: U256) -> Choice {
-      let mut a_limbs = a.as_limbs().iter();
       let mut b_limbs = MODULUS_255_DISTANCE.as_limbs().iter();
       let mut last = Limb::ZERO;
       let mut carry = Limb::ZERO;
-      while let Some(a) = a_limbs.next() {
+      for a in a.as_limbs() {
         let b = b_limbs.next().unwrap_or(&Limb::ZERO);
         (last, carry) = add_with_bounded_overflow(*a, *b, carry);
       }
