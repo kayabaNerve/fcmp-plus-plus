@@ -160,6 +160,7 @@ fn interpolation() {
 
 /// All precomputation necessary to optimally interpolate polynomials
 /// of a given degree.
+#[derive(Clone)]
 pub struct Interpolator<F: Field> {
   /// maximal degree expected
   degree: usize,

@@ -17,6 +17,9 @@ use group::{
 use dalek_ff_group::FieldElement as Field25519;
 use crate::{u8_from_bool, field::HelioseleneField};
 
+use ec_divisors::Precomp;
+use std_shims::sync::OnceLock;
+
 macro_rules! curve {
   (
     $Scalar: ident,
@@ -381,6 +384,8 @@ macro_rules! curve {
 
     impl PrimeGroup for $Point {}
 
+    static PRECOMPUTE_CELL: OnceLock<Precomp<$Field>> = OnceLock::new();
+
     impl ec_divisors::DivisorCurve for $Point {
       type FieldElement = $Field;
 
@@ -391,6 +396,10 @@ macro_rules! curve {
       }
       fn b() -> Self::FieldElement {
         B
+      }
+
+      fn PRECOMPUTE() -> Precomp<Self::FieldElement> {
+        PRECOMPUTE_CELL.get_or_init(|| Precomp::new(ec_divisors::EVALS - 1)).clone()
       }
 
       fn to_xy(point: Self) -> Option<(Self::FieldElement, Self::FieldElement)> {

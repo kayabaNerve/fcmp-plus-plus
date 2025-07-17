@@ -1,5 +1,5 @@
 use crate::XyPoint;
-use crate::{barycentric::Interpolator, new_divisor, precompute, DivisorCurve, Poly};
+use crate::{barycentric::Interpolator, new_divisor, DivisorCurve, Poly};
 use dalek_ff_group::EdwardsPoint;
 use group::{ff::Field, Group};
 use pasta_curves::{Ep, Eq};
@@ -47,7 +47,7 @@ fn check_divisor<C: DivisorCurve>(points: Vec<C>, precomputation: &Precomp<C>) {
 }
 
 fn test_divisor<C: DivisorCurve>() {
-  let precomputation = precompute();
+  let precomputation = C::PRECOMPUTE();
   let curve = C::curve();
   for i in 1 ..= 255 {
     println!("Test iteration {i}");
@@ -163,7 +163,7 @@ fn test_divisor<C: DivisorCurve>() {
 }
 
 fn test_same_point<C: DivisorCurve>() {
-  let precomputation = precompute();
+  let precomputation = C::PRECOMPUTE();
   let mut points = vec![C::random(&mut OsRng)];
   points.push(points[0]);
   points.push(-points.iter().sum::<C>());
@@ -171,7 +171,7 @@ fn test_same_point<C: DivisorCurve>() {
 }
 
 fn test_subset_sum_to_infinity<C: DivisorCurve>() {
-  let precomputation = precompute();
+  let precomputation = C::PRECOMPUTE();
   // Internally, a binary tree algorithm is used
   // This executes the first pass to end up with [0, 0] for further reductions
   {

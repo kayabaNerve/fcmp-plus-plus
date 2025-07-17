@@ -558,6 +558,7 @@ dependencies = [
  "hex",
  "rand_core",
  "rustversion",
+ "std-shims",
  "subtle",
  "zeroize",
 ]

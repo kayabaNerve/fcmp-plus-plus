@@ -41,6 +41,10 @@ pub trait DivisorCurve: Group + ConstantTimeEq + ConditionallySelectable + Zeroi
   /// The B in the curve equation y^2 = x^3 + A x + B.
   fn b() -> Self::FieldElement;
 
+  /// Precomputes necessary values for optimal interpolation.
+  #[allow(non_snake_case)]
+  fn PRECOMPUTE() -> Precomp<Self::FieldElement>;
+
   /// Provides the curve params, same as calling `Self::a` and `Self::b`.
   fn curve() -> Curve<Self::FieldElement> {
     Curve { a: Self::a(), b: Self::b() }
@@ -502,7 +506,8 @@ pub fn new_divisor<C: DivisorCurve>(
   Some(divisor)
 }
 
-const EVALS: usize = 130;
+/// N necessary values for optimal interpolation which should be ideal for most curves
+pub const EVALS: usize = 130;
 
 /// Convert divisor from univariate to bivariate representation.
 pub fn divisor_to_poly<C: DivisorCurve>(
@@ -522,11 +527,6 @@ pub fn divisor_to_poly<C: DivisorCurve>(
 
 /// Necessary values for optimal interpolation.
 pub type Precomp<F> = Interpolator<F>;
-
-/// Precomputes necessary values for optimal interpolation.
-pub fn precompute<F: PrimeField>() -> Precomp<F> {
-  Interpolator::new(EVALS - 1)
-}
 
 /// The decomposition of a scalar.
 ///
@@ -742,7 +742,7 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
     // Here we may want to construct one based on the number of points.
     // Currently set tot `EVALS` which should be ideal for most curves and
     // scalars.
-    let interpolator = precompute();
+    let interpolator = C::PRECOMPUTE();
 
     // Create a divisor out of the points
     let res = new_divisor::<C>(&divisor_points, &interpolator, &curve).unwrap();
@@ -755,11 +755,16 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
 mod pasta {
   use crate::DivisorCurve;
   use crate::Projective;
+  use crate::{Precomp, Interpolator, EVALS};
   use group::{ff::Field, Curve};
   use pasta_curves::{
     arithmetic::{Coordinates, CurveAffine},
     Ep, Eq, Fp, Fq,
   };
+  use std_shims::sync::OnceLock;
+
+  static FP_PRECOMPUTE_CELL: OnceLock<Precomp<Fp>> = OnceLock::new();
+  static FQ_PRECOMPUTE_CELL: OnceLock<Precomp<Fq>> = OnceLock::new();
 
   impl DivisorCurve for Ep {
     type FieldElement = Fp;
@@ -771,6 +776,10 @@ mod pasta {
     }
     fn b() -> Self::FieldElement {
       Self::FieldElement::from(5u64)
+    }
+
+    fn PRECOMPUTE() -> Precomp<Self::FieldElement> {
+      FP_PRECOMPUTE_CELL.get_or_init(|| Interpolator::new(EVALS - 1)).clone()
     }
 
     fn to_xy(point: Self) -> Option<(Self::FieldElement, Self::FieldElement)> {
@@ -791,6 +800,10 @@ mod pasta {
       Self::FieldElement::from(5u64)
     }
 
+    fn PRECOMPUTE() -> Precomp<Self::FieldElement> {
+      FQ_PRECOMPUTE_CELL.get_or_init(|| Interpolator::new(EVALS - 1)).clone()
+    }
+
     fn to_xy(point: Self) -> Option<(Self::FieldElement, Self::FieldElement)> {
       Option::<Coordinates<_>>::from(point.to_affine().coordinates())
         .map(|coords| (*coords.x(), *coords.y()))
@@ -799,13 +812,16 @@ mod pasta {
 }
 
 mod ed25519 {
-  use crate::Projective;
+  use crate::{Projective, Precomp, Interpolator, EVALS};
   use dalek_ff_group::{EdwardsPoint, FieldElement};
   use group::{
     ff::{Field, PrimeField},
     Group, GroupEncoding,
   };
   use subtle::{Choice, ConditionallySelectable};
+  use std_shims::sync::OnceLock;
+
+  static PRECOMPUTE_CELL: OnceLock<Precomp<FieldElement>> = OnceLock::new();
 
   impl crate::DivisorCurve for EdwardsPoint {
     type FieldElement = FieldElement;
@@ -827,6 +843,10 @@ mod ed25519 {
       let le_bytes = be_bytes;
 
       Self::FieldElement::from_repr(le_bytes.try_into().unwrap()).unwrap()
+    }
+
+    fn PRECOMPUTE() -> Precomp<Self::FieldElement> {
+      PRECOMPUTE_CELL.get_or_init(|| Interpolator::new(EVALS - 1)).clone()
     }
 
     // https://www.ietf.org/archive/id/draft-ietf-lwig-curve-representations-02.pdf E.2
