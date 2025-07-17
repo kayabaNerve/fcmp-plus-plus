@@ -96,13 +96,19 @@ fn sub_value(a: U256, b: U256) -> (U256, Limb) {
   a.sbb(&b, Limb::ZERO)
 }
 
+// This selection formula is inherited from subtle
+#[inline(always)]
+fn select_word(a: Limb, b: Limb, choice: Limb) -> Limb {
+  a ^ ((a ^ b) & choice)
+}
+
 /// Reduce once if appropriate
 #[inline(always)]
 fn red1(a: U256) -> U256 {
   let (reduced, borrow) = sub_value(a, MODULUS);
   let mut out = U256::ZERO;
   for j in 0 .. U256::LIMBS {
-    out.as_limbs_mut()[j] = (borrow & a.as_limbs()[j]) | ((!borrow) & reduced.as_limbs()[j]);
+    out.as_limbs_mut()[j] = select_word(reduced.as_limbs()[j], a.as_limbs()[j], borrow);
   }
   out
 }
@@ -111,11 +117,11 @@ fn red1(a: U256) -> U256 {
 #[inline(always)]
 fn red256(mut a: U256) -> HelioseleneField {
   // If the highest bit is set, subtract out the modulus once
-  let mask = Limb(a.bit_vartime(255) as u8 as _);
+  let mask = Limb(a.bit_vartime(255) as u8 as _).wrapping_neg();
   let mut carry = Limb::ZERO;
   for j in 0 .. U256::LIMBS {
     (a.as_limbs_mut()[j], carry) =
-      sub_with_bounded_overflow(a.as_limbs()[j], mask.wrapping_mul(MODULUS.as_limbs()[j]), carry);
+      sub_with_bounded_overflow(a.as_limbs()[j], mask & MODULUS.as_limbs()[j], carry);
   }
   // The resulting value is either reduced or within one reduction step as `3 * MODULUS > 2**256`
   HelioseleneField(red1(a))
@@ -191,7 +197,7 @@ impl Sub for HelioseleneField {
     let mut out = U256::ZERO;
     for j in 0 .. U256::LIMBS {
       out.as_limbs_mut()[j] =
-        ((!underflowed) & candidate.as_limbs()[j]) | (underflowed & plus_modulus.as_limbs()[j]);
+        select_word(candidate.as_limbs()[j], plus_modulus.as_limbs()[j], underflowed);
     }
     Self(out)
   }
@@ -261,12 +267,12 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
       2**384 # The bound representable by the remaining limbs
     ```
   */
-  let three_eighty_four_carry = carry;
+  let three_eighty_four_carry = carry.wrapping_neg();
   let mut carry = Limb::ZERO;
   for j in 0 .. U128::LIMBS {
     (limbs[U128::LIMBS + j], carry) = add_with_bounded_overflow(
       limbs[U128::LIMBS + j],
-      three_eighty_four_carry.wrapping_mul(TWO_MODULUS_255_DISTANCE.as_limbs()[j]),
+      three_eighty_four_carry & TWO_MODULUS_255_DISTANCE.as_limbs()[j],
       carry,
     );
   }
@@ -291,12 +297,12 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
   }
 
   // As with the 384th bit, we now reduce out the 256th bit if set, which again won't overflow
-  let two_fifty_six_carry = carry;
+  let two_fifty_six_carry = carry.wrapping_neg();
   let mut carry = Limb::ZERO;
   for i in 0 .. U128::LIMBS {
     (limbs[i], carry) = add_with_bounded_overflow(
       limbs[i],
-      two_fifty_six_carry.wrapping_mul(TWO_MODULUS_255_DISTANCE.as_limbs()[i]),
+      two_fifty_six_carry & TWO_MODULUS_255_DISTANCE.as_limbs()[i],
       carry,
     );
   }
@@ -460,12 +466,6 @@ impl Field for HelioseleneField {
       let a_lt_b = borrow.wrapping_neg();
 
       let both = a_is_odd & a_lt_b;
-
-      // This selection formula is inherited from subtle
-      #[inline(always)]
-      fn select_word(a: Limb, b: Limb, choice: Limb) -> Limb {
-        a ^ ((a ^ b) & choice)
-      }
 
       #[inline(always)]
       fn select(a: &U256, b: &U256, choice: Limb, limbs: usize) -> U256 {
