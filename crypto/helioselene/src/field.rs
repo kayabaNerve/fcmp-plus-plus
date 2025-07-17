@@ -75,6 +75,7 @@ impl ConditionallySelectable for HelioseleneField {
 }
 
 // Perform an add with carry, bounding the overflow to be zero or one.
+#[inline(always)]
 fn add_with_bounded_overflow(a: Limb, b: Limb, c: Limb) -> (Limb, Limb) {
   let (limb, carry1) = a.0.overflowing_add(b.0);
   let (limb, carry2) = limb.overflowing_add(c.0);
@@ -84,6 +85,7 @@ fn add_with_bounded_overflow(a: Limb, b: Limb, c: Limb) -> (Limb, Limb) {
 // Perform a sub with underflow, bounding the underflow to be zero or one.
 //
 // Unlike `sbb`, this returns `0` or `1`, not `0` or `Limb::MAX`.
+#[inline(always)]
 fn sub_with_bounded_overflow(a: Limb, b: Limb, c: Limb) -> (Limb, Limb) {
   let (limb, borrow1) = a.0.overflowing_sub(b.0);
   let (limb, borrow2) = limb.overflowing_sub(c.0);
@@ -376,19 +378,19 @@ impl HelioseleneField {
   pub fn pow(&self, exp: Self) -> Self {
     let mut table = [Self::ONE; 16];
     table[1] = *self;
-    table[2] = self.square();
+    table[2] = self.square_without_inlining();
     table[3] = table[2].mul_without_inlining(self);
-    table[4] = table[2].square();
+    table[4] = table[2].square_without_inlining();
     table[5] = table[4].mul_without_inlining(self);
-    table[6] = table[3].square();
+    table[6] = table[3].square_without_inlining();
     table[7] = table[6].mul_without_inlining(self);
-    table[8] = table[4].square();
+    table[8] = table[4].square_without_inlining();
     table[9] = table[8].mul_without_inlining(self);
-    table[10] = table[5].square();
+    table[10] = table[5].square_without_inlining();
     table[11] = table[10].mul_without_inlining(self);
-    table[12] = table[6].square();
+    table[12] = table[6].square_without_inlining();
     table[13] = table[12].mul_without_inlining(self);
-    table[14] = table[7].square();
+    table[14] = table[7].square_without_inlining();
     table[15] = table[14].mul_without_inlining(self);
 
     let mut res = Self::ONE;
@@ -402,7 +404,7 @@ impl HelioseleneField {
       if ((i + 1) % 4) == 0 {
         if i != 3 {
           for _ in 0 .. 4 {
-            res = res.square();
+            res = res.square_without_inlining();
           }
         }
 
@@ -620,7 +622,7 @@ impl Field for HelioseleneField {
     table[3] = table[2].mul_without_inlining(self);
     table[4] = table[2].square_without_inlining();
     table[5] = table[4].mul_without_inlining(self);
-    table[6] = table[3].square();
+    table[6] = table[3].square_without_inlining();
     table[7] = table[6].mul_without_inlining(self);
     table[8] = table[4].square_without_inlining();
     table[9] = table[8].mul_without_inlining(self);
@@ -730,7 +732,7 @@ impl Field for HelioseleneField {
 
     // We don't handle the final bit window as it's zero
 
-    CtOption::new(res, res.square().ct_eq(self))
+    CtOption::new(res, res.square_without_inlining().ct_eq(self))
   }
 
   fn sqrt_ratio(num: &Self, div: &Self) -> (Choice, Self) {
