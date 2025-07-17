@@ -384,6 +384,8 @@ macro_rules! curve {
     impl ec_divisors::DivisorCurve for $Point {
       type FieldElement = $Field;
 
+      type XyPoint = ec_divisors::Projective<$Field>;
+
       fn a() -> Self::FieldElement {
         -$Field::from(3u64)
       }
