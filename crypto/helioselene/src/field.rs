@@ -280,15 +280,35 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
       carry,
     );
   }
-  for j in U128::LIMBS .. U256::LIMBS {
-    (limbs[U128::LIMBS + j], carry) =
-      add_with_bounded_overflow(limbs[U128::LIMBS + j], Limb::ZERO, carry);
-  }
+  // This carry, for the 256th bit, should be propagated through the limbs representing bits
+  // 256 .. 384. We defer this to the next loop, as possible
+  let two_fifty_six_carry = carry.wrapping_neg();
 
   // Perform the 128-bit multiplication with the next highest bits
-  for i in 0 .. U128::LIMBS {
+  {
+    // Manual unroll of the following loop body to handle the prior carry
+    #[allow(non_upper_case_globals)]
+    const i: usize = 0;
+    for j in 0 .. U128::LIMBS {
+      (limbs[i + j], carries[1 + j]) = limbs[i + j].mac(
+        limbs[U256::LIMBS + i],
+        TWO_MODULUS_255_DISTANCE.as_limbs()[j],
+        /*
+          If this limb was supposed to have this carry (0 or 1) added, to be used in the product
+          with twice the distance to 2**255, instead sum in the appropriate amount of the distance
+          directly.
+
+          This won't overflow as
+          `(2**k - 1) + ((2**k - 1) * (2**k - 1)) + (2**k - 1) = 2**(2 * k) - 1`, allowing all of
+          these operands to be unbounded.
+        */
+        two_fifty_six_carry & TWO_MODULUS_255_DISTANCE.as_limbs()[j],
+      );
+    }
+  }
+  for i in 1 .. U128::LIMBS {
     (limbs[i], carry) =
-      limbs[i].mac(limbs[U256::LIMBS + i], TWO_MODULUS_255_DISTANCE.as_limbs()[0], Limb::ZERO);
+      limbs[i].mac(limbs[U256::LIMBS + i], TWO_MODULUS_255_DISTANCE.as_limbs()[0], carries[i]);
     for j in 1 .. U128::LIMBS {
       (limbs[i + j], carry) =
         limbs[i + j].mac(limbs[U256::LIMBS + i], TWO_MODULUS_255_DISTANCE.as_limbs()[j], carry);
@@ -311,7 +331,8 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
     );
   }
   for i in U128::LIMBS .. U256::LIMBS {
-    (limbs[i], carry) = add_with_bounded_overflow(limbs[i], Limb::ZERO, carry);
+    let (limb, carry_bool) = limbs[i].0.overflowing_add(carry.0);
+    (limbs[i], carry) = (Limb(limb), Limb(carry_bool as _));
   }
 
   let mut res = U256::ZERO;
