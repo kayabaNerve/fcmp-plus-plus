@@ -1,7 +1,7 @@
-use core::ops::{Add, Neg, Sub, Mul, Rem};
+use core::ops::{Add, Mul, Neg, Rem, Sub};
 use std_shims::{vec, vec::Vec};
 
-use subtle::{Choice, ConstantTimeEq, ConstantTimeGreater, ConditionallySelectable};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use group::ff::PrimeField;
@@ -357,6 +357,7 @@ impl<F: From<u64> + Zeroize + PrimeField> Poly<F> {
 
   /// Perform multiplication mod `modulus`.
   #[must_use]
+  #[allow(dead_code)]
   pub(crate) fn mul_mod(self, other: &Self, modulus: &Self) -> Self {
     (self * other) % modulus
   }
