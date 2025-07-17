@@ -38,6 +38,10 @@ crypto-bigint = { version = "0.5", default-features = false, features = ["rand"]
 
 ff-group-tests = { path = "../ff-group-tests" }
 
+[[bench]]
+name = "helioselene"
+harness = false
+
 [features]
 std = [
   "rand_core/std",
