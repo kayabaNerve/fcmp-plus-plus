@@ -8,23 +8,23 @@ use helioselene::{
 
 macro_rules! run_bench {
   ($name: literal, $op:expr, $n_iters:expr) => {{
+    let start_time = std::time::Instant::now();
     #[cfg(target_arch = "x86")]
     let start = unsafe { core::arch::x86::_rdtsc() };
     #[cfg(target_arch = "x86_64")]
     let start = unsafe { core::arch::x86_64::_rdtsc() };
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-    let start = std::time::Instant::now();
     for _ in 0 .. $n_iters {
       let _ = core::hint::black_box($op);
     }
     #[cfg(target_arch = "x86")]
-    let time_to_run = unsafe { core::arch::x86::_rdtsc() } - start;
+    let ticks_to_run = unsafe { core::arch::x86::_rdtsc() } - start;
     #[cfg(target_arch = "x86_64")]
-    let time_to_run = unsafe { core::arch::x86_64::_rdtsc() } - start;
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-    let time_to_run = (std::time::Instant::now() - start).as_millis();
+    let ticks_to_run = unsafe { core::arch::x86_64::_rdtsc() } - start;
+    let time_to_run = (std::time::Instant::now() - start_time).as_millis();
 
-    println!("{:<23} took {:>12} ticks", $name, time_to_run);
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    println!("{:<23} took {:>12} ticks", $name, ticks_to_run);
+    println!("{:<23} took {:>12} milliseconds", $name, time_to_run);
   }};
 }
 
