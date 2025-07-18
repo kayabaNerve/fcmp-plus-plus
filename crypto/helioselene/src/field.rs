@@ -10,7 +10,7 @@ use zeroize::{DefaultIsZeroes, Zeroize};
 
 use rand_core::RngCore;
 
-use crypto_bigint::{Zero, Encoding, Limb, U128, U256};
+use crypto_bigint::{Encoding, Limb, U128, U256};
 
 use group::ff::{Field, FieldBits, PrimeField, PrimeFieldBits};
 
@@ -188,7 +188,7 @@ impl Neg for HelioseleneField {
     <_>::conditional_select(
       &HelioseleneField(MODULUS.wrapping_sub(&self.0)),
       &Self::ZERO,
-      self.0.is_zero(),
+      self.is_zero(),
     )
   }
 }
@@ -427,6 +427,15 @@ impl HelioseleneField {
 impl Field for HelioseleneField {
   const ZERO: Self = Self(U256::ZERO);
   const ONE: Self = Self(U256::ONE);
+
+  #[inline(always)]
+  fn is_zero(&self) -> Choice {
+    let mut all = Limb::ZERO;
+    for l in 0 .. U256::LIMBS {
+      all = all | self.0.as_limbs()[l];
+    }
+    all.ct_eq(&Limb::ZERO)
+  }
 
   fn random(mut rng: impl RngCore) -> Self {
     let mut a = [0; 32];
