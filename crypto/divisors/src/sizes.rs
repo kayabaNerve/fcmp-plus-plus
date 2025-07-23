@@ -38,8 +38,8 @@ fn sizes(a: usize, b: usize) -> (usize, usize) {
   let b1 = a + b;
 
   // a2 = 1, b2 = 0
-  let a = (a1 + 1).max(b1 + 0 + 3);
-  let b = (a1 + 0).max(1 + b1);
+  let a = (a1 + 1).max(b1 + 3);
+  let b = (a1).max(1 + b1);
 
   (a - 2, b - 2)
 }

@@ -65,7 +65,7 @@ fn inversion() {
   use pasta_curves::Fp;
   let vals = [2, 5, 25, 235, 23, 324, 432, 4_u64];
   let vals = vals.map(Fp::from);
-  let mut inverses = vals.clone();
+  let mut inverses = vals;
   BatchInverse::invert_slice(&mut inverses);
   for i in 0 .. vals.len() {
     assert_eq!(vals[i] * inverses[i], Fp::ONE);

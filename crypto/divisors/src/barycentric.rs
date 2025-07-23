@@ -121,7 +121,7 @@ impl<F: PrimeField> Weights<F> {
 fn synthetic_div() {
   use pasta_curves::Fp;
 
-  let coeffs = vec![40_u64, 34, 52, 532, 089];
+  let coeffs = vec![40_u64, 34, 52, 532, 89];
   let poly: Vec<Fp> = coeffs.into_iter().map(Fp::from).collect();
   let poly = Coeffs(poly);
 
@@ -138,7 +138,7 @@ fn synthetic_div() {
 fn interpolation() {
   use pasta_curves::Fp;
 
-  let evals = vec![40_u64, 34, 52, 532, 089];
+  let evals = vec![40_u64, 34, 52, 532, 89];
   let evals: Vec<Fp> = evals.into_iter().map(Fp::from).collect();
 
   let weights = Weights::new(5);
