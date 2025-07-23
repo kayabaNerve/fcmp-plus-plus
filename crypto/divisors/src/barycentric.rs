@@ -187,9 +187,9 @@ impl<F: PrimeField> Interpolator<F> {
 
     let poly = vec![F::ZERO; len];
     let mut poly = Coeffs(poly);
-    for i in 0 .. len {
+    for (i, eval) in evals.iter().enumerate().take(len) {
       let mut li = self.lagrange_polys[i].clone();
-      li.scale_in_place(evals[i]);
+      li.scale_in_place(*eval);
       poly += &li;
     }
     poly

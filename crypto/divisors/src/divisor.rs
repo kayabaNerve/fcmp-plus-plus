@@ -184,7 +184,7 @@ impl<F: PrimeField> Mul<&Self> for Divisor<F> {
     debug_assert_eq!(self.a.len(), self.b.len());
     let len = self.a.len();
 
-    let new_degree = self.new_degree(&rhs);
+    let new_degree = self.new_degree(rhs);
     // f1 * f2 = A1A2 - y(A1B2 + A2B1) + y^2 B1B2
     // f1 * f2 = A1A2 - y(A1B2 + A2B1) + (x^3 + ax + b) B1B2
     // (A1+B1)(A2+B2)

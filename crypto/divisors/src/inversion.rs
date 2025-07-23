@@ -6,7 +6,7 @@ pub struct BatchInverse;
 impl BatchInverse {
   /// Compute products required for the batch inversion.
   /// Provide optional Vec to avoid allocating a new one.
-  pub fn products<'a, F, I>(mut elems: I, space: Option<Vec<F>>) -> Vec<F>
+  pub fn products<'a, F, I>(elems: I, space: Option<Vec<F>>) -> Vec<F>
   where
     F: Field,
     I: Iterator<Item = &'a F>,
@@ -14,7 +14,7 @@ impl BatchInverse {
     let mut products = space.unwrap_or_else(|| Vec::with_capacity(256));
     products.truncate(0);
     let mut acc = F::ONE;
-    while let Some(elem) = elems.next() {
+    for elem in elems {
       acc *= *elem;
       products.push(acc);
     }

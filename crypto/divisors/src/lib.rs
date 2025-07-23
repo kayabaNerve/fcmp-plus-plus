@@ -447,7 +447,7 @@ pub fn new_divisor<C: DivisorCurve>(
     None?;
   }
 
-  let mut all_lines = lines_and_denoms::<C>(&points, curve).into_iter();
+  let mut all_lines = lines_and_denoms::<C>(points, curve).into_iter();
   let points_len = points.len();
 
   let modulus = Divisor::compute_modulus(C::a(), C::b(), EVALS);
