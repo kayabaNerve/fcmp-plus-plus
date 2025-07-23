@@ -5,7 +5,7 @@ use crate::inversion::BatchInverse;
 use core::ops::Neg;
 use ff::Field;
 use std_shims::vec::Vec;
-use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 use zeroize::Zeroize;
 
 /// Point for which batch conversion to Weierstrass (X,Y) is cheap.
@@ -43,10 +43,10 @@ impl<F: Field> Projective<F> {
     (x, y, z)
   }
   #[cfg(test)]
-  fn to_affine_slow(&self) -> (F, F) {
+  fn to_affine_slow(self) -> (F, F) {
     let Self { x, y, z } = self;
     let z_inv = z.invert().unwrap();
-    (*x * z_inv, *y * z_inv)
+    (x * z_inv, y * z_inv)
   }
 }
 
@@ -103,6 +103,8 @@ impl<F: Field + Zeroize> XyPoint<F> for Projective<F> {
 
   // based on 13.2.1.b of https://hyperelliptic.org/HEHCC
   fn add(x1: Self, x2: Self, curve: &Curve<F>) -> Self {
+    let identity_left = CtOption::new(x1, x2.is_identity());
+    let identity_right = CtOption::new(x2, x1.is_identity());
     let double = x1.double(curve);
     let equals = x1.ct_eq(&x2);
     let (x1, y1, z1) = x1.coordinates();
@@ -118,7 +120,8 @@ impl<F: Field + Zeroize> XyPoint<F> for Projective<F> {
     let y = a * (bb * x1 * z2 - c) - bbb * y1 * z2;
     let z = bbb * z1z2;
     let add = Projective { x, y, z };
-    Self::conditional_select(&add, &double, equals)
+    let res = Self::conditional_select(&add, &double, equals);
+    identity_left.unwrap_or(identity_right.unwrap_or(res))
   }
 
   fn double(self, curve: &Curve<F>) -> Self {

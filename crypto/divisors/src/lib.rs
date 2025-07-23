@@ -8,7 +8,7 @@ use barycentric::Interpolator;
 use divisor::{Divisor, SmallDivisor};
 use inversion::BatchInverse;
 use std_shims::{vec, vec::Vec};
-use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, CtOption};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 mod barycentric;
 mod divisor;
@@ -109,8 +109,8 @@ type Xy<C> = (<C as DivisorCurve>::FieldElement, <C as DivisorCurve>::FieldEleme
 
 /// The x of 2 points, to build (x - a.x)(x - a.x)
 struct Denom<C: DivisorCurve> {
-  ax: C::FieldElement,
-  bx: C::FieldElement,
+  ax: CtOption<C::FieldElement>,
+  bx: CtOption<C::FieldElement>,
 }
 
 /// Computes all (slope, intercept) pairs, batching inverses.
@@ -274,14 +274,14 @@ fn line_args<C: DivisorCurve>(
   let additive_inverses = a.ct_eq(&-b);
   let one_is_identity_or_additive_inverses = one_is_identity | additive_inverses;
   let if_one_is_identity_or_additive_inverses = {
-    let a = <_>::conditional_select(&a, &gen, both_are_identity);
+    let a = <_>::conditional_select(&a, gen, both_are_identity);
     let x = <_>::conditional_select(&a_x, &b_x, a.is_identity());
     // only this is needed to construct the line later.
     -x
   };
 
-  let a = <_>::conditional_select(&a, &gen, a_is_identity);
-  let b = <_>::conditional_select(&b, &gen, b_is_identity);
+  let a = <_>::conditional_select(&a, gen, a_is_identity);
+  let b = <_>::conditional_select(&b, gen, b_is_identity);
   let b = <_>::conditional_select(&b, &a.double(curve), additive_inverses);
   let b = <_>::conditional_select(&b, &-a.double(curve), a.ct_eq(&b));
 
@@ -365,7 +365,13 @@ fn lines_and_denoms<C: DivisorCurve>(
       <_>::conditional_select(a, &gen, is_identity)
     })
     .collect();
-  let b: Vec<C::XyPoint> = pairs.iter().map(|[_, b]| *b).collect();
+  let b: Vec<C::XyPoint> = pairs
+    .iter()
+    .map(|[_, b]| {
+      let is_identity = b.is_identity();
+      <_>::conditional_select(b, &gen, is_identity)
+    })
+    .collect();
 
   type Xy<C> = (<C as DivisorCurve>::FieldElement, <C as DivisorCurve>::FieldElement);
 
@@ -383,8 +389,10 @@ fn lines_and_denoms<C: DivisorCurve>(
     .zip(b_xy)
     .map(|((pair, a_xy), b_xy)| {
       let (a_x, _) = a_xy;
+      let ax = CtOption::new(*a_x, !pair[0].is_identity());
       let (b_x, _) = b_xy;
-      let denom = Denom { ax: *a_x, bx: b_x };
+      let bx = CtOption::new(b_x, !pair[1].is_identity());
+      let denom = Denom { ax, bx };
       let [a, b] = pair;
       let args: LineArgs<C> = line_args(a, b, *a_x, b_x, &gen, curve);
       // a is the same we have, this one can be discarded.

@@ -3,7 +3,7 @@ use core::ops::{Div, Mul};
 use ff::PrimeField;
 use std_shims::alloc::rc::Rc;
 use std_shims::{vec, vec::Vec};
-use subtle::ConditionallySelectable;
+use subtle::{ConditionallySelectable, CtOption};
 
 /// Divisor of form f(x,y) = A(x) - yB(x), with A and B
 /// represented as enough evaluations for their degree.
@@ -65,19 +65,28 @@ impl<F: PrimeField> Divisor<F> {
   }
 
   /// Remove 2 points by dividing by (x - x1) * (x - x2)
-  fn remove_diff(self, x1: F, x2: F) -> Self {
+  fn remove_diff(self, x1: CtOption<F>, x2: CtOption<F>) -> Self {
     assert_eq!(self.a.len(), self.b.len());
     let mut denominator = Vec::with_capacity(self.a.len());
-    let mut x = F::ZERO;
+    let (mut x_l, mut x_r) = (F::ZERO, F::ZERO);
+    let inc_l = F::conditional_select(&F::ZERO, &F::ONE, x1.is_some());
+    let inc_r = F::conditional_select(&F::ZERO, &F::ONE, x2.is_some());
+    let neg1 = -F::ONE;
+    let (x1, x2) = (x1.unwrap_or(neg1), x2.unwrap_or(neg1));
     for _ in 0 .. self.a.len() {
-      denominator.push((x - x1) * (x - x2));
-      x += F::ONE;
+      denominator.push((x_l - x1) * (x_r - x2));
+      x_l += inc_l;
+      x_r += inc_r;
     }
     let denominator = Evals { evals: denominator, degree: 2 };
     self / denominator
   }
 
-  pub fn merge(divisors: [Self; 2], small: SmallDivisor<F>, denom: (F, F)) -> Self {
+  pub fn merge(
+    divisors: [Self; 2],
+    small: SmallDivisor<F>,
+    denom: (CtOption<F>, CtOption<F>),
+  ) -> Self {
     let [d1, d2] = divisors;
     let numerator = d1 * &d2;
     //TODO: second operand can be reused for scratch space
