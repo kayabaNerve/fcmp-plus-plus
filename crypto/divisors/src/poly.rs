@@ -355,13 +355,6 @@ impl<F: From<u64> + Zeroize + PrimeField> Poly<F> {
     leading_coefficient
   }
 
-  /// Perform multiplication mod `modulus`.
-  #[must_use]
-  #[allow(dead_code)]
-  pub(crate) fn mul_mod(self, other: &Self, modulus: &Self) -> Self {
-    (self * other) % modulus
-  }
-
   /// Perform division, returning the result and remainder.
   ///
   /// This function is constant time to the structure of the numerator and denominator. The actual
