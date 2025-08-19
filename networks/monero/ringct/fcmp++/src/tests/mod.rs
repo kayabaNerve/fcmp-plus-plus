@@ -36,9 +36,9 @@ fn test() {
 
   let (input, spend_auth_and_linkability) = {
     let input = rerandomized_output.input();
-    let opening = OpenedInputTuple::open(rerandomized_output.clone(), &x, &y).unwrap();
+    let opening = OpenedInputTuple::open(&rerandomized_output, &x, &y).unwrap();
     let (L_, spend_auth_and_linkability) =
-      SpendAuthAndLinkability::prove(&mut OsRng, [0; 32], opening);
+      SpendAuthAndLinkability::prove(&mut OsRng, [0; 32], &opening);
     assert_eq!(L_, L);
     (input, spend_auth_and_linkability)
   };
@@ -58,7 +58,7 @@ fn test() {
             <Ed25519 as Ciphersuite>::G::to_xy(output.C()).unwrap().1,
           ]
           .into_iter()
-          .zip(SELENE_GENERATORS().g_bold_slice().iter().cloned())
+          .zip(SELENE_GENERATORS().g_bold_slice().iter().copied())
           .collect::<Vec<_>>()),
         ),
     );

@@ -10,7 +10,7 @@ use zeroize::{DefaultIsZeroes, Zeroize};
 
 use rand_core::RngCore;
 
-use crypto_bigint::{Encoding, Limb, U128, U256};
+use crypto_bigint::{Encoding, Word, Limb, U128, U256};
 
 use group::ff::{Field, FieldBits, PrimeField, PrimeFieldBits};
 
@@ -79,7 +79,7 @@ impl ConditionallySelectable for HelioseleneField {
 fn add_with_bounded_overflow(a: Limb, b: Limb, c: Limb) -> (Limb, Limb) {
   let (limb, carry1) = a.0.overflowing_add(b.0);
   let (limb, carry2) = limb.overflowing_add(c.0);
-  (Limb(limb), Limb((carry1 | carry2) as _))
+  (Limb(limb), Limb(Word::from(carry1 | carry2)))
 }
 
 // Perform a sub with underflow, bounding the underflow to be zero or one.
@@ -89,7 +89,7 @@ fn add_with_bounded_overflow(a: Limb, b: Limb, c: Limb) -> (Limb, Limb) {
 fn sub_with_bounded_overflow(a: Limb, b: Limb, c: Limb) -> (Limb, Limb) {
   let (limb, borrow1) = a.0.overflowing_sub(b.0);
   let (limb, borrow2) = limb.overflowing_sub(c.0);
-  (Limb(limb), Limb((borrow1 | borrow2) as _))
+  (Limb(limb), Limb(Word::from(borrow1 | borrow2)))
 }
 
 /// Subtract a value (`b`) from another value (`a`).
@@ -133,7 +133,7 @@ fn red256(mut a: U256) -> HelioseleneField {
   }
   for j in U128::LIMBS .. U256::LIMBS {
     let (limb, carry_bool) = a.as_limbs()[j].0.overflowing_add(carry.0);
-    (a.as_limbs_mut()[j], carry) = (Limb(limb), Limb(carry_bool as _));
+    (a.as_limbs_mut()[j], carry) = (Limb(limb), Limb(Word::from(carry_bool)));
   }
 
   // The resulting value is either reduced or within one reduction step as `3 * MODULUS > 2**256`
@@ -321,7 +321,7 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
   }
   for i in U128::LIMBS .. U256::LIMBS {
     let (limb, carry_bool) = limbs[i].0.overflowing_add(carry.0);
-    (limbs[i], carry) = (Limb(limb), Limb(carry_bool as _));
+    (limbs[i], carry) = (Limb(limb), Limb(Word::from(carry_bool)));
   }
 
   let mut res = U256::ZERO;
@@ -500,7 +500,7 @@ impl Field for HelioseleneField {
           let limb;
           let carry_bool;
           (limb, carry_bool) = (a_sub_b.as_limbs()[l] ^ a_lt_b).0.overflowing_add(carry.0);
-          (a_diff_b.as_limbs_mut()[l], carry) = (Limb(limb), Limb(carry_bool as _));
+          (a_diff_b.as_limbs_mut()[l], carry) = (Limb(limb), Limb(Word::from(carry_bool)));
         }
         a_diff_b
       };
@@ -582,7 +582,7 @@ impl Field for HelioseleneField {
         let (limb, carry_bool) = (u_sub_v.as_limbs()[l] ^ should_negate)
           .0
           .overflowing_add(modulus_instances.wrapping_add(carry).0);
-        (u.as_limbs_mut()[l], carry) = (Limb(limb), Limb(carry_bool as _));
+        (u.as_limbs_mut()[l], carry) = (Limb(limb), Limb(Word::from(carry_bool)));
       }
       // Unroll the later iterations due to the structure of the XOR
       for l in U128::LIMBS .. U256::LIMBS {
@@ -686,7 +686,7 @@ impl Field for HelioseleneField {
     let mut bits = 0;
     for bit in MODULUS_PLUS_ONE_DIV_FOUR.to_le_bits().iter().take(253).rev().skip(142) {
       bits <<= 1;
-      let bit = (*bit) as u8;
+      let bit = u8::from(*bit);
       bits |= bit;
 
       res = res.square();
@@ -777,7 +777,7 @@ mod tests_assuming_64_bits {
   use super::*;
 
   #[inline(always)]
-  fn lo_hi_split<T, S: crypto_bigint::Split<Output = T>>(a: S) -> (T, T) {
+  fn lo_hi_split<T, S: crypto_bigint::Split<Output = T>>(a: &S) -> (T, T) {
     let (hi, lo) = a.split();
     (lo, hi)
   }
@@ -794,7 +794,7 @@ mod tests_assuming_64_bits {
       let reduced = to_reduce.checked_rem(&lo_hi_concat(&MODULUS, &U256::ZERO)).unwrap();
 
       if b < 256 {
-        let reduced_apo = red256(lo_hi_split(to_reduce).0);
+        let reduced_apo = red256(lo_hi_split(&to_reduce).0);
         assert_eq!(
           &reduced.as_limbs()[.. 4],
           reduced_apo.0.as_limbs(),
@@ -802,7 +802,7 @@ mod tests_assuming_64_bits {
         );
       }
 
-      let reduced_apo = red512(lo_hi_split(to_reduce));
+      let reduced_apo = red512(lo_hi_split(&to_reduce));
       assert_eq!(
         &reduced.as_limbs()[.. 4],
         reduced_apo.0.as_limbs(),

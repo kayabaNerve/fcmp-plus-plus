@@ -50,7 +50,7 @@ impl<C: Ciphersuite> Circuit<C> {
     };
 
     // Run traditional set membership
-    self.member_of_list(member, list)
+    self.member_of_list(&member, list)
   }
 
   #[allow(clippy::type_complexity)]

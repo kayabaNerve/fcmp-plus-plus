@@ -136,7 +136,7 @@ impl<'a> VerifierTranscript<'a> {
     self.digest.update([SCALAR]);
     let scalar_len = <C::F as PrimeField>::Repr::default().as_ref().len();
     if self.transcript.len() < scalar_len {
-      Err(io::Error::new(io::ErrorKind::Other, "not enough bytes to read_scalar"))?;
+      Err(io::Error::other("not enough bytes to read_scalar"))?;
     }
     self.digest.update(&self.transcript[.. scalar_len]);
 
@@ -150,7 +150,7 @@ impl<'a> VerifierTranscript<'a> {
     self.digest.update([POINT]);
     let point_len = <C::G as GroupEncoding>::Repr::default().as_ref().len();
     if self.transcript.len() < point_len {
-      Err(io::Error::new(io::ErrorKind::Other, "not enough bytes to read_point"))?;
+      Err(io::Error::other("not enough bytes to read_point"))?;
     }
     self.digest.update(&self.transcript[.. point_len]);
 

@@ -66,7 +66,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     self.branch_lengths.push(branch_len);
     assert!(branch_len != 0);
     assert!(branch_len <= self.commitment_len);
-    let words_in_branch = (branch_len + (COMMITMENT_WORD_LEN - 1)) / COMMITMENT_WORD_LEN;
+    let words_in_branch = branch_len.div_ceil(COMMITMENT_WORD_LEN);
 
     // An empty vector commitment of the word length
     let empty = branch.as_ref().map(|_| vec![F::ZERO; COMMITMENT_WORD_LEN]);
@@ -241,7 +241,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
 
     let mut res = vec![];
     for (i, (values, blind)) in self.commitments.iter().zip(blinds).enumerate() {
-      let g_generators = generators.g_bold_slice()[.. values.len()].iter().cloned();
+      let g_generators = generators.g_bold_slice()[.. values.len()].iter().copied();
       let commitment = g_generators.enumerate().map(|(i, g)| (values[i], g));
       let mut commitment = if let Some(branch_length) = self.branch_lengths.get(i) {
         commitment.take(*branch_length).collect::<Vec<_>>()

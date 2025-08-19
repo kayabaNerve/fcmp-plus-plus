@@ -54,7 +54,6 @@ pub static T: LazyLock<EdwardsPoint> =
 /// FCMP++s's key-image generator blinding generator `U`.
 pub static FCMP_U: LazyLock<EdwardsPoint> =
   LazyLock::new(|| hash_to_point(keccak256(b"Monero FCMP++ Generator U")));
-#[allow(non_snake_case)]
 
 /// FCMP++s's randomness commitment generator `V`.
 pub static FCMP_V: LazyLock<EdwardsPoint> =

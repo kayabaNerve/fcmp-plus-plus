@@ -49,7 +49,7 @@ impl Ciphersuite for Helios {
     reader.read_exact(encoding.as_mut())?;
 
     let point = Option::<Self::G>::from(Self::G::from_bytes(&encoding))
-      .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid point"))?;
+      .ok_or_else(|| io::Error::other("invalid point"))?;
     Ok(point)
   }
 }
@@ -93,7 +93,7 @@ impl Ciphersuite for Selene {
     reader.read_exact(encoding.as_mut())?;
 
     let point = Option::<Self::G>::from(Self::G::from_bytes(&encoding))
-      .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid point"))?;
+      .ok_or_else(|| io::Error::other("invalid point"))?;
     Ok(point)
   }
 }

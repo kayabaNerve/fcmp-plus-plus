@@ -214,7 +214,7 @@ pub fn new_divisor<C: DivisorCurve>(points: &[C]) -> Option<Poly<C::FieldElement
     // We should only be trimming divisors reduced by the modulus
     debug_assert!(divisor.yx_coefficients.len() <= 1);
     if divisor.yx_coefficients.len() == 1 {
-      let truncate_to = ((points_len + 1) / 2).saturating_sub(2);
+      let truncate_to = (points_len.div_ceil(2)).saturating_sub(2);
       #[cfg(debug_assertions)]
       for p in truncate_to .. divisor.yx_coefficients[0].len() {
         debug_assert_eq!(divisor.yx_coefficients[0][p], <C::FieldElement as Field>::ZERO);

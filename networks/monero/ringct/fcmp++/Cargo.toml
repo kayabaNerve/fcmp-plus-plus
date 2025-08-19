@@ -15,6 +15,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 [package.metadata.cargo-machete]
 ignored = ["ec-divisors"]
 
+[lints]
+workspace = true
+
 [dependencies]
 std-shims = { version = "^0.1.1", default-features = false }
 

@@ -45,6 +45,8 @@ monero-generators = { path ="./networks/monero/generators" }
 
 [workspace.lints.clippy]
 unwrap_or_default = "allow"
+map_unwrap_or = "allow"
+manual_is_multiple_of = "allow"
 borrow_as_ptr = "deny"
 cast_lossless = "deny"
 cast_possible_truncation = "deny"
@@ -72,7 +74,6 @@ manual_instant_elapsed = "deny"
 manual_let_else = "deny"
 manual_ok_or = "deny"
 manual_string_new = "deny"
-map_unwrap_or = "deny"
 match_bool = "deny"
 match_same_arms = "deny"
 missing_fields_in_debug = "deny"

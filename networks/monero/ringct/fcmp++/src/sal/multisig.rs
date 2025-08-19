@@ -256,7 +256,6 @@ impl<R: Send + Sync + Clone + RngCore + CryptoRng, T: Sync + Clone + Debug + Tra
     (e * params.secret_share().deref()) + nonces[0].deref()
   }
 
-  #[must_use]
   fn verify(
     &self,
     _group_key: EdwardsPoint,

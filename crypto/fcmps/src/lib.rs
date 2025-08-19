@@ -523,7 +523,8 @@ where
   ///
   /// This functions runs in variable-time for paths which aren't full (paths which run along the
   /// latest edge of the tree).
-  #[allow(clippy::too_many_arguments)]
+  // We want to consume the single-use `BranchesWithBlinds`, hence `needless_pass_by_value`
+  #[allow(clippy::needless_pass_by_value)]
   pub fn prove<R: RngCore + CryptoRng>(
     rng: &mut R,
     params: &FcmpParams<C>,
@@ -688,13 +689,13 @@ where
     let mut c1_commitments = commitments_1
       .C()
       .iter()
-      .cloned()
+      .copied()
       .zip(pvc_blinds_1.into_iter().map(Some))
       .zip(&mut transcripted_blinds_c2);
     let mut c2_commitments = commitments_2
       .C()
       .iter()
-      .cloned()
+      .copied()
       .zip(pvc_blinds_2.into_iter().map(Some))
       .zip(&mut transcripted_blinds_c1);
 
@@ -951,9 +952,9 @@ where
     let mut c1_branches = c1_branches.into_iter();
     let mut c2_branches = c2_branches.into_iter();
     let mut c1_commitments =
-      proof_1_vcs.C().iter().cloned().zip(core::iter::repeat(None)).zip(commitment_blind_claims_2);
+      proof_1_vcs.C().iter().copied().zip(core::iter::repeat(None)).zip(commitment_blind_claims_2);
     let mut c2_commitments =
-      proof_2_vcs.C().iter().cloned().zip(core::iter::repeat(None)).zip(commitment_blind_claims_1);
+      proof_2_vcs.C().iter().copied().zip(core::iter::repeat(None)).zip(commitment_blind_claims_1);
 
     // Perform the layers
     for (input, opening) in inputs.iter().zip(input_openings) {

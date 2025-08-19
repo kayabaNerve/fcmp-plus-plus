@@ -452,10 +452,7 @@ fn random_output_blinds(
       ScalarDecomposition::new(<Ed25519 as Ciphersuite>::F::random(&mut OsRng)).unwrap(),
     ),
   );
-  println!(
-    "Output blinds took {}ms to calculate",
-    (std::time::Instant::now() - output_blinds_start).as_millis()
-  );
+  println!("Output blinds took {}ms to calculate", output_blinds_start.elapsed().as_millis());
   res
 }
 
@@ -484,7 +481,7 @@ fn blind_branches(
     "{} C1 branch blinds and {} C2 branch blinds took {}ms to calculate",
     branches.necessary_c1_blinds(),
     branches.necessary_c2_blinds(),
-    (std::time::Instant::now() - branch_blinds_start).as_millis()
+    branch_blinds_start.elapsed().as_millis()
   );
 
   branches.blind(output_blinds, branches_1_blinds, branches_2_blinds).unwrap()
@@ -494,7 +491,7 @@ fn blind_branches(
 fn verify_fn(
   iters: usize,
   batch: usize,
-  proof: Fcmp<MoneroCurves>,
+  proof: &Fcmp<MoneroCurves>,
   params: &FcmpParams<MoneroCurves>,
   root: TreeRoot<Selene, Helios>,
   layers: usize,
@@ -516,7 +513,7 @@ fn verify_fn(
     assert!(params.curve_1_generators.verify(verifier_1));
     assert!(params.curve_2_generators.verify(verifier_2));
 
-    times.push((std::time::Instant::now() - instant).as_millis());
+    times.push(instant.elapsed().as_millis());
   }
   times.sort();
   println!("Median time to verify {batch} proof(s) was {}ms (n={iters})", times[times.len() / 2]);
@@ -545,7 +542,7 @@ fn test_single_input() {
     )
     .unwrap();
 
-    verify_fn(1, 1, proof.clone(), &params, root, layers, &[input]);
+    verify_fn(1, 1, &proof, &params, root, layers, &[input]);
   }
 }
 
@@ -578,7 +575,7 @@ fn test_multiple_inputs() {
         Fcmp::prove(&mut OsRng, &params, blind_branches(&params, branches, output_blinds)).unwrap();
       all_proofs.push((root, layers, inputs.clone(), proof.clone()));
 
-      verify_fn(1, 1, proof, &params, root, layers, &inputs);
+      verify_fn(1, 1, &proof, &params, root, layers, &inputs);
     }
   }
 
@@ -687,7 +684,7 @@ fn prove_benchmark() {
         "Sequentially proving",
         paths.len(),
         set_size,
-        (std::time::Instant::now() - prove_start).as_millis() / u128::try_from(RUNS).unwrap()
+        prove_start.elapsed().as_millis() / u128::try_from(RUNS).unwrap()
       );
     }
   }
@@ -709,9 +706,9 @@ fn verify_benchmark() {
     Fcmp::prove(&mut OsRng, &params, blind_branches(&params, branches, vec![output_blinds]))
       .unwrap();
 
-  verify_fn(100, 1, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
-  verify_fn(100, 10, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
-  verify_fn(100, 100, proof, &params, root, TARGET_LAYERS, &[input]);
+  verify_fn(100, 1, &proof, &params, root, TARGET_LAYERS, &[input]);
+  verify_fn(100, 10, &proof, &params, root, TARGET_LAYERS, &[input]);
+  verify_fn(100, 100, &proof, &params, root, TARGET_LAYERS, &[input]);
 }
 
 #[test]

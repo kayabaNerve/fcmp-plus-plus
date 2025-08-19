@@ -172,7 +172,10 @@ impl<C: Ciphersuite> Circuit<C> {
     let blind = self.discrete_log(curve, blind, challenge, challenged_generator);
     let hash = self.on_curve(curve, hash);
     self.incomplete_add_pub(blinded_hash, blind, hash);
-    self.member_of_list(hash.x().into(), branch.into_iter().map(Into::into).collect::<Vec<_>>());
+    self.member_of_list(
+      &LinComb::from(hash.x()),
+      branch.into_iter().map(Into::into).collect::<Vec<_>>(),
+    );
   }
 
   #[allow(clippy::type_complexity)]

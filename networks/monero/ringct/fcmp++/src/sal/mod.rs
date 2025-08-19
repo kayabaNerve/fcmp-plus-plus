@@ -128,9 +128,9 @@ pub struct OpenedInputTuple {
 impl OpenedInputTuple {
   /// Open a re-randomized output as necessary for spending it.
   ///
-  /// x and y are for the x and y variables in O = xG + yT.
+  /// x and y are for the x and y variables in `O = xG + yT`.
   pub fn open(
-    rerandomized_output: RerandomizedOutput,
+    rerandomized_output: &RerandomizedOutput,
     x: &<Ed25519 as Ciphersuite>::F,
     y: &<Ed25519 as Ciphersuite>::F,
   ) -> Option<OpenedInputTuple> {
@@ -202,7 +202,7 @@ impl SpendAuthAndLinkability {
   pub fn prove(
     rng: &mut (impl RngCore + CryptoRng),
     signable_tx_hash: [u8; 32],
-    opening: OpenedInputTuple,
+    opening: &OpenedInputTuple,
   ) -> (<Ed25519 as Ciphersuite>::G, SpendAuthAndLinkability) {
     let G = <Ed25519 as Ciphersuite>::G::generator();
     let T_ = EdwardsPoint(*T);

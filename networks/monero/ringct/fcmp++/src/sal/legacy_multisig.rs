@@ -164,7 +164,7 @@ impl<R: Send + Sync + Clone + RngCore + CryptoRng, T: Sync + Clone + Debug + Tra
     // TODO: This introspects how `dkg` applies the offset to secret shares. Upstream to `dkg`?
     if *view
       .included()
-      .get(0)
+      .first()
       .ok_or(FrostError::InternalError("processing addendum but no signers incluced"))? ==
       l
     {
@@ -302,7 +302,6 @@ impl<R: Send + Sync + Clone + RngCore + CryptoRng, T: Sync + Clone + Debug + Tra
     (e * params.secret_share().deref()) + nonces[0].deref()
   }
 
-  #[must_use]
   fn verify(
     &self,
     _group_key: EdwardsPoint,
