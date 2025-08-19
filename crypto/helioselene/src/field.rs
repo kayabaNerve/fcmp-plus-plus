@@ -594,8 +594,9 @@ impl Field for HelioseleneField {
           carry,
         );
       }
+      // This is a DISJOINT OR and we _can_ use `core::intrinsics::disjoint_bitor` here
       u.as_limbs_mut()[U256::LIMBS - 1] =
-        u.as_limbs()[U256::LIMBS - 1] ^ (add_two_modulus << (Limb::BITS - 1));
+        u.as_limbs()[U256::LIMBS - 1] | (add_two_modulus << (Limb::BITS - 1));
 
       // Set `v` to the `u` from the start if `(a & 1) & (a < b)`
       *v = select(v, &u_start, both, U256::LIMBS);
