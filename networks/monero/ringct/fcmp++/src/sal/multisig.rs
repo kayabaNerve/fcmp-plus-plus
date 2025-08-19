@@ -36,7 +36,7 @@ impl Ciphersuite for Ed25519T {
   const ID: &'static [u8] = b"Ed25519 Monero T";
 
   fn generator() -> Self::G {
-    EdwardsPoint(T())
+    EdwardsPoint(*T)
   }
 
   fn reduce_512(scalar: [u8; 64]) -> Self::F {
@@ -81,10 +81,10 @@ impl core::fmt::Debug for PartialSpendAuthAndLinkability {
 ///
 /// The keys signed with are expected to already be offset by `r_o`/`o_blind` (the re-randomization
 /// for the output key). This has undefined behavior if they're not.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct SalAlgorithm<
   R: Send + Sync + Clone + RngCore + CryptoRng,
-  T: Sync + Clone + PartialEq + Debug + Transcript,
+  T: Sync + Clone + Debug + Transcript,
 > {
   rng: R,
   transcript: T,
@@ -96,20 +96,16 @@ pub struct SalAlgorithm<
   e: Option<Scalar>,
 }
 
-impl<
-    R: Send + Sync + Clone + RngCore + CryptoRng,
-    T: Sync + Clone + PartialEq + Debug + Transcript,
-  > core::fmt::Debug for SalAlgorithm<R, T>
+impl<R: Send + Sync + Clone + RngCore + CryptoRng, T: Sync + Clone + Debug + Transcript>
+  core::fmt::Debug for SalAlgorithm<R, T>
 {
   fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
     fmt.debug_struct("SalAlgorithm").finish_non_exhaustive()
   }
 }
 
-impl<
-    R: Send + Sync + Clone + RngCore + CryptoRng,
-    T: Sync + Clone + PartialEq + Debug + Transcript,
-  > Algorithm<Ed25519T> for SalAlgorithm<R, T>
+impl<R: Send + Sync + Clone + RngCore + CryptoRng, T: Sync + Clone + Debug + Transcript>
+  Algorithm<Ed25519T> for SalAlgorithm<R, T>
 {
   type Transcript = T;
   type Addendum = ();
@@ -120,7 +116,7 @@ impl<
   }
 
   fn nonces(&self) -> Vec<Vec<EdwardsPoint>> {
-    vec![vec![EdwardsPoint(T())]]
+    vec![vec![EdwardsPoint(*T)]]
   }
 
   fn preprocess_addendum<R2: RngCore + CryptoRng>(
@@ -153,9 +149,9 @@ impl<
     assert!(msg.is_empty(), "SalAlgorithm message wasn't empty");
 
     let G = <Ed25519 as Ciphersuite>::G::generator();
-    let T = EdwardsPoint(T());
-    let U = EdwardsPoint(FCMP_U());
-    let V = EdwardsPoint(FCMP_V());
+    let T_ = EdwardsPoint(*T);
+    let U = EdwardsPoint(*FCMP_U);
+    let V = EdwardsPoint(*FCMP_V);
 
     // We deterministically derive all the nonces which aren't for the `y` parameter as that's the
     // only variable considered private by this protocol
@@ -172,15 +168,15 @@ impl<
 
     let x_r_i = Zeroizing::new(self.x * self.rerandomized_output.r_i);
 
-    let P = (G * self.x) + (V * self.rerandomized_output.r_i) + (U * *x_r_i) + (T * *r_p);
+    let P = (G * self.x) + (V * self.rerandomized_output.r_i) + (U * *x_r_i) + (T_ * *r_p);
 
     let alpha_G = G * *alpha;
 
     let A = alpha_G +
       (V * *beta) +
       (U * ((*alpha * self.rerandomized_output.r_i) + (*beta * self.x))) +
-      (T * *delta);
-    let B = (U * (*alpha * *beta)) + (T * *mu);
+      (T_ * *delta);
+    let B = (U * (*alpha * *beta)) + (T_ * *mu);
 
     let R_L = (self.rerandomized_output.input().I_tilde * *alpha) - (U * *r_z);
 
@@ -218,7 +214,7 @@ impl<
     */
 
     let R_y = nonce_sums[0][0];
-    let R_r_p = -R_y + (T * *r_r_p);
+    let R_r_p = -R_y + (T_ * *r_r_p);
 
     let R_O = alpha_G + R_y;
     let R_P = (U * *r_z) + R_r_p;
@@ -309,15 +305,13 @@ impl<
     Ok(vec![
       (Scalar::ONE, nonces[0][0]),
       (self.e.unwrap(), verification_share),
-      (-share, EdwardsPoint(T())),
+      (-share, EdwardsPoint(*T)),
     ])
   }
 }
 
-impl<
-    R: Send + Sync + Clone + RngCore + CryptoRng,
-    T: Sync + Clone + PartialEq + Debug + Transcript,
-  > SalAlgorithm<R, T>
+impl<R: Send + Sync + Clone + RngCore + CryptoRng, T: Sync + Clone + Debug + Transcript>
+  SalAlgorithm<R, T>
 {
   /// Sign a SpendAuthAndLinkability proof using modular-frost.
   pub fn new(
@@ -344,7 +338,7 @@ impl<
     transcript.append_message(b"x", x.to_repr());
 
     let L =
-      (rerandomized_output.input.I_tilde - (EdwardsPoint(FCMP_U()) * rerandomized_output.r_i)) * x;
+      (rerandomized_output.input.I_tilde - (EdwardsPoint(*FCMP_U) * rerandomized_output.r_i)) * x;
 
     Self { rng, transcript, signable_tx_hash, rerandomized_output, x, L, partial: None, e: None }
   }

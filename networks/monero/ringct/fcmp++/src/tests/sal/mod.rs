@@ -18,7 +18,7 @@ fn test_sal() {
   let x = Scalar::random(&mut OsRng);
   let y = Scalar::random(&mut OsRng);
 
-  let O = (EdwardsPoint::generator() * x) + (EdwardsPoint(T()) * y);
+  let O = (EdwardsPoint::generator() * x) + (EdwardsPoint(*T) * y);
   let I = EdwardsPoint::random(&mut OsRng);
   let C = EdwardsPoint::random(&mut OsRng);
 

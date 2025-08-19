@@ -16,7 +16,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 ignored = ["ec-divisors"]
 
 [dependencies]
-std-shims = { path = "../../../../common/std-shims", version = "^0.1.1", default-features = false }
+std-shims = { version = "^0.1.1", default-features = false }
 
 rand_core = { version = "0.6", default-features = false }
 zeroize = { version = "1", default-features = false }
@@ -25,9 +25,9 @@ generic-array = { version = "1", default-features = false, features = ["alloc"] 
 
 blake2 = { version = "0.10", default-features = false }
 
-multiexp = { path = "../../../../crypto/multiexp", default-features = false }
+multiexp = { version = "0.4", default-features = false }
 curve25519-dalek = { version = "4", default-features = false, features = ["alloc", "zeroize"] }
-dalek-ff-group = { path = "../../../../crypto/dalek-ff-group", default-features = false }
+dalek-ff-group = { version = "0.4", default-features = false }
 ciphersuite = { path = "../../../../crypto/ciphersuite", default-features = false, features = ["ed25519", "helioselene"] }
 
 generalized-bulletproofs = { path = "../../../../crypto/generalized-bulletproofs", default-features = false }
@@ -35,18 +35,18 @@ ec-divisors = { path = "../../../../crypto/divisors", default-features = false, 
 generalized-bulletproofs-ec-gadgets = { path = "../../../../crypto/fcmps/ec-gadgets", default-features = false }
 fcmps = { package = "full-chain-membership-proofs", path = "../../../../crypto/fcmps", default-features = false }
 
-monero-io = { path = "../../io", default-features = false }
+monero-io = { git = "https://github.com/monero-oxide/monero-oxide", default-features = false }
 monero-generators = { path = "../../generators", default-features = false }
-monero-primitives = { path = "../../primitives", default-features = false }
+monero-primitives = {  git = "https://github.com/monero-oxide/monero-oxide", default-features = false }
 
 rand_chacha = { version = "0.3", default-features = false, optional = true }
-transcript = { package = "flexible-transcript", path = "../../../../crypto/transcript", default-features = false, features = ["recommended"], optional = true }
-modular-frost = { path = "../../../../crypto/frost", default-features = false, features = ["ed25519"], optional = true }
+transcript = { package = "flexible-transcript", version = "0.3", default-features = false, features = ["recommended"], optional = true }
+modular-frost = { version = "0.10", default-features = false, features = ["ed25519"], optional = true }
 
 [dev-dependencies]
 rand_chacha = { version = "0.3", default-features = false }
-transcript = { package = "flexible-transcript", path = "../../../../crypto/transcript", default-features = false, features = ["recommended"] }
-modular-frost = { path = "../../../../crypto/frost", default-features = false, features = ["ed25519", "tests"] }
+transcript = { package = "flexible-transcript", version = "0.3", default-features = false, features = ["recommended"] }
+modular-frost = { version = "0.10", default-features = false, features = ["ed25519", "tests"] }
 
 [features]
 std = [

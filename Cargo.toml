@@ -1,22 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-  "common/std-shims",
-
-  "crypto/transcript",
-
-  "crypto/ff-group-tests",
-  "crypto/dalek-ff-group",
-  "crypto/ed448",
   "crypto/helioselene",
   "crypto/ciphersuite",
-
-  "crypto/multiexp",
-
-  "crypto/schnorr",
-  "crypto/dleq",
-  "crypto/dkg",
-  "crypto/frost",
 
   "crypto/divisors",
   "crypto/generalized-bulletproofs",
@@ -24,9 +10,7 @@ members = [
   "crypto/fcmps/ec-gadgets",
   "crypto/fcmps",
 
-  "networks/monero/io",
   "networks/monero/generators",
-  "networks/monero/primitives",
   "networks/monero/ringct/fcmp++",
 
   "tests/no-std",
@@ -54,10 +38,10 @@ multiexp = { opt-level = 3 }
 panic = "unwind"
 
 [patch.crates-io]
-# https://github.com/rust-lang-nursery/lazy-static.rs/issues/201
-lazy_static = { git = "https://github.com/rust-lang-nursery/lazy-static.rs", rev = "5735630d46572f1e5377c8f2ba0f79d18f53b10c" }
-
-crypto-bigint = { git = "https://github.com/kayabaNerve/crypto-bigint", branch = "c-repr" }
+std-shims = { git = "https://github.com/serai-dex/serai" }
+dalek-ff-group = { git = "https://github.com/serai-dex/serai" }
+ciphersuite = { path = "./crypto/ciphersuite" }
+monero-generators = { path ="./networks/monero/generators" }
 
 [workspace.lints.clippy]
 unwrap_or_default = "allow"

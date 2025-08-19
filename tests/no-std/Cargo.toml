@@ -17,25 +17,12 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
-flexible-transcript = { path = "../../crypto/transcript", default-features = false, features = ["recommended", "merlin"] }
-
-dalek-ff-group = { path = "../../crypto/dalek-ff-group", default-features = false }
-minimal-ed448 = { path = "../../crypto/ed448", default-features = false }
-
 ciphersuite = { path = "../../crypto/ciphersuite", default-features = false, features = ["alloc", "secp256k1", "p256", "ed25519", "ristretto", "ed448"] }
-
-multiexp = { path = "../../crypto/multiexp", default-features = false, features = ["batch"] }
-
-dleq = { path = "../../crypto/dleq", default-features = false }
-schnorr-signatures = { path = "../../crypto/schnorr", default-features = false }
-
-dkg = { path = "../../crypto/dkg", default-features = false }
-# modular-frost = { path = "../../crypto/frost", default-features = false }
-# frost-schnorrkel = { path = "../../crypto/schnorrkel", default-features = false }
 
 ec-divisors = { path = "../../crypto/divisors", default-features = false }
 generalized-bulletproofs = { path = "../../crypto/generalized-bulletproofs", default-features = false }
 generalized-bulletproofs-circuit-abstraction = { path = "../../crypto/fcmps/circuit-abstraction", default-features = false }
 generalized-bulletproofs-ec-gadgets = { path = "../../crypto/fcmps/ec-gadgets", default-features = false }
 full-chain-membership-proofs = { path = "../../crypto/fcmps", default-features = false }
+
 monero-fcmp-plus-plus = { path = "../../networks/monero/ringct/fcmp++", default-features = false }

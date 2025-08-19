@@ -157,9 +157,9 @@ pub fn FCMP_PARAMS() -> &'static FcmpParams<Curves> {
       HELIOS_HASH_INIT(),
       // G, T, U, V
       <Ed25519 as Ciphersuite>::generator(),
-      EdwardsPoint(T()),
-      EdwardsPoint(FCMP_U()),
-      EdwardsPoint(FCMP_V()),
+      EdwardsPoint(*T),
+      EdwardsPoint(*FCMP_U),
+      EdwardsPoint(*FCMP_V),
     )
   })
 }

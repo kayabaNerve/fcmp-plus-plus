@@ -5,16 +5,14 @@ on:
     branches:
       - develop
     paths:
-      - "common/**"
       - "crypto/**"
-      - "coins/**"
+      - "networks/**"
       - "tests/no-std/**"
 
   pull_request:
     paths:
-      - "common/**"
       - "crypto/**"
-      - "coins/**"
+      - "networks/**"
       - "tests/no-std/**"
 
   workflow_dispatch:

@@ -13,7 +13,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-std-shims = { path = "../../common/std-shims", version = "^0.1.1", default-features = false }
+std-shims = { version = "^0.1.1", default-features = false }
 
 rand_core = { version = "0.6", default-features = false }
 zeroize = { version = "^1.5", default-features = false, features = ["zeroize_derive"] }
@@ -23,14 +23,14 @@ ff = { version = "0.13", default-features = false, features = ["bits"] }
 group = { version = "0.13", default-features = false }
 
 hex = { version = "0.4", default-features = false, optional = true }
-dalek-ff-group = { path = "../dalek-ff-group", default-features = false, optional = true }
+dalek-ff-group = { version = "0.4", default-features = false, optional = true }
 pasta_curves = { version = "0.5", git = "https://github.com/kayabaNerve/pasta_curves.git", default-features = false, features = ["bits", "alloc"], optional = true }
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
 
 hex = "0.4"
-dalek-ff-group = { path = "../dalek-ff-group", features = ["std"] }
+dalek-ff-group = { version = "0.4", features = ["std"] }
 pasta_curves = { version = "0.5", git = "https://github.com/kayabaNerve/pasta_curves.git", default-features = false, features = ["bits", "alloc"] }
 
 [features]

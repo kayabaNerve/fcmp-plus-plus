@@ -24,7 +24,7 @@ fn test_sal_legacy_multisig() {
 
   let keys = key_gen::<_, Ed25519>(&mut OsRng);
 
-  let O = keys.values().next().unwrap().group_key() + (EdwardsPoint(T()) * y);
+  let O = keys.values().next().unwrap().group_key() + (EdwardsPoint(*T) * y);
   let I = EdwardsPoint::random(&mut OsRng);
   let C = EdwardsPoint::random(&mut OsRng);
 
@@ -46,7 +46,7 @@ fn test_sal_legacy_multisig() {
     algorithm_machines(&mut OsRng, &algorithm, &keys),
     &[],
   );
-  assert_eq!(I * recover_key(&keys), L);
+  assert_eq!(I * *recover_key(&keys.values().cloned().collect::<Vec<_>>()).unwrap(), L);
 
   let mut verifier = BatchVerifier::new(1);
   sig.verify(&mut OsRng, &mut verifier, [0; 32], &input, L);

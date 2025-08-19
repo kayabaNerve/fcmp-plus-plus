@@ -37,7 +37,7 @@ fn test_sal_multisig() {
   );
 
   for keys in keys.values_mut() {
-    let new_keys = keys.offset(-rerandomized_output.o_blind());
+    let new_keys = keys.clone().offset(-rerandomized_output.o_blind());
     *keys = new_keys;
   }
 

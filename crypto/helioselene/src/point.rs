@@ -400,22 +400,22 @@ macro_rules! curve {
 }
 
 mod helios {
-  use crypto_bigint::{U256, modular::constant_mod::Residue};
+  use crypto_bigint::U256;
 
   use super::*;
   curve!(
     HelioseleneField,
     Field25519,
     HeliosPoint,
-    Field25519(Residue::new(&U256::from_be_hex(
+    Field25519::from_u256(&U256::from_be_hex(
       "22e8c739b0ea70b8be94a76b3ebb7b3b043f6f384113bf3522b49ee1edd73ad4"
-    ))),
-    Field25519(Residue::new(&U256::from_be_hex(
+    )),
+    Field25519::from_u256(&U256::from_be_hex(
       "0000000000000000000000000000000000000000000000000000000000000003"
-    ))),
-    Field25519(Residue::new(&U256::from_be_hex(
+    )),
+    Field25519::from_u256(&U256::from_be_hex(
       "537b74d97ac0721cbd92668350205f0759003bddc586a5dcd243e639e3183ef4"
-    ))),
+    )),
   );
 
   #[test]

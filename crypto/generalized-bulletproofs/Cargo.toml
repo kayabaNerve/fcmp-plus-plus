@@ -13,7 +13,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-std-shims = { path = "../../common/std-shims", version = "^0.1.1", default-features = false }
+std-shims = { version = "^0.1.1", default-features = false }
 
 rand_core = { version = "0.6", default-features = false }
 
@@ -21,13 +21,11 @@ zeroize = { version = "^1.5", default-features = false, features = ["zeroize_der
 
 blake2 = { version = "0.10", default-features = false }
 
-multiexp = { path = "../multiexp", version = "0.4", default-features = false, features = ["batch"] }
+multiexp = { version = "0.4", default-features = false, features = ["batch"] }
 ciphersuite = { path = "../ciphersuite", version = "0.4", default-features = false }
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
-
-transcript = { package = "flexible-transcript", path = "../transcript", features = ["recommended"] }
 
 ciphersuite = { path = "../ciphersuite", features = ["ristretto"] }
 

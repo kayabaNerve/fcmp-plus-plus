@@ -24,7 +24,7 @@ fn test() {
   let x = Scalar::random(&mut OsRng);
   let y = Scalar::random(&mut OsRng);
 
-  let O = (EdwardsPoint::generator() * x) + (EdwardsPoint(T()) * y);
+  let O = (EdwardsPoint::generator() * x) + (EdwardsPoint(*T) * y);
   let I = EdwardsPoint::random(&mut OsRng);
   let C = EdwardsPoint::random(&mut OsRng);
 
@@ -69,16 +69,16 @@ fn test() {
 
     let output_blinds = OutputBlinds::new(
       OBlind::new(
-        EdwardsPoint(T()),
+        EdwardsPoint(*T),
         ScalarDecomposition::new(rerandomized_output.o_blind()).unwrap(),
       ),
       IBlind::new(
-        EdwardsPoint(FCMP_U()),
-        EdwardsPoint(FCMP_V()),
+        EdwardsPoint(*FCMP_U),
+        EdwardsPoint(*FCMP_V),
         ScalarDecomposition::new(rerandomized_output.i_blind()).unwrap(),
       ),
       IBlindBlind::new(
-        EdwardsPoint(T()),
+        EdwardsPoint(*T),
         ScalarDecomposition::new(rerandomized_output.i_blind_blind()).unwrap(),
       ),
       CBlind::new(

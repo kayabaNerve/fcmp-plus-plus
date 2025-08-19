@@ -18,7 +18,6 @@ use ciphersuite::{
 };
 
 use modular_frost::{
-  dkg::lagrange,
   FrostError, Participant, ThresholdKeys, ThresholdView,
   algorithm::{WriteAddendum, Algorithm},
 };
@@ -75,10 +74,10 @@ impl WriteAddendum for SalLegacyAddendum {
 /// specified at initialization.
 ///
 /// This may panic if functions are not called in the expected order.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct SalLegacyAlgorithm<
   R: Send + Sync + Clone + RngCore + CryptoRng,
-  T: Sync + Clone + PartialEq + Debug + Transcript,
+  T: Sync + Clone + Debug + Transcript,
 > {
   rng: R,
   transcript: T,
@@ -88,26 +87,22 @@ pub struct SalLegacyAlgorithm<
   I: EdwardsPoint,
   key_image_shares: HashMap<[u8; 32], EdwardsPoint>,
   x_U_shares: HashMap<[u8; 32], EdwardsPoint>,
-  L: Option<EdwardsPoint>,
-  x_U: Option<EdwardsPoint>,
+  L: EdwardsPoint,
+  x_U: EdwardsPoint,
   partial: Option<PartialSpendAuthAndLinkability>,
   e: Option<Scalar>,
 }
 
-impl<
-    R: Send + Sync + Clone + RngCore + CryptoRng,
-    T: Sync + Clone + PartialEq + Debug + Transcript,
-  > core::fmt::Debug for SalLegacyAlgorithm<R, T>
+impl<R: Send + Sync + Clone + RngCore + CryptoRng, T: Sync + Clone + Debug + Transcript>
+  core::fmt::Debug for SalLegacyAlgorithm<R, T>
 {
   fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
     fmt.debug_struct("SalLegacyAlgorithm").finish_non_exhaustive()
   }
 }
 
-impl<
-    R: Send + Sync + Clone + RngCore + CryptoRng,
-    T: Sync + Clone + PartialEq + Debug + Transcript,
-  > Algorithm<Ed25519> for SalLegacyAlgorithm<R, T>
+impl<R: Send + Sync + Clone + RngCore + CryptoRng, T: Sync + Clone + Debug + Transcript>
+  Algorithm<Ed25519> for SalLegacyAlgorithm<R, T>
 {
   type Transcript = T;
   type Addendum = SalLegacyAddendum;
@@ -121,7 +116,7 @@ impl<
     // One nonce, represented across G, U, I_tilde
     vec![vec![
       EdwardsPoint::generator(),
-      EdwardsPoint(FCMP_U()),
+      EdwardsPoint(*FCMP_U),
       self.rerandomized_output.input.I_tilde,
     ]]
   }
@@ -132,10 +127,10 @@ impl<
     keys: &ThresholdKeys<Ed25519>,
   ) -> SalLegacyAddendum {
     SalLegacyAddendum {
-      key_image_share: self.I * keys.secret_share().deref(),
+      key_image_share: self.I * keys.original_secret_share().deref(),
       // This could be done once, not per signing protocol, but it'd require a dedicated
       // interactive migration protocol for all existing multisigs
-      x_U_share: EdwardsPoint(FCMP_U()) * keys.secret_share().deref(),
+      x_U_share: EdwardsPoint(*FCMP_U) * keys.original_secret_share().deref(),
     }
   }
   fn read_addendum<R2: io::Read>(&self, reader: &mut R2) -> io::Result<Self::Addendum> {
@@ -151,13 +146,6 @@ impl<
     l: Participant,
     addendum: Self::Addendum,
   ) -> Result<(), FrostError> {
-    if self.L.is_none() {
-      // Init the key image to the offset
-      self.L = Some(self.I * view.offset());
-      // Init x U to the offset
-      self.x_U = Some(EdwardsPoint(FCMP_U()) * view.offset());
-    }
-
     // Transcript this participant's contribution
     self.transcript.append_message(b"participant", l.to_bytes());
     self
@@ -166,11 +154,26 @@ impl<
     self.transcript.append_message(b"x_U_share", addendum.x_U_share.compress().to_bytes());
 
     // Accumulate the interpolated shares
-    let interpolated_key_image_share =
-      addendum.key_image_share * lagrange::<Scalar>(l, view.included());
-    *self.L.as_mut().unwrap() += interpolated_key_image_share;
-    let interpolated_x_U_share = addendum.x_U_share * lagrange::<Scalar>(l, view.included());
-    *self.x_U.as_mut().unwrap() += interpolated_x_U_share;
+    let interpolation_factor = view.scalar() *
+      view
+        .interpolation_factor(l)
+        .ok_or(FrostError::InternalError("processing addendum from unincluded participant"))?;
+    let mut interpolated_key_image_share = addendum.key_image_share * interpolation_factor;
+    let mut interpolated_x_U_share = addendum.x_U_share * interpolation_factor;
+
+    // TODO: This introspects how `dkg` applies the offset to secret shares. Upstream to `dkg`?
+    if *view
+      .included()
+      .get(0)
+      .ok_or(FrostError::InternalError("processing addendum but no signers incluced"))? ==
+      l
+    {
+      interpolated_key_image_share += self.I * view.offset();
+      interpolated_x_U_share += EdwardsPoint(*FCMP_U) * view.offset();
+    }
+
+    self.L += interpolated_key_image_share;
+    self.x_U += interpolated_x_U_share;
 
     self
       .key_image_shares
@@ -190,9 +193,9 @@ impl<
   ) -> Scalar {
     assert!(msg.is_empty(), "SalLegacyAlgorithm message wasn't empty");
 
-    let T = EdwardsPoint(T());
-    let U = EdwardsPoint(FCMP_U());
-    let V = EdwardsPoint(FCMP_V());
+    let T_ = EdwardsPoint(*T);
+    let U = EdwardsPoint(*FCMP_U);
+    let V = EdwardsPoint(*FCMP_V);
 
     let y = self.y + self.rerandomized_output.r_o;
 
@@ -247,24 +250,24 @@ impl<
 
     let P = params.group_key() +
       (V * self.rerandomized_output.r_i) +
-      (self.x_U.unwrap() * self.rerandomized_output.r_i) +
-      (T * *r_p);
+      (self.x_U * self.rerandomized_output.r_i) +
+      (T_ * *r_p);
 
     let A = alpha_G +
       (V * *beta) +
       (nonce_sums[0][1] * self.rerandomized_output.r_i) +
-      (self.x_U.unwrap() * *beta) +
-      (T * *delta);
-    let B = (nonce_sums[0][1] * *beta) + (T * *mu);
+      (self.x_U * *beta) +
+      (T_ * *delta);
+    let B = (nonce_sums[0][1] * *beta) + (T_ * *mu);
 
-    let R_O = alpha_G + (T * *r_y);
-    let R_P = R_z + (T * *r_r_p);
+    let R_O = alpha_G + (T_ * *r_y);
+    let R_P = R_z + (T_ * *r_r_p);
     let R_L = nonce_sums[0][2] - R_z;
 
     let e = SpendAuthAndLinkability::challenge(
       self.signable_tx_hash,
       &self.rerandomized_output.input,
-      self.L.unwrap(),
+      self.L,
       P,
       A,
       B,
@@ -321,10 +324,10 @@ impl<
       &mut verifier,
       self.signable_tx_hash,
       &self.rerandomized_output.input,
-      self.L.unwrap(),
+      self.L,
     );
     if verifier.verify_vartime() {
-      return Some((self.L.unwrap(), sig));
+      return Some((self.L, sig));
     }
     None
   }
@@ -352,7 +355,7 @@ impl<
     let mut weight_transcript =
       RecommendedTranscript::new(b"monero-fcmp-plus-plus v0.1 SalLegacyAlgorithm::verify_share");
     weight_transcript.append_message(b"G", EdwardsPoint::generator().to_bytes());
-    weight_transcript.append_message(b"U", EdwardsPoint(FCMP_U()).to_bytes());
+    weight_transcript.append_message(b"U", EdwardsPoint(*FCMP_U).to_bytes());
     weight_transcript.append_message(b"I", self.I.to_bytes());
     weight_transcript.append_message(b"I~", self.rerandomized_output.input.I_tilde.to_bytes());
     weight_transcript.append_message(b"xG", verification_share.to_bytes());
@@ -378,7 +381,7 @@ impl<
       // U
       (weight_u, nonces[0][1]),
       (weight_u * e, x_U_share),
-      (weight_u * -share, EdwardsPoint(FCMP_U())),
+      (weight_u * -share, EdwardsPoint(*FCMP_U)),
       // `I~`
       (weight_i, nonces[0][2]),
       (weight_i * e, key_image_share),
@@ -391,10 +394,8 @@ impl<
   }
 }
 
-impl<
-    R: Send + Sync + Clone + RngCore + CryptoRng,
-    T: Sync + Clone + PartialEq + Debug + Transcript,
-  > SalLegacyAlgorithm<R, T>
+impl<R: Send + Sync + Clone + RngCore + CryptoRng, T: Sync + Clone + Debug + Transcript>
+  SalLegacyAlgorithm<R, T>
 {
   /// Sign a SpendAuthAndLinkability proof using modular-frost.
   ///
@@ -422,7 +423,7 @@ impl<
 
     transcript.append_message(b"y", y.to_repr());
 
-    let I = rerandomized_output.input.I_tilde - (EdwardsPoint(FCMP_U()) * rerandomized_output.r_i);
+    let I = rerandomized_output.input.I_tilde - (EdwardsPoint(*FCMP_U) * rerandomized_output.r_i);
 
     Self {
       rng,
@@ -431,9 +432,9 @@ impl<
       rerandomized_output,
       y,
       I,
-      L: None,
+      L: EdwardsPoint::identity(),
       key_image_shares: HashMap::new(),
-      x_U: None,
+      x_U: EdwardsPoint::identity(),
       x_U_shares: HashMap::new(),
       partial: None,
       e: None,

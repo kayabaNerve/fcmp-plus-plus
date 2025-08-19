@@ -51,9 +51,9 @@ impl RerandomizedOutput {
     let r_r_i = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
     let r_c = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
 
-    let O_tilde = output.O() + (EdwardsPoint(T()) * r_o);
-    let I_tilde = output.I() + (EdwardsPoint(FCMP_U()) * r_i);
-    let R = (EdwardsPoint(FCMP_V()) * r_i) + (EdwardsPoint(T()) * r_r_i);
+    let O_tilde = output.O() + (EdwardsPoint(*T) * r_o);
+    let I_tilde = output.I() + (EdwardsPoint(*FCMP_U) * r_i);
+    let R = (EdwardsPoint(*FCMP_V) * r_i) + (EdwardsPoint(*T) * r_r_i);
     let C_tilde = output.C() + (<Ed25519 as Ciphersuite>::generator() * r_c);
 
     RerandomizedOutput { input: Input { O_tilde, I_tilde, R, C_tilde }, r_o, r_i, r_r_i, r_c }
@@ -136,7 +136,7 @@ impl OpenedInputTuple {
   ) -> Option<OpenedInputTuple> {
     // Verify the opening is consistent.
     let mut y_tilde = rerandomized_output.r_o + y;
-    if (<Ed25519 as Ciphersuite>::generator() * x) + (EdwardsPoint(T()) * y_tilde) !=
+    if (<Ed25519 as Ciphersuite>::generator() * x) + (EdwardsPoint(*T) * y_tilde) !=
       rerandomized_output.input.O_tilde
     {
       y_tilde.zeroize();
@@ -205,9 +205,9 @@ impl SpendAuthAndLinkability {
     opening: OpenedInputTuple,
   ) -> (<Ed25519 as Ciphersuite>::G, SpendAuthAndLinkability) {
     let G = <Ed25519 as Ciphersuite>::G::generator();
-    let T = EdwardsPoint(T());
-    let U = EdwardsPoint(FCMP_U());
-    let V = EdwardsPoint(FCMP_V());
+    let T_ = EdwardsPoint(*T);
+    let U = EdwardsPoint(*FCMP_U);
+    let V = EdwardsPoint(*FCMP_V);
 
     let L = (opening.input.I_tilde * opening.x) - (U * (opening.r_i * opening.x));
 
@@ -222,16 +222,16 @@ impl SpendAuthAndLinkability {
 
     let x_r_i = Zeroizing::new(opening.x * opening.r_i);
 
-    let P = (G * opening.x) + (V * opening.r_i) + (U * *x_r_i) + (T * *r_p);
+    let P = (G * opening.x) + (V * opening.r_i) + (U * *x_r_i) + (T_ * *r_p);
 
     let alpha_G = G * *alpha;
 
     let A =
-      alpha_G + (V * *beta) + (U * ((*alpha * opening.r_i) + (*beta * opening.x))) + (T * *delta);
-    let B = (U * (*alpha * *beta)) + (T * *mu);
+      alpha_G + (V * *beta) + (U * ((*alpha * opening.r_i) + (*beta * opening.x))) + (T_ * *delta);
+    let B = (U * (*alpha * *beta)) + (T_ * *mu);
 
-    let R_O = alpha_G + (T * *r_y);
-    let R_P = (U * *r_z) + (T * *r_r_p);
+    let R_O = alpha_G + (T_ * *r_y);
+    let R_P = (U * *r_z) + (T_ * *r_r_p);
     let R_L = (opening.input.I_tilde * *alpha) - (U * *r_z);
 
     let e = Self::challenge(signable_tx_hash, &opening.input, L, P, A, B, R_O, R_P, R_L);
@@ -268,9 +268,9 @@ impl SpendAuthAndLinkability {
     L: <Ed25519 as Ciphersuite>::G,
   ) {
     let G = <Ed25519 as Ciphersuite>::G::generator();
-    let T = EdwardsPoint(T());
-    let U = EdwardsPoint(FCMP_U());
-    let V = EdwardsPoint(FCMP_V());
+    let T_ = EdwardsPoint(*T);
+    let U = EdwardsPoint(*FCMP_U);
+    let V = EdwardsPoint(*FCMP_V);
 
     let e = Self::challenge(
       signable_tx_hash,
@@ -296,7 +296,7 @@ impl SpendAuthAndLinkability {
         (-(self.s_alpha * e), G),
         (-(self.s_beta * e), V),
         (-(self.s_alpha * self.s_beta), U),
-        (-self.s_delta, T),
+        (-self.s_delta, T_),
       ],
     );
 
@@ -309,7 +309,7 @@ impl SpendAuthAndLinkability {
         (e, input.O_tilde),
         // RHS
         (-self.s_alpha, G),
-        (-self.s_y, T),
+        (-self.s_y, T_),
       ],
     );
 
@@ -322,7 +322,7 @@ impl SpendAuthAndLinkability {
         (e, (self.P - input.O_tilde - input.R)),
         // RHS
         (-self.s_z, U),
-        (-self.s_r_p, T),
+        (-self.s_r_p, T_),
       ],
     );
 
