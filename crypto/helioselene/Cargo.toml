@@ -17,6 +17,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
+std-shims = { version = "0.1.4", default-features = false }
+
 rustversion = "1"
 
 rand_core = { version = "0.6", default-features = false }
@@ -24,6 +26,7 @@ rand_core = { version = "0.6", default-features = false }
 zeroize = { version = "^1.5", default-features = false, features = ["zeroize_derive"] }
 subtle = { version = "^2.4", default-features = false }
 
+blake2 = { version = "0.10", default-features = false }
 ff = { version = "0.13", default-features = false, features = ["bits"] }
 group = { version = "0.13", default-features = false }
 
@@ -32,6 +35,7 @@ crypto-bigint = { version = "0.5", default-features = false, features = ["zeroiz
 dalek-ff-group = { version = "0.4.2", default-features = false }
 
 ec-divisors = { path = "../divisors", default-features = false }
+ciphersuite = { version = "0.4.2", default-features = false }
 
 [dev-dependencies]
 hex = "0.4"
@@ -48,15 +52,19 @@ harness = false
 
 [features]
 std = [
+  "std-shims/std",
+
   "rand_core/std",
 
   "zeroize/std",
   "subtle/std",
 
+  "blake2/std",
   "ff/std",
 
   "dalek-ff-group/std",
 
   "ec-divisors/std",
+  "ciphersuite/std",
 ]
 default = ["std"]

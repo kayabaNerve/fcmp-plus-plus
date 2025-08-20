@@ -1,12 +1,15 @@
 use std_shims::{vec, vec::Vec};
 
-use ciphersuite::Ciphersuite;
+use ciphersuite::{group::ff::FromUniformBytes, Ciphersuite};
 
 pub(crate) use generalized_bulletproofs_ec_gadgets::*;
 
 use crate::*;
 
-impl<C: Ciphersuite> Circuit<C> {
+impl<C: Ciphersuite> Circuit<C>
+where
+  C::F: FromUniformBytes<64>,
+{
   pub(crate) fn tuple_member_of_list<T: Transcript>(
     &mut self,
     transcript: &mut T,

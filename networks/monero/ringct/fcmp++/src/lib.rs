@@ -16,8 +16,9 @@ use blake2::{Digest, Blake2b512};
 use dalek_ff_group::EdwardsPoint;
 use ciphersuite::{
   group::{ff::PrimeField, GroupEncoding},
-  Ciphersuite, Ed25519, Helios, Selene,
+  Ciphersuite, Ed25519,
 };
+use helioselene::{Selene, Helios};
 
 use generalized_bulletproofs::Generators;
 use generalized_bulletproofs_ec_gadgets::*;

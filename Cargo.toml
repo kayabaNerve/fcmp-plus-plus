@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
   "crypto/helioselene",
-  "crypto/ciphersuite",
 
   "crypto/divisors",
   "crypto/generalized-bulletproofs",
@@ -38,8 +37,6 @@ multiexp = { opt-level = 3 }
 panic = "unwind"
 
 [patch.crates-io]
-dalek-ff-group = { git = "https://github.com/serai-dex/serai" }
-ciphersuite = { path = "./crypto/ciphersuite" }
 monero-generators = { path = "./networks/monero/generators" }
 
 [workspace.lints.clippy]

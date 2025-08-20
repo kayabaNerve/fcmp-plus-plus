@@ -32,7 +32,8 @@ blake2 = { version = "0.10", default-features = false }
 multiexp = { version = "0.4", default-features = false }
 curve25519-dalek = { version = "4", default-features = false, features = ["alloc", "zeroize"] }
 dalek-ff-group = { version = "0.4", default-features = false }
-ciphersuite = { path = "../../../../crypto/ciphersuite", default-features = false, features = ["ed25519", "helioselene"] }
+helioselene = { path = "../../../../crypto/helioselene", default-features = false }
+ciphersuite = { version = "0.4", default-features = false, features = ["ed25519"] }
 
 generalized-bulletproofs = { path = "../../../../crypto/generalized-bulletproofs", default-features = false }
 ec-divisors = { path = "../../../../crypto/divisors", default-features = false, features = ["ed25519"] }
@@ -63,6 +64,7 @@ std = [
 
   "multiexp/std",
   "dalek-ff-group/std",
+  "helioselene/std",
   "ciphersuite/std",
 
   "generalized-bulletproofs/std",

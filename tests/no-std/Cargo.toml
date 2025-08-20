@@ -17,8 +17,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
-ciphersuite = { path = "../../crypto/ciphersuite", default-features = false, features = ["alloc", "secp256k1", "p256", "ed25519", "ristretto", "ed448"] }
-
 ec-divisors = { path = "../../crypto/divisors", default-features = false }
 generalized-bulletproofs = { path = "../../crypto/generalized-bulletproofs", default-features = false }
 generalized-bulletproofs-circuit-abstraction = { path = "../../crypto/fcmps/circuit-abstraction", default-features = false }

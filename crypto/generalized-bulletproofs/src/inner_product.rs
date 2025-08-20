@@ -1,7 +1,10 @@
 use std_shims::{vec, vec::Vec};
 
 use multiexp::multiexp_vartime;
-use ciphersuite::{group::ff::Field, Ciphersuite};
+use ciphersuite::{
+  group::ff::{Field, FromUniformBytes},
+  Ciphersuite,
+};
 
 #[rustfmt::skip]
 use crate::{ScalarVector, PointVector, ProofGenerators, BatchVerifier, transcript::*, padded_pow_of_2};
@@ -73,7 +76,10 @@ impl<C: Ciphersuite> IpWitness<C> {
   }
 }
 
-impl<'a, C: Ciphersuite> IpStatement<'a, C> {
+impl<'a, C: Ciphersuite> IpStatement<'a, C>
+where
+  C::F: FromUniformBytes<64>,
+{
   /// Create a new Inner-Product statement.
   ///
   /// This does not perform any transcripting of any variables within this statement. They must be

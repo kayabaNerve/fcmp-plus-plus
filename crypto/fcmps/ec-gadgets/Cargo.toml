@@ -21,7 +21,7 @@ std-shims = { version = "^0.1.1", default-features = false }
 
 generic-array = { version = "1", default-features = false, features = ["alloc"] }
 
-ciphersuite = { path = "../../ciphersuite", version = "0.4", default-features = false }
+ciphersuite = { version = "0.4", default-features = false }
 
 generalized-bulletproofs-circuit-abstraction = { path = "../circuit-abstraction", default-features = false }
 

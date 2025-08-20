@@ -5,7 +5,10 @@ use rand_core::{RngCore, CryptoRng};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use multiexp::{multiexp, multiexp_vartime};
-use ciphersuite::{group::ff::Field, Ciphersuite};
+use ciphersuite::{
+  group::ff::{Field, FromUniformBytes},
+  Ciphersuite,
+};
 
 use crate::{
   ScalarVector, PointVector, ProofGenerators, PedersenCommitment, PedersenVectorCommitment,
@@ -108,7 +111,10 @@ struct YzChallenges<C: Ciphersuite> {
   z: ScalarVector<C::F>,
 }
 
-impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
+impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C>
+where
+  C::F: FromUniformBytes<64>,
+{
   // The amount of multiplications performed.
   fn n(&self) -> usize {
     self.generators.len()

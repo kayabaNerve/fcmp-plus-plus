@@ -3,7 +3,8 @@ use rand_core::OsRng;
 use generic_array::typenum::{Sum, Diff, Quot, U, U1, U2};
 
 use multiexp::multiexp_vartime;
-use ciphersuite::{group::Group, Ciphersuite, Ed25519, Selene, Helios};
+use ciphersuite::{group::Group, Ciphersuite, Ed25519};
+use helioselene::{Selene, Helios};
 use ec_divisors::ScalarDecomposition;
 
 use crate::{*, tree::hash_grow};

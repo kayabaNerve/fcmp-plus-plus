@@ -50,5 +50,4 @@ allow-git = [
   "https://github.com/kayabaNerve/crypto-bigint",
   "https://github.com/kayabaNerve/pasta_curves",
   "https://github.com/monero-oxide/monero-oxide",
-  "https://github.com/serai-dex/serai",
 ]

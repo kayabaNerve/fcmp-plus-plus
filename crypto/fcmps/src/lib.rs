@@ -17,7 +17,7 @@ use blake2::{
 
 use ciphersuite::{
   group::{
-    ff::{Field, PrimeField},
+    ff::{Field, PrimeField, FromUniformBytes},
     Group, GroupEncoding,
   },
   Ciphersuite,
@@ -189,6 +189,8 @@ where
   <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
   <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
   <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
+  <C::C1 as Ciphersuite>::F: FromUniformBytes<64>,
+  <C::C2 as Ciphersuite>::F: FromUniformBytes<64>,
 {
   // Returns pair of how many rows to use in the IPAs (each non-0).
   fn ipa_rows(inputs: usize, layers: usize) -> (usize, usize) {
@@ -533,8 +535,6 @@ where
   where
     <C::C1 as Ciphersuite>::G: GroupEncoding<Repr = [u8; 32]>,
     <C::C2 as Ciphersuite>::G: GroupEncoding<Repr = [u8; 32]>,
-    <C::C1 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
-    <C::C2 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
   {
     let tree: TreeRoot<C::C1, C::C2> = match &branches.root {
       RootBranch::Leaves(leaves) => {

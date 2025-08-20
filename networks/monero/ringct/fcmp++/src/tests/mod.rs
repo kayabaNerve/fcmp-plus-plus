@@ -6,8 +6,9 @@ use multiexp::multiexp_vartime;
 use dalek_ff_group::{Scalar, EdwardsPoint};
 use ciphersuite::{
   group::{ff::Field, Group, GroupEncoding},
-  Ciphersuite, Ed25519, Selene, Helios,
+  Ciphersuite, Ed25519,
 };
+use helioselene::{Selene, Helios};
 use ec_divisors::{DivisorCurve, ScalarDecomposition};
 
 use monero_generators::{T, FCMP_U, FCMP_V};

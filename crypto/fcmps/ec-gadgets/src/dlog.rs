@@ -2,7 +2,7 @@ use core::fmt;
 use std_shims::{vec, vec::Vec};
 
 use ciphersuite::{
-  group::ff::{Field, PrimeField, BatchInverter},
+  group::ff::{Field, PrimeField, BatchInverter, FromUniformBytes},
   Ciphersuite,
 };
 
@@ -342,7 +342,10 @@ pub trait EcDlogGadgets<C: Ciphersuite> {
   ) -> OnCurve;
 }
 
-impl<C: Ciphersuite> EcDlogGadgets<C> for Circuit<C> {
+impl<C: Ciphersuite> EcDlogGadgets<C> for Circuit<C>
+where
+  C::F: FromUniformBytes<64>,
+{
   // This is part of `DiscreteLog` from `Discrete Log Proof`, specifically, the challenges and
   // the calculations dependent solely on them
   fn discrete_log_challenge<T: Transcript, Parameters: DiscreteLogParameters>(
@@ -360,7 +363,10 @@ impl<C: Ciphersuite> EcDlogGadgets<C> for Circuit<C> {
       transcript: &mut T,
       curve: &CurveSpec<C::F>,
       odd_y_coordinate: bool,
-    ) -> (C::F, C::F) {
+    ) -> (C::F, C::F)
+    where
+      C::F: FromUniformBytes<64>,
+    {
       loop {
         let c_x = transcript.challenge::<C>();
         let Some(c_y) =

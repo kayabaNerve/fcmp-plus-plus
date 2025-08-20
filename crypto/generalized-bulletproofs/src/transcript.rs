@@ -6,7 +6,7 @@ use blake2::{Digest, Blake2b512};
 
 use ciphersuite::{
   group::{
-    ff::{Field, PrimeField},
+    ff::{Field, PrimeField, FromUniformBytes},
     GroupEncoding,
   },
   Ciphersuite,
@@ -18,11 +18,14 @@ const SCALAR: u8 = 0;
 const POINT: u8 = 1;
 const CHALLENGE: u8 = 2;
 
-fn challenge<C: Ciphersuite>(digest: &mut Blake2b512) -> C::F {
+fn challenge<C: Ciphersuite>(digest: &mut Blake2b512) -> C::F
+where
+  C::F: FromUniformBytes<64>,
+{
   digest.update([CHALLENGE]);
-  let chl = digest.clone().finalize().into();
+  let chl = <[u8; 64]>::from(digest.clone().finalize());
 
-  let res = C::reduce_512(chl);
+  let res = C::F::from_uniform_bytes(&chl);
 
   // Negligible probability
   if bool::from(res.is_zero()) {
@@ -103,7 +106,10 @@ impl Transcript {
   }
 
   /// Sample a challenge.
-  pub fn challenge<C: Ciphersuite>(&mut self) -> C::F {
+  pub fn challenge<C: Ciphersuite>(&mut self) -> C::F
+  where
+    C::F: FromUniformBytes<64>,
+  {
     challenge::<C>(&mut self.digest)
   }
 
@@ -184,7 +190,10 @@ impl<'a> VerifierTranscript<'a> {
   }
 
   /// Sample a challenge.
-  pub fn challenge<C: Ciphersuite>(&mut self) -> C::F {
+  pub fn challenge<C: Ciphersuite>(&mut self) -> C::F
+  where
+    C::F: FromUniformBytes<64>,
+  {
     challenge::<C>(&mut self.digest)
   }
 

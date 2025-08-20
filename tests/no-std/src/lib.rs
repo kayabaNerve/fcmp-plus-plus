@@ -1,7 +1,5 @@
 #![no_std]
 
-pub use ciphersuite;
-
 pub use ec_divisors;
 pub use generalized_bulletproofs;
 pub use generalized_bulletproofs_circuit_abstraction;

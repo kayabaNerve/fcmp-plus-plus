@@ -1,6 +1,6 @@
 use std_shims::{vec, vec::Vec};
 
-use ciphersuite::Ciphersuite;
+use ciphersuite::{group::ff::FromUniformBytes, Ciphersuite};
 
 use generalized_bulletproofs::{
   PedersenVectorCommitment, ProofGenerators,
@@ -71,7 +71,12 @@ impl<C: Ciphersuite> Circuit<C> {
   pub(crate) fn constrain_equal_to_zero(&mut self, lincomb: LinComb<C::F>) {
     self.0.constrain_equal_to_zero(lincomb)
   }
+}
 
+impl<C: Ciphersuite> Circuit<C>
+where
+  C::F: FromUniformBytes<64>,
+{
   #[allow(clippy::too_many_arguments)]
   pub(crate) fn first_layer<T: Transcript, Parameters: DiscreteLogParameters>(
     &mut self,

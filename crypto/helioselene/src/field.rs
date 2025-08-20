@@ -12,7 +12,7 @@ use rand_core::RngCore;
 
 use crypto_bigint::{Encoding, Word, Limb, U128, U256};
 
-use group::ff::{Field, FieldBits, PrimeField, PrimeFieldBits};
+use group::ff::{Field, FieldBits, PrimeField, PrimeFieldBits, FromUniformBytes};
 
 /// The field novel to Helios/Selene.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -767,6 +767,12 @@ impl PrimeFieldBits for HelioseleneField {
 
   fn char_le_bits() -> FieldBits<Self::ReprBits> {
     MODULUS.to_le_bytes().into()
+  }
+}
+
+impl FromUniformBytes<64> for HelioseleneField {
+  fn from_uniform_bytes(bytes: &[u8; 64]) -> Self {
+    Self::wide_reduce(*bytes)
   }
 }
 

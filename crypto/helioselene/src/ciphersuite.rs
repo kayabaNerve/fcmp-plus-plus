@@ -1,7 +1,6 @@
-#[cfg(any(feature = "alloc", feature = "std"))]
 #[allow(unused_imports)]
 use std_shims::prelude::*;
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(feature = "std")]
 use std_shims::io::{self, Read};
 
 use zeroize::Zeroize;
@@ -9,9 +8,9 @@ use zeroize::Zeroize;
 use blake2::{Digest, Blake2b512};
 
 use group::{Group, GroupEncoding};
-use helioselene::{Field25519, HelioseleneField, HeliosPoint, SelenePoint};
+use crate::{Field25519, HelioseleneField, HeliosPoint, SelenePoint};
 
-use crate::Ciphersuite;
+use ciphersuite::Ciphersuite;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
 pub struct Helios;
@@ -24,12 +23,6 @@ impl Ciphersuite for Helios {
 
   fn generator() -> Self::G {
     <HeliosPoint as Group>::generator()
-  }
-
-  fn reduce_512(mut scalar: [u8; 64]) -> Self::F {
-    let res = HelioseleneField::wide_reduce(scalar);
-    scalar.zeroize();
-    res
   }
 
   fn hash_to_F(dst: &[u8], msg: &[u8]) -> Self::F {
@@ -45,7 +38,7 @@ impl Ciphersuite for Helios {
 
   // We override the provided impl, which compares against the reserialization, because
   // Helios::G::from_bytes already enforces canonically encoded points
-  #[cfg(any(feature = "alloc", feature = "std"))]
+  #[cfg(feature = "std")]
   #[allow(non_snake_case)]
   fn read_G<R: Read>(reader: &mut R) -> io::Result<Self::G> {
     let mut encoding = <Self::G as GroupEncoding>::Repr::default();
@@ -70,12 +63,6 @@ impl Ciphersuite for Selene {
     <SelenePoint as Group>::generator()
   }
 
-  fn reduce_512(mut scalar: [u8; 64]) -> Self::F {
-    let res = Field25519::wide_reduce(scalar);
-    scalar.zeroize();
-    res
-  }
-
   fn hash_to_F(dst: &[u8], msg: &[u8]) -> Self::F {
     let mut uniform = [0; 64];
     let mut hash = Blake2b512::digest([dst, msg].concat());
@@ -89,7 +76,7 @@ impl Ciphersuite for Selene {
 
   // We override the provided impl, which compares against the reserialization, because
   // Selene::G::from_bytes already enforces canonically encoded points
-  #[cfg(any(feature = "alloc", feature = "std"))]
+  #[cfg(feature = "std")]
   #[allow(non_snake_case)]
   fn read_G<R: Read>(reader: &mut R) -> io::Result<Self::G> {
     let mut encoding = <Self::G as GroupEncoding>::Repr::default();
@@ -99,10 +86,4 @@ impl Ciphersuite for Selene {
       .ok_or_else(|| io::Error::other("invalid point"))?;
     Ok(point)
   }
-}
-
-#[test]
-fn test_helioselene() {
-  ff_group_tests::group::test_prime_group_bits::<_, HeliosPoint>(&mut rand_core::OsRng);
-  ff_group_tests::group::test_prime_group_bits::<_, SelenePoint>(&mut rand_core::OsRng);
 }

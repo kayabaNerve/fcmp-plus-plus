@@ -8,7 +8,10 @@ use std_shims::{vec, vec::Vec};
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use ciphersuite::{group::ff::Field, Ciphersuite};
+use ciphersuite::{
+  group::ff::{Field, FromUniformBytes},
+  Ciphersuite,
+};
 
 use generalized_bulletproofs::{
   ScalarVector, PedersenCommitment, PedersenVectorCommitment, ProofGenerators,
@@ -26,7 +29,9 @@ pub trait Transcript {
   ///
   /// It is the caller's responsibility to have properly transcripted all variables prior to
   /// sampling this challenge.
-  fn challenge<C: Ciphersuite>(&mut self) -> C::F;
+  fn challenge<C: Ciphersuite>(&mut self) -> C::F
+  where
+    C::F: FromUniformBytes<64>;
 
   /// Sample a challenge as a byte array.
   ///
@@ -35,7 +40,10 @@ pub trait Transcript {
   fn challenge_bytes(&mut self) -> [u8; 64];
 }
 impl Transcript for ProverTranscript {
-  fn challenge<C: Ciphersuite>(&mut self) -> C::F {
+  fn challenge<C: Ciphersuite>(&mut self) -> C::F
+  where
+    C::F: FromUniformBytes<64>,
+  {
     self.challenge::<C>()
   }
   fn challenge_bytes(&mut self) -> [u8; 64] {
@@ -43,7 +51,10 @@ impl Transcript for ProverTranscript {
   }
 }
 impl Transcript for VerifierTranscript<'_> {
-  fn challenge<C: Ciphersuite>(&mut self) -> C::F {
+  fn challenge<C: Ciphersuite>(&mut self) -> C::F
+  where
+    C::F: FromUniformBytes<64>,
+  {
     self.challenge::<C>()
   }
   fn challenge_bytes(&mut self) -> [u8; 64] {
@@ -163,7 +174,12 @@ impl<C: Ciphersuite> Circuit<C> {
   pub fn constrain_equal_to_zero(&mut self, lincomb: LinComb<C::F>) {
     self.constraints.push(lincomb);
   }
+}
 
+impl<C: Ciphersuite> Circuit<C>
+where
+  C::F: FromUniformBytes<64>,
+{
   /// Obtain the statement for this circuit.
   ///
   /// If configured as the prover, the witness to use is also returned.

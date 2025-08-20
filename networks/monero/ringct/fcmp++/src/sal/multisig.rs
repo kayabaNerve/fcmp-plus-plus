@@ -39,10 +39,6 @@ impl Ciphersuite for Ed25519T {
     EdwardsPoint(*T)
   }
 
-  fn reduce_512(scalar: [u8; 64]) -> Self::F {
-    <Ed25519 as Ciphersuite>::reduce_512(scalar)
-  }
-
   fn hash_to_F(dst: &[u8], data: &[u8]) -> Self::F {
     <Ed25519 as Ciphersuite>::hash_to_F(dst, data)
   }

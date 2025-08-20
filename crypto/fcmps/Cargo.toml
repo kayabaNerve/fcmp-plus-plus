@@ -28,7 +28,7 @@ generic-array = { version = "1", default-features = false, features = ["alloc"] 
 blake2 = { version = "0.10", default-features = false }
 
 multiexp = { version = "0.4", default-features = false, features = ["batch"] }
-ciphersuite = { path = "../ciphersuite", version = "0.4", default-features = false }
+ciphersuite = { version = "0.4", default-features = false }
 
 ec-divisors = { path = "../divisors", default-features = false }
 generalized-bulletproofs = { path = "../generalized-bulletproofs", default-features = false }
@@ -38,7 +38,7 @@ generalized-bulletproofs-ec-gadgets = { path = "./ec-gadgets", default-features 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
 
-ciphersuite = { path = "../ciphersuite", features = ["ed25519", "helioselene"] }
+ciphersuite = { version = "0.4", features = ["ed25519"] }
 
 dalek-ff-group = "0.4.2"
 helioselene = { path = "../helioselene" }

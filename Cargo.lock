@@ -122,17 +122,16 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "ciphersuite"
-version = "0.4.1"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ae44ce6224d75ced726e5597265b8f334b9bf4767b8b42e058f2304005d8475"
 dependencies = [
- "blake2",
  "dalek-ff-group",
  "digest",
  "elliptic-curve",
  "ff",
- "ff-group-tests",
+ "flexible-transcript",
  "group",
- "helioselene",
- "hex",
  "k256",
  "minimal-ed448",
  "p256",
@@ -218,8 +217,9 @@ dependencies = [
 
 [[package]]
 name = "dalek-ff-group"
-version = "0.4.2"
-source = "git+https://github.com/serai-dex/serai#cfd1cb3a3771e0a04c7db8e7884663da2e107ffa"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f9d720a1cc9388e4bcee44959d0471ec1d578e49b7fffc82d2e5b9a4a5b74cc"
 dependencies = [
  "crypto-bigint",
  "curve25519-dalek",
@@ -375,14 +375,14 @@ checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
 name = "flexible-transcript"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d75b8878bac5fd11582c0b7a4a8ee4a611593fc6630a1b6036ab11e94be5903"
+checksum = "329fdf3a39d36921c94b665764caa152fdf08f0ed631085ba4ee7e51899d93b4"
 dependencies = [
  "blake2",
  "digest",
  "merlin",
- "rustversion",
+ "std-shims",
  "subtle",
  "zeroize",
 ]
@@ -505,6 +505,8 @@ checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
 name = "helioselene"
 version = "0.1.0"
 dependencies = [
+ "blake2",
+ "ciphersuite",
  "crypto-bigint",
  "dalek-ff-group",
  "ec-divisors",
@@ -514,6 +516,7 @@ dependencies = [
  "hex",
  "rand_core",
  "rustversion",
+ "std-shims",
  "subtle",
  "zeroize",
 ]
@@ -632,6 +635,7 @@ dependencies = [
  "generalized-bulletproofs",
  "generalized-bulletproofs-ec-gadgets",
  "generic-array 1.1.1",
+ "helioselene",
  "modular-frost",
  "monero-generators 0.4.0",
  "monero-io",
@@ -695,9 +699,9 @@ dependencies = [
 
 [[package]]
 name = "multiexp"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1258e91b04f25cd30e6c75a6d20b69edeaaef44dd0f131f737bbcd78f0a3fa8"
+checksum = "7ec2ce93a6f06ac6cae04c1da3f2a6a24fcfc1f0eb0b4e0f3d302f0df45326cb"
 dependencies = [
  "ff",
  "group",
@@ -880,7 +884,6 @@ checksum = "3cb6eb87a131f756572d7fb904f6e7b68633f09cca868c5df1c4b8d1a694bbba"
 name = "serai-no-std-tests"
 version = "0.1.0"
 dependencies = [
- "ciphersuite",
  "ec-divisors",
  "full-chain-membership-proofs",
  "generalized-bulletproofs",
