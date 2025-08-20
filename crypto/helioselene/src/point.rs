@@ -37,12 +37,24 @@ macro_rules! curve {
     }
 
     /// Point.
-    #[derive(Clone, Copy, Debug, Zeroize)]
+    #[derive(Clone, Copy, Debug)]
     #[repr(C)]
     pub struct $Point {
       x: $Field, // / Z
       y: $Field, // / Z
       z: $Field,
+    }
+
+    impl Zeroize for $Point {
+      fn zeroize(&mut self) {
+        self.x.zeroize();
+        self.y.zeroize();
+        self.z.zeroize();
+        let identity = Self::identity();
+        self.x = identity.x;
+        self.y = identity.y;
+        self.z = identity.z;
+      }
     }
 
     const G: $Point = $Point { x: G_X, y: G_Y, z: $Field::ONE };
