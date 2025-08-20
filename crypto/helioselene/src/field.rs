@@ -285,8 +285,8 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
   for j in 0 .. U128::LIMBS {
     (limbs[U128::LIMBS + j], carry) = add_with_bounded_overflow(
       limbs[U128::LIMBS + j],
-      three_eighty_four_carry & TWO_MODULUS_255_DISTANCE.as_limbs()[j],
-      carry,
+      (three_eighty_four_carry & TWO_MODULUS_255_DISTANCE.as_limbs()[j]).wrapping_add(carry),
+      Limb::ZERO,
     );
   }
   for j in U128::LIMBS .. U256::LIMBS {
@@ -315,8 +315,8 @@ fn red512(wide: (U256, U256)) -> HelioseleneField {
   for i in 0 .. U128::LIMBS {
     (limbs[i], carry) = add_with_bounded_overflow(
       limbs[i],
-      two_fifty_six_carry & TWO_MODULUS_255_DISTANCE.as_limbs()[i],
-      carry,
+      (two_fifty_six_carry & TWO_MODULUS_255_DISTANCE.as_limbs()[i]).wrapping_add(carry),
+      Limb::ZERO,
     );
   }
   for i in U128::LIMBS .. U256::LIMBS {
@@ -526,7 +526,7 @@ impl Field for HelioseleneField {
       let u_sub_v_neg = borrow.wrapping_neg();
 
       // Negate in the case `(a & 1) & (a < b)`
-      let should_negate = a_is_odd & a_lt_b;
+      let should_negate = both;
       /*
         Whether the resulting number will be negative, with the exceptional case of if the
         resulting number is 0, in which case this iteration will terminate with `u = MODULUS`.
@@ -573,10 +573,10 @@ impl Field for HelioseleneField {
           (MODULUS_XOR_TWO_MODULUS.as_limbs()[l] & add_two_modulus);
 
         /*
-          Instead of adding the 255-bit modulus, it may be more efficient to subtract out the
-          distance from 2**255, which is only 127 bits. This would be quite marginal however on
-          64-bit platforms, where four additions would be replaced with two subtractions and one
-          binary OR.
+          Instead of adding the 255-bit modulus, it would appear more efficient to subtract out the
+          distance from 2**255, which is only 127 bits. This is non-trivial however due to needing
+          to add 1 upon negation, which can currently be chained with the addition of the modulus,
+          but could not be if we subtracted the distance from the modulus.
         */
         // The carry is bounded to be `<= 1` and the low 128-bits of the modulus aren't full
         let (limb, carry_bool) = (u_sub_v.as_limbs()[l] ^ should_negate)
@@ -594,6 +594,7 @@ impl Field for HelioseleneField {
           carry,
         );
       }
+      // This is a DISJOINT OR and we _can_ use `core::intrinsics::disjoint_bitor` here
       u.as_limbs_mut()[U256::LIMBS - 1] =
         u.as_limbs()[U256::LIMBS - 1] | (add_two_modulus << (Limb::BITS - 1));
 
@@ -606,7 +607,10 @@ impl Field for HelioseleneField {
       }
       a.as_limbs_mut()[limbs - 1] >>= 1;
 
-      *u = u.shr_vartime(1);
+      for l in 0 .. (U256::LIMBS - 1) {
+        u.as_limbs_mut()[l] = (u.as_limbs()[l] >> 1) | (u.as_limbs()[l + 1] << (Limb::BITS - 1));
+      }
+      u.as_limbs_mut()[U256::LIMBS - 1] >>= 1;
     }
 
     // Note the limbs still in use so we don't apply operations over unused limbs
