@@ -6,7 +6,7 @@ license = "MIT"
 repository = "https://github.com/monero-oxide/monero-oxide/tree/develop/monero-oxide/generators"
 authors = ["Luke Parker <lukeparker5132@gmail.com>"]
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.65"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -16,7 +16,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
-std-shims = { version = "^0.1.2", default-features = false }
+std-shims = { version = "0.1.4", default-features = false }
 
 subtle = { version = "^2.4", default-features = false }
 
@@ -26,7 +26,7 @@ curve25519-dalek = { version = "4", default-features = false, features = ["alloc
 group = { version = "0.13", default-features = false }
 dalek-ff-group = { version = "0.4", default-features = false }
 
-monero-io = { git = "https://github.com/monero-oxide/monero-oxide", version = "0.1", default-features = false }
+monero-io = { git = "https://github.com/monero-oxide/monero-oxide", rev = "051a0659311ecf8865859f06f7a8e63c386d3829", version = "0.1", default-features = false }
 
 [dev-dependencies]
 hex = "0.4"

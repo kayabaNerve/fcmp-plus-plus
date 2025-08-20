@@ -4,6 +4,8 @@
 #![deny(missing_docs)]
 #![allow(non_snake_case)]
 
+#[allow(unused_imports)]
+use std_shims::prelude::*;
 use std_shims::{vec, vec::Vec};
 
 use subtle::{Choice, ConstantTimeEq, ConstantTimeGreater, ConditionallySelectable};

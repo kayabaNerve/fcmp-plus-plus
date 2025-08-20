@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use std_shims::prelude::*;
 use std_shims::{vec::Vec, io};
 
 use blake2::{Digest, Blake2b512};

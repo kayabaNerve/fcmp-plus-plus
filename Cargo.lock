@@ -130,7 +130,6 @@ dependencies = [
  "elliptic-curve",
  "ff",
  "ff-group-tests",
- "flexible-transcript",
  "group",
  "helioselene",
  "hex",
@@ -661,7 +660,7 @@ dependencies = [
 [[package]]
 name = "monero-generators"
 version = "0.4.0"
-source = "git+https://github.com/monero-oxide/monero-oxide#e18dc257a710e149732e471fc2ae9c8cb300953a"
+source = "git+https://github.com/monero-oxide/monero-oxide?rev=051a0659311ecf8865859f06f7a8e63c386d3829#051a0659311ecf8865859f06f7a8e63c386d3829"
 dependencies = [
  "curve25519-dalek",
  "dalek-ff-group",
@@ -675,7 +674,7 @@ dependencies = [
 [[package]]
 name = "monero-io"
 version = "0.1.0"
-source = "git+https://github.com/monero-oxide/monero-oxide#e18dc257a710e149732e471fc2ae9c8cb300953a"
+source = "git+https://github.com/monero-oxide/monero-oxide?rev=051a0659311ecf8865859f06f7a8e63c386d3829#051a0659311ecf8865859f06f7a8e63c386d3829"
 dependencies = [
  "curve25519-dalek",
  "std-shims",
@@ -684,10 +683,10 @@ dependencies = [
 [[package]]
 name = "monero-primitives"
 version = "0.1.0"
-source = "git+https://github.com/monero-oxide/monero-oxide#e18dc257a710e149732e471fc2ae9c8cb300953a"
+source = "git+https://github.com/monero-oxide/monero-oxide?rev=051a0659311ecf8865859f06f7a8e63c386d3829#051a0659311ecf8865859f06f7a8e63c386d3829"
 dependencies = [
  "curve25519-dalek",
- "monero-generators 0.4.0 (git+https://github.com/monero-oxide/monero-oxide)",
+ "monero-generators 0.4.0 (git+https://github.com/monero-oxide/monero-oxide?rev=051a0659311ecf8865859f06f7a8e63c386d3829)",
  "monero-io",
  "sha3",
  "std-shims",
@@ -845,9 +844,9 @@ checksum = "f7c45b9784283f1b2e7fb61b42047c2fd678ef0960d4f6f1eba131594cc369d4"
 
 [[package]]
 name = "schnorr-signatures"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9262fa48d8270b9d937aa68fb09fe3281aded9a671d999e8b82ce1065e952d6"
+checksum = "11fe30c28740bba75dc4649a8985861784e8a44fd636706076edb7cb2aec5765"
 dependencies = [
  "ciphersuite",
  "flexible-transcript",
@@ -944,10 +943,12 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "std-shims"
-version = "0.1.2"
-source = "git+https://github.com/serai-dex/serai#cfd1cb3a3771e0a04c7db8e7884663da2e107ffa"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fbb9ed849fede2765386134c64bc8984081e8c8408bc9201b99c6e3143ec5e7"
 dependencies = [
  "hashbrown 0.14.5",
+ "rustversion",
  "spin",
 ]
 

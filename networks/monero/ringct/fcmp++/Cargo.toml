@@ -7,6 +7,7 @@ repository = "https://github.com/kayabaNerve/fcmp-plus-plus/tree/develop/network
 authors = ["Luke Parker <lukeparker5132@gmail.com>"]
 keywords = ["monero", "ciphersuite", "ff", "group"]
 edition = "2021"
+rust-version = "1.70"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -38,9 +39,9 @@ ec-divisors = { path = "../../../../crypto/divisors", default-features = false, 
 generalized-bulletproofs-ec-gadgets = { path = "../../../../crypto/fcmps/ec-gadgets", default-features = false }
 fcmps = { package = "full-chain-membership-proofs", path = "../../../../crypto/fcmps", default-features = false }
 
-monero-io = { git = "https://github.com/monero-oxide/monero-oxide", default-features = false }
+monero-io = { git = "https://github.com/monero-oxide/monero-oxide", rev = "051a0659311ecf8865859f06f7a8e63c386d3829", default-features = false }
 monero-generators = { path = "../../generators", default-features = false }
-monero-primitives = {  git = "https://github.com/monero-oxide/monero-oxide", default-features = false }
+monero-primitives = {  git = "https://github.com/monero-oxide/monero-oxide", rev = "051a0659311ecf8865859f06f7a8e63c386d3829", default-features = false }
 
 rand_chacha = { version = "0.3", default-features = false, optional = true }
 transcript = { package = "flexible-transcript", version = "0.3", default-features = false, features = ["recommended"], optional = true }

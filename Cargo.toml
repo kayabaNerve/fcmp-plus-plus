@@ -38,10 +38,9 @@ multiexp = { opt-level = 3 }
 panic = "unwind"
 
 [patch.crates-io]
-std-shims = { git = "https://github.com/serai-dex/serai" }
 dalek-ff-group = { git = "https://github.com/serai-dex/serai" }
 ciphersuite = { path = "./crypto/ciphersuite" }
-monero-generators = { path ="./networks/monero/generators" }
+monero-generators = { path = "./networks/monero/generators" }
 
 [workspace.lints.clippy]
 unwrap_or_default = "allow"

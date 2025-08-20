@@ -1,4 +1,7 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[allow(unused_imports)]
+use std_shims::prelude::*;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use std_shims::io::{self, Read};
 
 use zeroize::Zeroize;

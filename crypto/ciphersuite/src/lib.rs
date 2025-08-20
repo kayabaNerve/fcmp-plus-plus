@@ -4,6 +4,9 @@
 
 use core::fmt::Debug;
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[allow(unused_imports)]
+use std_shims::prelude::*;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use std_shims::io::{self, Read};
 
 use rand_core::{RngCore, CryptoRng};
@@ -11,8 +14,7 @@ use rand_core::{RngCore, CryptoRng};
 use zeroize::Zeroize;
 use subtle::ConstantTimeEq;
 
-use digest::{core_api::BlockSizeUser, Digest, HashMarker};
-use transcript::SecureDigest;
+use digest::{Digest, HashMarker};
 
 pub use group;
 use group::{
@@ -57,8 +59,7 @@ pub trait Ciphersuite:
   /// Group element type.
   type G: Group<Scalar = Self::F> + GroupOps + PrimeGroup + Zeroize + ConstantTimeEq;
   /// Hash algorithm used with this curve.
-  // Requires BlockSizeUser so it can be used within Hkdf which requires that.
-  type H: Send + Clone + BlockSizeUser + Digest + HashMarker + SecureDigest;
+  type H: Send + Clone + Digest + HashMarker;
 
   /// ID for this curve.
   const ID: &'static [u8];
