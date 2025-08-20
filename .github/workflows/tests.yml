@@ -17,5 +17,5 @@ jobs:
 
       - name: Run Tests
         run: |
-          GITHUB_CI=true RUST_BACKTRACE=1 cargo +1.69 test -- --nocapture
+          cargo +1.69 check
           GITHUB_CI=true RUST_BACKTRACE=1 cargo +1.79 test --all-features -- --nocapture

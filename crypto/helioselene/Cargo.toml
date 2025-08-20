@@ -51,7 +51,10 @@ name = "helioselene"
 harness = false
 
 [features]
+alloc = ["ciphersuite/alloc"]
 std = [
+  "alloc",
+
   "std-shims/std",
 
   "rand_core/std",

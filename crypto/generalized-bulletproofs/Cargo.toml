@@ -26,7 +26,7 @@ zeroize = { version = "^1.5", default-features = false, features = ["zeroize_der
 blake2 = { version = "0.10", default-features = false }
 
 multiexp = { version = "0.4", default-features = false, features = ["batch"] }
-ciphersuite = { version = "0.4", default-features = false }
+ciphersuite = { version = "0.4", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }

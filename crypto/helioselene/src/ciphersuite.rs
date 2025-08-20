@@ -1,13 +1,15 @@
 #[allow(unused_imports)]
 use std_shims::prelude::*;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use std_shims::io::{self, Read};
 
 use zeroize::Zeroize;
 
 use blake2::{Digest, Blake2b512};
 
-use group::{Group, GroupEncoding};
+use group::Group;
+#[cfg(feature = "alloc")]
+use group::GroupEncoding;
 use crate::{Field25519, HelioseleneField, HeliosPoint, SelenePoint};
 
 use ciphersuite::Ciphersuite;
@@ -38,7 +40,7 @@ impl Ciphersuite for Helios {
 
   // We override the provided impl, which compares against the reserialization, because
   // Helios::G::from_bytes already enforces canonically encoded points
-  #[cfg(feature = "std")]
+  #[cfg(feature = "alloc")]
   #[allow(non_snake_case)]
   fn read_G<R: Read>(reader: &mut R) -> io::Result<Self::G> {
     let mut encoding = <Self::G as GroupEncoding>::Repr::default();
@@ -76,7 +78,7 @@ impl Ciphersuite for Selene {
 
   // We override the provided impl, which compares against the reserialization, because
   // Selene::G::from_bytes already enforces canonically encoded points
-  #[cfg(feature = "std")]
+  #[cfg(feature = "alloc")]
   #[allow(non_snake_case)]
   fn read_G<R: Read>(reader: &mut R) -> io::Result<Self::G> {
     let mut encoding = <Self::G as GroupEncoding>::Repr::default();

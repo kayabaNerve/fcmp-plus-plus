@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac
 
       - name: Install RISC-V Toolchain
-        run: sudo apt update && sudo apt install -y gcc-riscv64-unknown-elf gcc-multilib && rustup target add riscv32imac-unknown-none-elf
+        run: sudo apt update && sudo apt install -y gcc-riscv64-unknown-elf gcc-multilib && rustup +1.79 target add riscv32imac-unknown-none-elf
 
       - name: Verify no-std builds
         run: cd tests/no-std && CFLAGS=-I/usr/include cargo +1.79 build --target riscv32imac-unknown-none-elf
