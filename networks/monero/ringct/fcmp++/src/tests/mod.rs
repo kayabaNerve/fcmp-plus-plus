@@ -47,7 +47,7 @@ fn test() {
     let leaves = vec![output];
 
     let tree = TreeRoot::<Selene, Helios>::C1(
-      SELENE_HASH_INIT() +
+      *SELENE_HASH_INIT +
         multiexp_vartime(
           &([
             <Ed25519 as Ciphersuite>::G::to_xy(output.O()).unwrap().0,
@@ -58,7 +58,7 @@ fn test() {
             <Ed25519 as Ciphersuite>::G::to_xy(output.C()).unwrap().1,
           ]
           .into_iter()
-          .zip(SELENE_GENERATORS().g_bold_slice().iter().copied())
+          .zip(SELENE_GENERATORS.g_bold_slice().iter().copied())
           .collect::<Vec<_>>()),
         ),
     );
@@ -88,7 +88,7 @@ fn test() {
     );
 
     let blinded_branches = branches.blind(vec![output_blinds], vec![], vec![]).unwrap();
-    (tree, Fcmp::prove(&mut OsRng, FCMP_PARAMS(), blinded_branches).unwrap())
+    (tree, Fcmp::prove(&mut OsRng, &*FCMP_PARAMS, blinded_branches).unwrap())
   };
 
   let fcmp_plus_plus = FcmpPlusPlus::new(vec![(input, spend_auth_and_linkability)], fcmp);
@@ -130,6 +130,6 @@ fn test() {
     .unwrap();
 
   assert!(ed_verifier.verify_vartime());
-  assert!(SELENE_GENERATORS().verify(c1_verifier));
-  assert!(HELIOS_GENERATORS().verify(c2_verifier));
+  assert!(SELENE_GENERATORS.verify(c1_verifier));
+  assert!(HELIOS_GENERATORS.verify(c2_verifier));
 }

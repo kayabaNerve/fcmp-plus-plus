@@ -43,6 +43,7 @@ ciphersuite = { path = "./crypto/ciphersuite" }
 monero-generators = { path = "./networks/monero/generators" }
 
 [workspace.lints.clippy]
+incompatible_msrv = "allow" # Manually verified with a GitHub workflow
 unwrap_or_default = "allow"
 map_unwrap_or = "allow"
 manual_is_multiple_of = "allow"

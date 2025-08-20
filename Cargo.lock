@@ -695,9 +695,9 @@ dependencies = [
 
 [[package]]
 name = "multiexp"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25a383da1ae933078ddb1e4141f1dd617b512b4183779d6977e6451b0e644806"
+checksum = "b1258e91b04f25cd30e6c75a6d20b69edeaaef44dd0f131f737bbcd78f0a3fa8"
 dependencies = [
  "ff",
  "group",

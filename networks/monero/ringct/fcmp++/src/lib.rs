@@ -4,7 +4,7 @@
 #![deny(missing_docs)]
 #![allow(non_snake_case)]
 
-use std_shims::{sync::OnceLock, vec, vec::Vec, io};
+use std_shims::{sync::LazyLock, vec, vec::Vec, io};
 
 use rand_core::{RngCore, CryptoRng};
 use zeroize::Zeroize;
@@ -89,80 +89,63 @@ fn hash_to_point_on_curve<C: Ciphersuite>(buf: &[u8]) -> C::G {
   }
 }
 
-static HELIOS_HASH_INIT_CELL: OnceLock<<Helios as Ciphersuite>::G> = OnceLock::new();
 /// The hash-initialization generator for Helios hashes.
-pub fn HELIOS_HASH_INIT() -> <Helios as Ciphersuite>::G {
-  *HELIOS_HASH_INIT_CELL
-    .get_or_init(|| hash_to_point_on_curve::<Helios>(b"Monero Helios Hash Initializer"))
-}
+static HELIOS_HASH_INIT: LazyLock<<Helios as Ciphersuite>::G> =
+  LazyLock::new(|| hash_to_point_on_curve::<Helios>(b"Monero Helios Hash Initializer"));
 
-static SELENE_HASH_INIT_CELL: OnceLock<<Selene as Ciphersuite>::G> = OnceLock::new();
 /// The hash-initialization generator for Selene hashes.
-pub fn SELENE_HASH_INIT() -> <Selene as Ciphersuite>::G {
-  *SELENE_HASH_INIT_CELL
-    .get_or_init(|| hash_to_point_on_curve::<Selene>(b"Monero Selene Hash Initializer"))
-}
+static SELENE_HASH_INIT: LazyLock<<Selene as Ciphersuite>::G> =
+  LazyLock::new(|| hash_to_point_on_curve::<Selene>(b"Monero Selene Hash Initializer"));
 
-static HELIOS_GENERATORS_CELL: OnceLock<Generators<Helios>> = OnceLock::new();
 /// The generators for Helios.
-pub fn HELIOS_GENERATORS() -> &'static Generators<Helios> {
-  HELIOS_GENERATORS_CELL.get_or_init(|| {
-    let g = hash_to_point_on_curve::<Helios>(b"Monero Helios G");
-    let h = hash_to_point_on_curve::<Helios>(b"Monero Helios H");
-    let mut g_bold = Vec::with_capacity(2048);
-    let mut h_bold = Vec::with_capacity(2048);
-    for i in 0u32 .. 2048 {
-      let mut g_buf = b"Monero Helios G ".to_vec();
-      write_varint(&i, &mut g_buf).unwrap();
-      g_bold.push(hash_to_point_on_curve::<Helios>(&g_buf));
+static HELIOS_GENERATORS: LazyLock<Generators<Helios>> = LazyLock::new(|| {
+  let g = hash_to_point_on_curve::<Helios>(b"Monero Helios G");
+  let h = hash_to_point_on_curve::<Helios>(b"Monero Helios H");
+  let mut g_bold = Vec::with_capacity(2048);
+  let mut h_bold = Vec::with_capacity(2048);
+  for i in 0u32 .. 2048 {
+    let mut g_buf = b"Monero Helios G ".to_vec();
+    write_varint(&i, &mut g_buf).unwrap();
+    g_bold.push(hash_to_point_on_curve::<Helios>(&g_buf));
 
-      let mut h_buf = b"Monero Helios H ".to_vec();
-      write_varint(&i, &mut h_buf).unwrap();
-      h_bold.push(hash_to_point_on_curve::<Helios>(&h_buf));
-    }
-    Generators::new(g, h, g_bold, h_bold).unwrap()
-  })
-}
+    let mut h_buf = b"Monero Helios H ".to_vec();
+    write_varint(&i, &mut h_buf).unwrap();
+    h_bold.push(hash_to_point_on_curve::<Helios>(&h_buf));
+  }
+  Generators::new(g, h, g_bold, h_bold).unwrap()
+});
 
-static SELENE_GENERATORS_CELL: OnceLock<Generators<Selene>> = OnceLock::new();
-/// The generators for Selene.
-pub fn SELENE_GENERATORS() -> &'static Generators<Selene> {
-  SELENE_GENERATORS_CELL.get_or_init(|| {
-    let g = hash_to_point_on_curve::<Selene>(b"Monero Selene G");
-    let h = hash_to_point_on_curve::<Selene>(b"Monero Selene H");
-    let mut g_bold = Vec::with_capacity(4096);
-    let mut h_bold = Vec::with_capacity(4096);
-    for i in 0u32 .. 4096 {
-      let mut g_buf = b"Monero Selene G ".to_vec();
-      write_varint(&i, &mut g_buf).unwrap();
-      g_bold.push(hash_to_point_on_curve::<Selene>(&g_buf));
+static SELENE_GENERATORS: LazyLock<Generators<Selene>> = LazyLock::new(|| {
+  let g = hash_to_point_on_curve::<Selene>(b"Monero Selene G");
+  let h = hash_to_point_on_curve::<Selene>(b"Monero Selene H");
+  let mut g_bold = Vec::with_capacity(4096);
+  let mut h_bold = Vec::with_capacity(4096);
+  for i in 0u32 .. 4096 {
+    let mut g_buf = b"Monero Selene G ".to_vec();
+    write_varint(&i, &mut g_buf).unwrap();
+    g_bold.push(hash_to_point_on_curve::<Selene>(&g_buf));
 
-      let mut h_buf = b"Monero Selene H ".to_vec();
-      write_varint(&i, &mut h_buf).unwrap();
-      h_bold.push(hash_to_point_on_curve::<Selene>(&h_buf));
-    }
-    Generators::new(g, h, g_bold, h_bold).unwrap()
-  })
-}
+    let mut h_buf = b"Monero Selene H ".to_vec();
+    write_varint(&i, &mut h_buf).unwrap();
+    h_bold.push(hash_to_point_on_curve::<Selene>(&h_buf));
+  }
+  Generators::new(g, h, g_bold, h_bold).unwrap()
+});
 
-static FCMP_PARAMS_CELL: OnceLock<FcmpParams<Curves>> = OnceLock::new();
-/// The parameters for the FCMPs.
-pub fn FCMP_PARAMS() -> &'static FcmpParams<Curves> {
-  FCMP_PARAMS_CELL.get_or_init(|| {
-    FcmpParams::<Curves>::new(
-      SELENE_GENERATORS().clone(),
-      HELIOS_GENERATORS().clone(),
-      // Hash init generators
-      SELENE_HASH_INIT(),
-      HELIOS_HASH_INIT(),
-      // G, T, U, V
-      <Ed25519 as Ciphersuite>::generator(),
-      EdwardsPoint(*T),
-      EdwardsPoint(*FCMP_U),
-      EdwardsPoint(*FCMP_V),
-    )
-  })
-}
+static FCMP_PARAMS: LazyLock<FcmpParams<Curves>> = LazyLock::new(|| {
+  FcmpParams::<Curves>::new(
+    SELENE_GENERATORS.clone(),
+    HELIOS_GENERATORS.clone(),
+    // Hash init generators
+    *SELENE_HASH_INIT,
+    *HELIOS_HASH_INIT,
+    // G, T, U, V
+    <Ed25519 as Ciphersuite>::generator(),
+    EdwardsPoint(*T),
+    EdwardsPoint(*FCMP_U),
+    EdwardsPoint(*FCMP_V),
+  )
+});
 
 /// An input tuple.
 ///
@@ -339,6 +322,6 @@ impl FcmpPlusPlus {
       fcmp_inputs.push(fcmps::Input::new(input.O_tilde, input.I_tilde, input.R, input.C_tilde)?);
     }
 
-    Ok(self.fcmp.verify(rng, verifier_1, verifier_2, FCMP_PARAMS(), tree, layers, &fcmp_inputs)?)
+    Ok(self.fcmp.verify(rng, verifier_1, verifier_2, &*FCMP_PARAMS, tree, layers, &fcmp_inputs)?)
   }
 }
