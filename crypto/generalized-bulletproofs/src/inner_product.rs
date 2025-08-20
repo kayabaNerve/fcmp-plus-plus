@@ -123,8 +123,8 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       // Ensure this witness actually opens this statement
       #[cfg(debug_assertions)]
       {
-        let ag = a.0.iter().cloned().zip(g_bold.0.iter().cloned());
-        let bh = b.0.iter().cloned().zip(h_bold.0.iter().cloned());
+        let ag = a.0.iter().copied().zip(g_bold.0.iter().copied());
+        let bh = b.0.iter().copied().zip(h_bold.0.iter().copied());
         let cu = core::iter::once((a.inner_product(b.0.iter()), u));
         if P != multiexp_vartime(&ag.chain(bh).chain(cu).collect::<Vec<_>>()) {
           Err(IpError::InconsistentWitness)?;
@@ -186,8 +186,8 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       };
 
       // Now that we've calculate L, R, transcript them to receive x (26-27)
-      transcript.push_point(L);
-      transcript.push_point(R);
+      transcript.push_point(&L);
+      transcript.push_point(&R);
       let x: C::F = transcript.challenge::<C>();
       let x_inv = x.invert().unwrap();
 

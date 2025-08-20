@@ -289,9 +289,9 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
       S
     };
 
-    transcript.push_point(AI);
-    transcript.push_point(AO);
-    transcript.push_point(S);
+    transcript.push_point(&AI);
+    transcript.push_point(&AO);
+    transcript.push_point(&S);
     let y = transcript.challenge::<C>();
     let z = transcript.challenge::<C>();
     let YzChallenges { y_inv, z } = self.yz_challenges(y, z);
@@ -325,6 +325,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     // Declare the l and r polynomials, assigning the traditional coefficients to their positions
     let mut l = vec![];
     let mut r = vec![];
+    #[allow(clippy::range_plus_one)]
     for _ in 0 .. (is + 1) {
       l.push(ScalarVector::new(0));
       r.push(ScalarVector::new(0));
@@ -409,11 +410,11 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     // Calculate commitments to the coefficients of t, blinded by tau
     debug_assert_eq!(t.0[0 .. ni].len(), tau_before_ni.len());
     for (t, tau) in t.0[0 .. ni].iter().zip(tau_before_ni.iter()) {
-      transcript.push_point(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
+      transcript.push_point(&multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
     }
     debug_assert_eq!(t.0[(ni + 1) ..].len(), tau_after_ni.len());
     for (t, tau) in t.0[(ni + 1) ..].iter().zip(tau_after_ni.iter()) {
-      transcript.push_point(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
+      transcript.push_point(&multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
     }
 
     let x: ScalarVector<C::F> = ScalarVector::powers(transcript.challenge::<C>(), t.len());

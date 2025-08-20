@@ -110,21 +110,21 @@ impl<F: PrimeField> Mul<F> for LinComb<F> {
   type Output = Self;
 
   fn mul(mut self, scalar: F) -> Self {
-    for (_, weight) in self.WL.iter_mut() {
+    for (_, weight) in &mut self.WL {
       *weight *= scalar;
     }
-    for (_, weight) in self.WR.iter_mut() {
+    for (_, weight) in &mut self.WR {
       *weight *= scalar;
     }
-    for (_, weight) in self.WO.iter_mut() {
+    for (_, weight) in &mut self.WO {
       *weight *= scalar;
     }
-    for WC in self.WCG.iter_mut() {
+    for WC in &mut self.WCG {
       for (_, weight) in WC {
         *weight *= scalar;
       }
     }
-    for (_, weight) in self.WV.iter_mut() {
+    for (_, weight) in &mut self.WV {
       *weight *= scalar;
     }
     self.c *= scalar;

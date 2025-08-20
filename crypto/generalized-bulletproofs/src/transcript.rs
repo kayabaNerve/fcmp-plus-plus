@@ -78,7 +78,7 @@ impl Transcript {
     self.transcript.extend(bytes.as_ref());
   }
 
-  pub(crate) fn push_point(&mut self, point: impl GroupEncoding) {
+  pub(crate) fn push_point(&mut self, point: &impl GroupEncoding) {
     self.digest.update([POINT]);
     let bytes = point.to_bytes();
     self.digest.update(bytes);
@@ -93,11 +93,11 @@ impl Transcript {
   ) -> Commitments<C> {
     self.digest.update(u32::try_from(C.len()).unwrap().to_le_bytes());
     for C in &C {
-      self.push_point(*C);
+      self.push_point(C);
     }
     self.digest.update(u32::try_from(V.len()).unwrap().to_le_bytes());
     for V in &V {
-      self.push_point(*V);
+      self.push_point(V);
     }
     Commitments { C: PointVector(C), V: PointVector(V) }
   }

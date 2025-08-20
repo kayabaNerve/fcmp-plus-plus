@@ -203,9 +203,9 @@ impl<C: Ciphersuite> Generators<C> {
     multiexp_vartime(
       &[(verifier.g, self.g), (verifier.h, self.h)]
         .into_iter()
-        .chain(verifier.g_bold.into_iter().zip(self.g_bold.iter().cloned()))
-        .chain(verifier.h_bold.into_iter().zip(self.h_bold.iter().cloned()))
-        .chain(verifier.h_sum.into_iter().zip(self.h_sum.iter().cloned()))
+        .chain(verifier.g_bold.into_iter().zip(self.g_bold.iter().copied()))
+        .chain(verifier.h_bold.into_iter().zip(self.h_bold.iter().copied()))
+        .chain(verifier.h_sum.into_iter().zip(self.h_sum.iter().copied()))
         .chain(verifier.additional)
         .collect::<Vec<_>>(),
     )
@@ -325,7 +325,7 @@ impl<C: Ciphersuite> PedersenVectorCommitment<C> {
     };
 
     let mut terms = vec![(self.mask, h)];
-    for pair in self.g_values.0.iter().cloned().zip(g_bold.iter().cloned()) {
+    for pair in self.g_values.0.iter().copied().zip(g_bold.iter().copied()) {
       terms.push(pair);
     }
     let res = multiexp(&terms);

@@ -159,15 +159,15 @@ impl<F: From<u64> + Zeroize + PrimeField> Neg for Poly<F> {
   type Output = Self;
 
   fn neg(mut self) -> Self {
-    for y_coeff in self.y_coefficients.iter_mut() {
+    for y_coeff in &mut self.y_coefficients {
       *y_coeff = -*y_coeff;
     }
-    for yx_coeffs in self.yx_coefficients.iter_mut() {
-      for yx_coeff in yx_coeffs.iter_mut() {
+    for yx_coeffs in &mut self.yx_coefficients {
+      for yx_coeff in yx_coeffs {
         *yx_coeff = -*yx_coeff;
       }
     }
-    for x_coeff in self.x_coefficients.iter_mut() {
+    for x_coeff in &mut self.x_coefficients {
       *x_coeff = -*x_coeff;
     }
     self.zero_coefficient = -self.zero_coefficient;
@@ -188,15 +188,15 @@ impl<F: From<u64> + Zeroize + PrimeField> Mul<F> for Poly<F> {
   type Output = Self;
 
   fn mul(mut self, scalar: F) -> Self {
-    for y_coeff in self.y_coefficients.iter_mut() {
+    for y_coeff in &mut self.y_coefficients {
       *y_coeff *= scalar;
     }
-    for coeffs in self.yx_coefficients.iter_mut() {
-      for coeff in coeffs.iter_mut() {
+    for coeffs in &mut self.yx_coefficients {
+      for coeff in coeffs {
         *coeff *= scalar;
       }
     }
-    for x_coeff in self.x_coefficients.iter_mut() {
+    for x_coeff in &mut self.x_coefficients {
       *x_coeff *= scalar;
     }
     self.zero_coefficient *= scalar;
@@ -513,7 +513,7 @@ impl<F: From<u64> + Zeroize + PrimeField> Poly<F> {
 
     // Calculate the amount of iterations we need to perform
     let iterations = self.y_coefficients.len() +
-      self.yx_coefficients.iter().map(|yx_coefficients| yx_coefficients.len()).sum::<usize>() +
+      self.yx_coefficients.iter().map(Vec::len).sum::<usize>() +
       self.x_coefficients.len();
 
     // Find the highest non-zero coefficient in the denominator
@@ -596,13 +596,7 @@ impl<F: From<u64> + Zeroize + PrimeField> Poly<F> {
       while {
         let index = CoefficientIndex {
           y_pow: remainder.yx_coefficients.len().try_into().unwrap(),
-          x_pow: remainder
-            .yx_coefficients
-            .last()
-            .map(|yx_coefficients| yx_coefficients.len())
-            .unwrap_or(0)
-            .try_into()
-            .unwrap(),
+          x_pow: remainder.yx_coefficients.last().map(Vec::len).unwrap_or(0).try_into().unwrap(),
         };
         bool::from(
           index.ct_gt(&denominator_leading_coefficient) |
@@ -727,7 +721,7 @@ impl<F: From<u64> + Zeroize + PrimeField> Poly<F> {
       y_coefficients: vec![],
       yx_coefficients: vec![],
       x_coefficients: self.yx_coefficients.first().cloned().unwrap_or(vec![]),
-      zero_coefficient: self.y_coefficients.first().cloned().unwrap_or(F::ZERO),
+      zero_coefficient: self.y_coefficients.first().copied().unwrap_or(F::ZERO),
     };
 
     (diff_x, diff_y)

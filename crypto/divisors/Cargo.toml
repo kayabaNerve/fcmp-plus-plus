@@ -13,6 +13,9 @@ rust-version = "1.64"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[lints]
+workspace = true
+
 [dependencies]
 std-shims = { version = "0.1.4", default-features = false }
 

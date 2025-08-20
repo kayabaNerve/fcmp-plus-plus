@@ -453,8 +453,9 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
     let mut write_above: u64 = 0;
     for coefficient in &self.decomposition {
       // Write the generator to every slot except the slots we have already written to.
-      for i in 1 ..= (<C::Scalar as PrimeField>::NUM_BITS as u64) {
-        divisor_points[i as usize].conditional_assign(&generator, i.ct_gt(&write_above));
+      for i in 1 ..= <C::Scalar as PrimeField>::NUM_BITS {
+        divisor_points[usize::try_from(i).unwrap()]
+          .conditional_assign(&generator, u64::from(i).ct_gt(&write_above));
       }
 
       // Increase the next write start by the coefficient.
