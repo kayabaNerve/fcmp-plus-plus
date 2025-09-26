@@ -995,8 +995,8 @@ where
   }
 
   /// Read an FCMP.
-  pub fn read(reader: &mut impl io::Read, inputs: usize, layers: usize) -> io::Result<Self> {
-    let mut proof = vec![0; Self::proof_size(inputs, layers) - 64];
+  pub fn read(reader: &mut impl io::Read, membership_proof_len: usize) -> io::Result<Self> {
+    let mut proof = vec![0; membership_proof_len - 64];
     reader.read_exact(&mut proof)?;
     let mut root_blind_pok = [0; 64];
     reader.read_exact(&mut root_blind_pok)?;

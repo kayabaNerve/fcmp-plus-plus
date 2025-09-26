@@ -114,7 +114,7 @@ fn test() {
   fcmp_plus_plus.write(&mut buf).unwrap();
   assert_eq!(FcmpPlusPlus::proof_size(1, 1), buf.len());
   let fcmp_plus_plus =
-    FcmpPlusPlus::read(&[input.C_tilde().to_bytes()], 1, &mut buf.as_slice()).unwrap();
+    FcmpPlusPlus::read(&[input.C_tilde().to_bytes()], buf.len(), &mut buf.as_slice()).unwrap();
 
   fcmp_plus_plus
     .verify(
