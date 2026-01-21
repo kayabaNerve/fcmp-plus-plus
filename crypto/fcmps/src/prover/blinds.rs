@@ -138,10 +138,14 @@ pub struct OutputBlinds<G: DivisorCurve>
 where
   G::Scalar: Zeroize + PrimeFieldBits,
 {
-  pub(crate) o_blind: OBlind<G>,
-  pub(crate) i_blind: IBlind<G>,
-  pub(crate) i_blind_blind: IBlindBlind<G>,
-  pub(crate) c_blind: CBlind<G>,
+  /// Blind for O~.
+  pub o_blind: OBlind<G>,
+  /// Blind for I~.
+  pub i_blind: IBlind<G>,
+  /// Blind for R.
+  pub i_blind_blind: IBlindBlind<G>,
+  /// Blind for C~.
+  pub c_blind: CBlind<G>,
 }
 
 impl<G: DivisorCurve> OutputBlinds<G>

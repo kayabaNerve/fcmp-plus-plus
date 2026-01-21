@@ -170,10 +170,14 @@ pub fn FCMP_PARAMS() -> &'static FcmpParams<Curves> {
 /// be preferred.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
 pub struct Input {
-  O_tilde: <Ed25519 as Ciphersuite>::G,
-  I_tilde: <Ed25519 as Ciphersuite>::G,
-  R: <Ed25519 as Ciphersuite>::G,
-  C_tilde: <Ed25519 as Ciphersuite>::G,
+  /// O~.
+  pub O_tilde: <Ed25519 as Ciphersuite>::G,
+  /// I~.
+  pub I_tilde: <Ed25519 as Ciphersuite>::G,
+  /// R.
+  pub R: <Ed25519 as Ciphersuite>::G,
+  /// C~.
+  pub C_tilde: <Ed25519 as Ciphersuite>::G,
 }
 
 impl Input {
@@ -215,26 +219,6 @@ impl Input {
     transcript.update(self.C_tilde.to_bytes());
     transcript.update(self.R.to_bytes());
     transcript.update(L.to_bytes());
-  }
-
-  /// O~ from the input commitment.
-  pub fn O_tilde(&self) -> <Ed25519 as Ciphersuite>::G {
-    self.O_tilde
-  }
-
-  /// I~ from the input commitment.
-  pub fn I_tilde(&self) -> <Ed25519 as Ciphersuite>::G {
-    self.I_tilde
-  }
-
-  /// R from the input commitment.
-  pub fn R(&self) -> <Ed25519 as Ciphersuite>::G {
-    self.R
-  }
-
-  /// C~ from the input commitment (the pseudo-out).
-  pub fn C_tilde(&self) -> <Ed25519 as Ciphersuite>::G {
-    self.C_tilde
   }
 }
 

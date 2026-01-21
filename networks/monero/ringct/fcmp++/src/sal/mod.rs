@@ -30,11 +30,16 @@ pub mod multisig;
 /// A re-randomized output.
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct RerandomizedOutput {
-  input: Input,
-  r_o: <Ed25519 as Ciphersuite>::F,
-  r_i: <Ed25519 as Ciphersuite>::F,
-  r_r_i: <Ed25519 as Ciphersuite>::F,
-  r_c: <Ed25519 as Ciphersuite>::F,
+  /// FCMP input tuple (O~, I~, R, C~).
+  pub input: Input,
+  /// r_o such that O~ = O + r_o T.
+  pub r_o: <Ed25519 as Ciphersuite>::F,
+  /// r_i such that I~ = I + r_i U
+  pub r_i: <Ed25519 as Ciphersuite>::F,
+  /// r_r_i such that R = r_i V + r_r_i T
+  pub r_r_i: <Ed25519 as Ciphersuite>::F,
+  /// r_c such that C~ = C + r_c G.
+  pub r_c: <Ed25519 as Ciphersuite>::F,
 }
 
 impl core::fmt::Debug for RerandomizedOutput {
@@ -103,11 +108,6 @@ impl RerandomizedOutput {
   /// The scalar to use with `CBlind::new`.
   pub fn c_blind(&self) -> <Ed25519 as Ciphersuite>::F {
     -self.r_c
-  }
-
-  /// The input tuple produced by this output and set of rerandomizations.
-  pub fn input(&self) -> Input {
-    self.input
   }
 }
 
